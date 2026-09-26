@@ -604,8 +604,20 @@ func (m *Module) runClaudeCodeSSH(ctx context.Context, question string, cfg assi
 	if cfg.MCPURL == "" {
 		return res, errors.New("mcp_url is required with claude_ssh")
 	}
+	token := m.getFlowSightToken()
+	if cfg.MCPTokenName != "" {
+		found := false
+		for _, t := range m.ctx.Core.Config.Core().APITokens {
+			if t.Name == cfg.MCPTokenName && t.Token != "" {
+				token, found = t.Token, true
+			}
+		}
+		if !found {
+			return res, fmt.Errorf("mcp_token_name %q is not in api_tokens in flowsight.json", cfg.MCPTokenName)
+		}
+	}
 	mcp := map[string]any{"mcpServers": map[string]any{"flowsight": map[string]any{
-		"type": "http", "url": cfg.MCPURL, "headers": map[string]string{"X-Flowsight-Token": m.getFlowSightToken()}}}}
+		"type": "http", "url": cfg.MCPURL, "headers": map[string]string{"X-Flowsight-Token": token}}}}
 	mb, _ := json.Marshal(mcp)
 	remote := append([]string{cfg.ClaudePath}, claudeArgs(question, cfg, string(mb))...)
 	cmd, err := m.sshCommand(ctx, cfg, remote)

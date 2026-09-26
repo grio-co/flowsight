@@ -76,6 +76,7 @@ type assistConfig struct {
 	SSHKey             string // private key path; generated when missing
 	SSHPath            string // the ssh binary
 	MCPURL             string // where a remote claude reaches FlowSight (HTTP MCP)
+	MCPTokenName       string // which api_tokens entry the remote claude gets; empty = the main token
 	MaxTurns           int
 	MaxToolResultBytes int
 	AllowWrites        bool
@@ -103,6 +104,7 @@ func (m *Module) Info() core.ModuleInfo {
 			"claude_ssh_key":        "",
 			"ssh_path":              "ssh",
 			"mcp_url":               "",
+			"mcp_token_name":        "",
 			"max_turns":             8,
 			"max_tool_result_bytes": 24576,
 			"allow_writes":          false,
@@ -120,6 +122,7 @@ func (m *Module) Info() core.ModuleInfo {
 			{Section: "Provider", Key: "claude_path", Label: "Claude CLI path", Type: "string", Help: "claude-code provider: the claude binary, on PATH or absolute. With claude_ssh set this is the path on the remote machine (for example /home/you/.local/bin/claude)."},
 			{Section: "Provider", Key: "claude_ssh", Label: "Run Claude Code over SSH on", Type: "string", Placeholder: "user@host", Help: "Leave empty to run claude on this gateway. Set user@host to run it on another machine where Claude Code is installed and logged in (a VM or container); FlowSight connects with its own key (shown in the status as ssh_public_key; add it to that user's authorized_keys) and the remote Claude reaches FlowSight at mcp_url."},
 			{Section: "Provider", Key: "mcp_url", Label: "MCP URL for a remote Claude", Type: "string", Placeholder: "http://192.168.0.1:8080/api/mcp", Help: "Required with claude_ssh: the address of this daemon's /api/mcp as seen from the remote machine. The API token is passed along; use a named token (api_tokens) so it can be rotated on its own."},
+			{Section: "Provider", Key: "mcp_token_name", Label: "Token for the remote Claude", Type: "string", Placeholder: "claude-agent", Help: "The name of an api_tokens entry in flowsight.json that the remote Claude Code receives for /api/mcp. Empty means the main api_token. A named token can be rotated on its own and shows as token:<name> in the audit log."},
 			{Section: "Provider", Key: "claude_ssh_key", Label: "SSH private key", Type: "string", Help: "Path of the key used for claude_ssh. Empty: assistant_ssh_key under FlowSight's config directory, generated on first use."},
 			{Section: "Provider", Key: "ssh_path", Label: "ssh binary", Type: "string", Help: "Normally just ssh."},
 			{Section: "Behavior", Key: "max_turns", Label: "Max conversation turns", Type: "int", Help: "Maximum number of request/response cycles before stopping."},
@@ -223,6 +226,7 @@ func (m *Module) loadConfig() {
 		SSHKey:             strings.TrimSpace(core.Str(s, "claude_ssh_key", "")),
 		SSHPath:            strings.TrimSpace(core.Str(s, "ssh_path", "ssh")),
 		MCPURL:             strings.TrimSpace(core.Str(s, "mcp_url", "")),
+		MCPTokenName:       strings.TrimSpace(core.Str(s, "mcp_token_name", "")),
 		MaxTurns:           core.Int(s, "max_turns", 8),
 		MaxToolResultBytes: core.Int(s, "max_tool_result_bytes", 24576),
 		AllowWrites:        core.Bool(s, "allow_writes", false),
@@ -458,6 +462,9 @@ func (m *Module) apiStatus(r *core.Req) (any, error) {
 		case cfg.MCPURL == "":
 			status["ready"] = false
 			status["reason"] = "mcp_url is required with claude_ssh: the address of this daemon's /api/mcp as the remote machine sees it"
+		case cfg.MCPTokenName != "" && !m.hasNamedToken(cfg.MCPTokenName):
+			status["ready"] = false
+			status["reason"] = fmt.Sprintf("mcp_token_name %q is not in api_tokens in flowsight.json (the daemon reads the file at start)", cfg.MCPTokenName)
 		default:
 			status["ready"] = true
 		}
@@ -847,4 +854,13 @@ func (m *Module) apiSSHKey(r *core.Req) (any, error) {
 		return nil, err
 	}
 	return map[string]any{"public_key": pub, "path": m.sshKeyPath(cfg)}, nil
+}
+
+func (m *Module) hasNamedToken(name string) bool {
+	for _, t := range m.ctx.Core.Config.Core().APITokens {
+		if t.Name == name && t.Token != "" {
+			return true
+		}
+	}
+	return false
 }

@@ -102,6 +102,7 @@ Claude as FlowSight's analyst, and FlowSight as tools for Claude (MCP). Off by d
 | `claude_path` | Claude CLI path | string | `claude` | claude-code provider: the binary, on PATH or absolute; with `claude_ssh` set, the path on the remote machine. |
 | `claude_ssh` | Run Claude Code over SSH on | string |  | `user@host` of a machine where Claude Code is installed and logged in; empty runs it on the gateway. FlowSight connects with its own key (`GET /api/assistant/ssh_key`, or `ssh_public_key` in the status). |
 | `mcp_url` | MCP URL for a remote Claude | string |  | Required with `claude_ssh`: this daemon's `/api/mcp` as the remote machine sees it, e.g. `http://192.168.0.1:8080/api/mcp`. |
+| `mcp_token_name` | Token for the remote Claude | string |  | Name of an `api_tokens` entry in `flowsight.json` handed to the remote Claude Code for `/api/mcp`; empty means the main token. |
 | `claude_ssh_key` | SSH private key | string |  | Empty: `assistant_ssh_key` under the config directory, generated on first use (ed25519). |
 | `ssh_path` | ssh binary | string | `ssh` |  |
 | `max_turns` | Max turns | int | `8` | Request/answer cycles (tool rounds) per question, 1–20. |

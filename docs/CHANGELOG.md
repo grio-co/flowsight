@@ -12,6 +12,14 @@ name, and every release's assets carry that string in their file names.
 
 The newest entry is first.
 
+## 0.9.8r202609261918
+
+**A token of its own for the remote Claude.** `mcp_token_name` names an
+`api_tokens` entry that the remote Claude Code receives for `/api/mcp`
+instead of the main token, so it can be rotated on its own and its writes
+show as `token:<name>` in the audit log; the status says when the name is
+not in the file.
+
 ## 0.9.8r202609261909
 
 **Two things the assistant's first answer pointed out.** The abroad view's

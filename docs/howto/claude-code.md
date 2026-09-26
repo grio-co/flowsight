@@ -240,4 +240,10 @@ a VM or container where it is installed and logged in.
 What leaves and where: the question and the tools' results go to Anthropic
 through that machine's Claude Code login. The API token is passed to the
 remote Claude in its MCP configuration (visible to the user running it);
-use a named token from `api_tokens` for it so it can be rotated on its own.
+set `mcp_token_name` to the name of an `api_tokens` entry in `flowsight.json` so that token, not the main one, is the one it gets, and rotate it on its own:
+
+```json
+"api_tokens": [{"name": "claude-agent", "token": "<random hex>"}]
+```
+
+The daemon reads the file at start; writes made with it appear in the audit log as `token:claude-agent`.
