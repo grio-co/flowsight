@@ -102,28 +102,40 @@ func (m *Module) Info() core.ModuleInfo {
 		Capabilities: []string{core.CapHostInventory},
 		After:        []string{"identity"},
 		Defaults: map[string]any{
-			"enabled":       true,
-			"hosts":         []string{},
-			"token_id":      "",
-			"token_secret":  "",
-			"fingerprint":   "",
-			"verify_tls":    false,
-			"poll_minutes":  5,
-			"write_notes":   false,
-			"notes_targets": "guests",
-			"exclude_vmids": []string{},
-			"name_guests":   true,
-			"probe_sockets": false,
-			"gateway_url":   "",
+			"enabled":        true,
+			"hosts":          []string{},
+			"token_id":       "",
+			"token_secret":   "",
+			"fingerprint":    "",
+			"token_id_2":     "",
+			"token_secret_2": "",
+			"fingerprint_2":  "",
+			"token_id_3":     "",
+			"token_secret_3": "",
+			"fingerprint_3":  "",
+			"verify_tls":     false,
+			"poll_minutes":   5,
+			"write_notes":    false,
+			"notes_targets":  "guests",
+			"exclude_vmids":  []string{},
+			"name_guests":    true,
+			"probe_sockets":  false,
+			"gateway_url":    "",
 		},
 		Schema: []core.SettingField{
 			{Key: "hosts", Label: "Proxmox nodes", Type: "list",
-				Help: "One URL per line, e.g. https://pve.local:8006. Empty: module idles."},
+				Help: "One URL per line, e.g. https://pve.local:8006. Empty: module idles. The first line uses the token and fingerprint below; the second and third lines use their own when set (standalone nodes have different tokens and certificates), else the same ones."},
 			{Key: "token_id", Label: "API token ID", Type: "string",
 				Help: "Format: user@realm!tokenname, e.g. flowsight@pve!flowsight"},
 			{Key: "token_secret", Label: "API token secret", Type: "secret"},
 			{Key: "fingerprint", Label: "TLS fingerprint (SHA-256)", Type: "string",
 				Help: "Colon-separated hex, e.g. 4C:9E:F6:... Pinned cert verification."},
+			{Section: "Second node", Key: "token_id_2", Label: "API token ID (node 2)", Type: "string", Help: "For the second URL in the list. Empty: the first node's."},
+			{Section: "Second node", Key: "token_secret_2", Label: "API token secret (node 2)", Type: "secret"},
+			{Section: "Second node", Key: "fingerprint_2", Label: "TLS fingerprint (node 2)", Type: "string", Help: "SHA-256 of the second node's certificate. Empty: the first node's."},
+			{Section: "Third node", Key: "token_id_3", Label: "API token ID (node 3)", Type: "string"},
+			{Section: "Third node", Key: "token_secret_3", Label: "API token secret (node 3)", Type: "secret"},
+			{Section: "Third node", Key: "fingerprint_3", Label: "TLS fingerprint (node 3)", Type: "string"},
 			{Key: "verify_tls", Label: "Verify TLS with system roots", Type: "bool",
 				Help: "Off: use fingerprint pinning. On: system CA roots + pinned cert if set."},
 			{Key: "poll_minutes", Label: "Poll interval (minutes)", Type: "int"},
@@ -504,8 +516,43 @@ func (m *Module) makePinVerifier(fingerprint string) func([][]byte, [][]*x509.Ce
 // the pinned SHA-256 fingerprint of that certificate or, when the operator
 // has installed a real one, the system roots. Neither configured means no
 // connection: FlowSight never talks to a hypervisor unverified.
-func (m *Module) httpClient() (*http.Client, error) {
-	fp := normalizeFingerprint(core.Str(m.ctx.Settings(), "fingerprint", ""))
+// nodeCreds is what one URL in the hosts list is spoken to with. The first
+// URL uses the plain settings; the second and third may carry their own
+// token and certificate (standalone nodes share neither), and fall back to
+// the first's when theirs are empty.
+type nodeCreds struct {
+	TokenID, TokenSecret, Fingerprint string
+}
+
+func (m *Module) credsFor(hostURL string) nodeCreds {
+	st := m.ctx.Settings()
+	c := nodeCreds{
+		TokenID:     core.Str(st, "token_id", ""),
+		TokenSecret: core.Str(st, "token_secret", ""),
+		Fingerprint: core.Str(st, "fingerprint", ""),
+	}
+	want := strings.TrimRight(strings.TrimSpace(hostURL), "/")
+	for i, h := range core.Strs(st, "hosts") {
+		if strings.TrimRight(strings.TrimSpace(h), "/") != want || i == 0 || i > 2 {
+			continue
+		}
+		sfx := fmt.Sprintf("_%d", i+1)
+		if v := core.Str(st, "token_id"+sfx, ""); v != "" {
+			c.TokenID = v
+		}
+		if v := core.Str(st, "token_secret"+sfx, ""); v != "" {
+			c.TokenSecret = v
+		}
+		if v := core.Str(st, "fingerprint"+sfx, ""); v != "" {
+			c.Fingerprint = v
+		}
+		break
+	}
+	return c
+}
+
+func (m *Module) httpClient(hostURL string) (*http.Client, error) {
+	fp := normalizeFingerprint(m.credsFor(hostURL).Fingerprint)
 	switch {
 	case fp == "invalid":
 		return nil, fmt.Errorf("proxmox: the certificate fingerprint must be the SHA-256 of the server certificate, 32 hex pairs")
@@ -551,11 +598,10 @@ func (m *Module) get(hostURL, path string) ([]byte, error) {
 	}
 	u.Path = path
 	req, _ := http.NewRequest("GET", u.String(), nil)
-	tokenID := core.Str(m.ctx.Settings(), "token_id", "")
-	tokenSecret := core.Str(m.ctx.Settings(), "token_secret", "")
-	req.Header.Set("Authorization", fmt.Sprintf("PVEAPIToken=%s=%s", tokenID, tokenSecret))
+	cr := m.credsFor(hostURL)
+	req.Header.Set("Authorization", fmt.Sprintf("PVEAPIToken=%s=%s", cr.TokenID, cr.TokenSecret))
 
-	client, err := m.httpClient()
+	client, err := m.httpClient(hostURL)
 	if err != nil {
 		return nil, err
 	}
@@ -585,11 +631,10 @@ func (m *Module) put(hostURL, path string, form map[string]string) ([]byte, erro
 
 	req, _ := http.NewRequest("PUT", u.String(), strings.NewReader(vals.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	tokenID := core.Str(m.ctx.Settings(), "token_id", "")
-	tokenSecret := core.Str(m.ctx.Settings(), "token_secret", "")
-	req.Header.Set("Authorization", fmt.Sprintf("PVEAPIToken=%s=%s", tokenID, tokenSecret))
+	cr := m.credsFor(hostURL)
+	req.Header.Set("Authorization", fmt.Sprintf("PVEAPIToken=%s=%s", cr.TokenID, cr.TokenSecret))
 
-	client, err := m.httpClient()
+	client, err := m.httpClient(hostURL)
 	if err != nil {
 		return nil, err
 	}

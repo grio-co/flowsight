@@ -516,6 +516,8 @@ The Proxmox module maps Proxmox VE cluster inventory into FlowSight: nodes, QEMU
 | `hosts` | list | empty | One or more Proxmox node URLs, e.g. `https://pve.local:8006`. Leave empty to disable. |
 | `token_id` | string | empty | API token ID: `user@realm!tokenname`, e.g. `flowsight@pve!flowsight`. |
 | `token_secret` | secret | empty | The API token secret. |
+| `token_id_2`, `token_secret_2`, `fingerprint_2` | string, secret, string | empty | Credentials for the second URL in `hosts`, when that node is standalone and has its own token and certificate. Empty means the first node's. |
+| `token_id_3`, `token_secret_3`, `fingerprint_3` | string, secret, string | empty | The same for the third URL. |
 | `fingerprint` | string | empty | TLS certificate SHA-256 fingerprint pin (colon-separated hex), e.g. `4C:9E:F6:8A:...` |
 | `verify_tls` | bool | false | When on, verify TLS with system CA roots. When off, use fingerprint pinning. |
 | `poll_minutes` | int | 5 | Poll interval in minutes. |

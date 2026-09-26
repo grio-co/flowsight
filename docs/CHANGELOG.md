@@ -12,6 +12,13 @@ name, and every release's assets carry that string in their file names.
 
 The newest entry is first.
 
+## 0.9.8r202609261937
+
+**Proxmox: a token and certificate per node.** Standalone nodes share
+neither, so the second and third URLs in `hosts` can carry their own
+`token_id_N`, `token_secret_N` and `fingerprint_N`; empty falls back to
+the first node's. Needed to watch guests on two hypervisors at once.
+
 ## 0.9.8r202609261935
 
 **`hostmap_url` retired from zones.json.** It fed the old Python enrollment

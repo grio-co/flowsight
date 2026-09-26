@@ -141,8 +141,9 @@ func (m *Module) postValues(hostURL, path string, vals url.Values) ([]byte, erro
 	u.Path = path
 	req, _ := http.NewRequest("POST", u.String(), strings.NewReader(vals.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	req.Header.Set("Authorization", fmt.Sprintf("PVEAPIToken=%s=%s", core.Str(m.ctx.Settings(), "token_id", ""), core.Str(m.ctx.Settings(), "token_secret", "")))
-	client, err := m.httpClient()
+	cr := m.credsFor(hostURL)
+	req.Header.Set("Authorization", fmt.Sprintf("PVEAPIToken=%s=%s", cr.TokenID, cr.TokenSecret))
+	client, err := m.httpClient(hostURL)
 	if err != nil {
 		return nil, err
 	}
