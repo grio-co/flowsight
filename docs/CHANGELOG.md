@@ -12,6 +12,14 @@ name, and every release's assets carry that string in their file names.
 
 The newest entry is first.
 
+## 0.9.8r202609261935
+
+**`hostmap_url` retired from zones.json.** It fed the old Python enrollment
+script from a per-host sensors server and nothing in the daemon has read it
+since the native rewrite; guests are matched to devices by the proxmox module
+from every host in its `hosts` list. The key is ignored if present and
+dropped on the next save.
+
 ## 0.9.8r202609261927
 
 **Assistant told to page.** Its instructions now name the summary and paging

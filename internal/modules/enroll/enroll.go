@@ -126,7 +126,6 @@ type ZonesDoc struct {
 	CaptiveZone   string       `json:"captive_zone"`
 	CaptivePolicy string       `json:"captive_policy"` // self_service, approve
 	Lease         string       `json:"lease"`
-	HostmapURL    string       `json:"hostmap_url"`
 	Zones         []*Zone      `json:"zones"`
 	AlwaysAllow   *AlwaysAllow `json:"always_allow"`
 }
