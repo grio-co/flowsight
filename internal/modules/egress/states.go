@@ -1,38 +1,32 @@
 package egress
 
-// Reading pf's live state table.
+// Reading the firewall's live connection table.
 //
 // A proxy log line is written when a session closes. A device that spends
 // twenty minutes uploading appears in it once, twenty minutes late, which is
 // the wrong end of the event for anyone who wants to notice data leaving.
 //
-// pf already counts every byte of every open connection and updates the
-// counters continuously, so that is what this reads. It covers what the
-// proxy never sees: pinned sessions, spliced sessions, QUIC on UDP 443,
-// VPN and mesh tunnels, and every protocol that is not HTTP at all.
+// The firewall already counts every byte of every open connection and
+// updates the counters continuously, so that is what this reads. It covers
+// what the proxy never sees: pinned sessions, spliced sessions, QUIC on UDP
+// 443, VPN and mesh tunnels, and every protocol that is not HTTP at all.
 //
-// The output of `pfctl -ss -v` is three lines per state:
-//
-//	all tcp 127.0.0.1:3129 (140.82.114.3:443) <- 10.99.0.162:59216  ESTABLISHED:ESTABLISHED
-//	   [2837096760 + 392192] wscale 7  [2817892562 + 65792] wscale 10
-//	   age 00:01:09, expires in 00:00:24, 249:432 pkts, 14863:616615 bytes, anchor 4
-//
-// The two byte counters follow the arrow: the first counts the direction the
-// arrow points, the second counts the reply. So in the line above, which a
-// device on this network opened through the proxy, 14863 bytes went from
-// 10.99.0.162 towards 127.0.0.1:3129 and 616615 came back. Which of those is
-// "leaving this network" therefore depends on both the arrow and which end
-// is local, and getting it backwards would report every download as an
-// upload. states_test.go pins it against a real capture.
+// The connections come from the core.StateReader service, described by who
+// opened them (see core.ConnState); pf's own format is read in
+// firewall.ParseStates. Which byte counter is "leaving this network" depends
+// on who opened the connection and which end is local, and getting it
+// backwards would report every download as an upload. states_test.go pins it
+// against a real capture.
 
 import (
-	"os/exec"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/grioghar/flowsight/internal/core"
 )
 
-// State is one live connection as pf sees it.
+// State is one live connection seen from this network.
 type State struct {
 	Proto    string
 	Local    string // the address on this network
@@ -47,10 +41,6 @@ type State struct {
 	// The bytes are real either way, but only one of the two is data leaving
 	// in the sense anyone means by it.
 	Inbound bool
-
-	// outFirst records which way round pf printed the counters for this
-	// state, decided from the arrow and which end is local.
-	outFirst bool
 }
 
 // Key identifies a state across samples.
@@ -58,15 +48,14 @@ func (s State) Key() string {
 	return s.Local + "|" + s.Peer + "|" + strconv.Itoa(s.PeerPort) + "|" + s.Proto
 }
 
-// readStates runs pfctl and parses what it prints. isLocal decides which end
-// of a state belongs to this network, because pf prints a redirected state
-// with the proxy first and an ordinary outbound state with the gateway first.
-func readStates(isLocal func(string) bool) ([]State, error) {
-	out, err := exec.Command("pfctl", "-ss", "-v").Output()
+// readStates reads the firewall's live connection table and keeps the
+// connections a device on this network is part of.
+func readStates(r core.StateReader, isLocal func(string) bool) ([]State, error) {
+	conns, err := r.States()
 	if err != nil {
 		return nil, err
 	}
-	return parseStates(string(out), isLocal), nil
+	return fromConns(conns, isLocal), nil
 }
 
 // isLoopback recognises the proxy's own end of a redirected session. It has
@@ -77,193 +66,72 @@ func isLoopback(ip string) bool {
 	return ip == "::1" || strings.HasPrefix(ip, "127.")
 }
 
-func parseStates(text string, isLocal func(string) bool) []State {
+// fromConns turns connections into states seen from this network: which end
+// is the device, which is the far side, and which byte counter is its upload.
+func fromConns(conns []core.ConnState, isLocal func(string) bool) []State {
 	// A device is a local address that is not the proxy's own loopback end.
 	device := func(ip string) bool { return !isLoopback(ip) && isLocal(ip) }
 	var states []State
-	var cur *State
-	flush := func() {
-		if cur != nil && cur.Local != "" && cur.Peer != "" {
-			states = append(states, *cur)
-		}
-		cur = nil
-	}
-	for _, line := range strings.Split(text, "\n") {
-		trimmed := strings.TrimSpace(line)
-		if trimmed == "" {
-			continue
-		}
-		if !strings.HasPrefix(line, " ") && !strings.HasPrefix(line, "\t") {
-			flush()
-			cur = parseHeader(trimmed, device)
-			continue
-		}
-		if cur == nil {
-			continue
-		}
-		if strings.Contains(trimmed, "bytes") {
-			parseCounters(trimmed, cur)
+	for _, c := range conns {
+		if st, ok := orient(c, device); ok {
+			states = append(states, st)
 		}
 	}
-	flush()
 	return states
 }
 
-// parseHeader reads the first line of a state: interface, protocol, the two
-// endpoints, an optional NAT address in parentheses, and the arrow.
-func parseHeader(line string, isDevice func(string) bool) *State {
-	f := strings.Fields(line)
-	if len(f) < 4 {
-		return nil
-	}
-	proto := f[1]
-	switch proto {
+// orient decides which end of a connection is the device. The initiator is
+// judged by the address it had on the wire and the responder by where the
+// connection was delivered, because those are the addresses that are
+// actually on this network. The far side is reported as the opener addressed
+// it, so a session redirected to the proxy names the site the device asked
+// for, not the proxy.
+func orient(c core.ConnState, isDevice func(string) bool) (State, bool) {
+	switch c.Proto {
 	case "tcp", "udp":
 	default:
-		return nil // icmp and the rest carry no payload worth watching
+		return State{}, false // icmp and the rest carry no payload worth watching
 	}
-	// Endpoints are the fields around the arrow, ignoring the NAT address in
-	// parentheses and the state flags at the end.
-	arrow := -1
-	for i, x := range f {
-		if x == "->" || x == "<-" {
-			arrow = i
-			break
-		}
+	st := State{Proto: c.Proto, Age: c.Age, Rule: c.Rule}
+	iw, ra := c.InitiatorWire, c.ResponderActual
+	asInitiator := func(local, peer core.Endpoint) {
+		st.Local, st.Peer, st.PeerPort = local.Addr, peer.Addr, peer.Port
+		st.Out, st.In = c.Sent, c.Received
 	}
-	if arrow < 0 {
-		return nil
+	asResponder := func(local, peer core.Endpoint) {
+		st.Local, st.Peer, st.PeerPort = local.Addr, peer.Addr, peer.Port
+		st.Out, st.In = c.Received, c.Sent
+		st.Inbound = true
 	}
-	var left, right string
-	for i := 2; i < arrow; i++ {
-		if !strings.HasPrefix(f[i], "(") {
-			left = f[i]
-		}
-	}
-	if arrow+1 < len(f) {
-		right = f[arrow+1]
-	}
-	if left == "" || right == "" {
-		return nil
-	}
-	lh, _ := splitHostPort(left)
-	rh, rp := splitHostPort(right)
-	// The first counter measures the direction the arrow points: towards the
-	// left address for "<-", towards the right address for "->". So the first
-	// counter is this network's upload exactly when the local end is the one
-	// the arrow points away from.
-	pointsLeft := f[arrow] == "<-"
-	st := &State{Proto: proto}
 	switch {
-	case isDevice(rh) && !isDevice(lh):
-		// A redirected session: the proxy is named first and the device
-		// second, with the address the device actually asked for in the
-		// parentheses. That address, not the proxy, is where the data is
-		// going, so it is the one worth reporting.
-		st.Local, st.Peer, st.PeerPort = rh, lh, portOf(left)
-		if nh, np := natAddr(f, arrow); nh != "" && !isDevice(nh) {
-			st.Peer, st.PeerPort = nh, np
+	case isDevice(iw.Addr) && !isDevice(ra.Addr):
+		// The device opened it. A redirected session names the proxy as
+		// the responder, with the address the device asked for before the
+		// redirect; that address, not the proxy, is where the data goes.
+		peer := ra
+		if c.Responder != ra && !isDevice(c.Responder.Addr) {
+			peer = c.Responder
 		}
-		st.outFirst = pointsLeft
-	case isDevice(lh) && !isDevice(rh):
-		st.Local, st.Peer, st.PeerPort = lh, rh, rp
-		st.outFirst = !pointsLeft
+		asInitiator(iw, peer)
+	case isDevice(ra.Addr) && !isDevice(iw.Addr):
+		// The far side opened it: a server here answering the internet.
+		peer := iw
+		if c.Initiator != iw && !isDevice(c.Initiator.Addr) {
+			peer = c.Initiator
+		}
+		asResponder(ra, peer)
+	case c.Initiator != iw && isDevice(c.Initiator.Addr):
+		// Neither end is local on the wire, which is an ordinary outbound
+		// session: the gateway's own address is on the wire and the device
+		// is the address before translation.
+		asInitiator(c.Initiator, c.Responder)
+	case c.Responder != ra && isDevice(c.Responder.Addr):
+		asResponder(c.Responder, c.Initiator)
 	default:
-		// Neither end is local as printed, which is an ordinary outbound
-		// session: the gateway's own address is on the wire and the device is
-		// in the parentheses.
-		nat, _ := natAddr(f, arrow)
-		if nat == "" || !isDevice(nat) {
-			return nil
-		}
-		st.Local, st.Peer, st.PeerPort = nat, rh, rp
-		st.outFirst = !pointsLeft
+		return State{}, false
 	}
-	return st
+	if st.Local == "" || st.Peer == "" {
+		return State{}, false
+	}
+	return st, true
 }
-
-// natAddr is the address pf prints in parentheses: the original source of a
-// translated outbound session, or the original destination of a redirected
-// one. Which it is follows from whether it belongs to this network.
-func natAddr(f []string, arrow int) (string, int) {
-	for i := 2; i < arrow; i++ {
-		if strings.HasPrefix(f[i], "(") {
-			return splitHostPort(strings.Trim(f[i], "()"))
-		}
-	}
-	return "", 0
-}
-
-// parseCounters reads "age 00:01:09, ... 249:432 pkts, 14863:616615 bytes".
-func parseCounters(line string, st *State) {
-	// The counters are only meaningful once the arrow has been read, and the
-	// same fact says who opened the connection.
-	st.Inbound = !st.outFirst
-
-	for _, part := range strings.Split(line, ",") {
-		part = strings.TrimSpace(part)
-		switch {
-		case strings.HasPrefix(part, "age "):
-			st.Age = parseAge(strings.TrimPrefix(part, "age "))
-		case strings.HasSuffix(part, " bytes"):
-			a, b, ok := pair(strings.TrimSuffix(part, " bytes"))
-			if !ok {
-				continue
-			}
-			if st.outFirst {
-				st.Out, st.In = a, b
-			} else {
-				st.In, st.Out = a, b
-			}
-		case strings.HasPrefix(part, "anchor ") || strings.HasPrefix(part, "rule "):
-			st.Rule = part
-		}
-	}
-}
-
-func pair(s string) (int64, int64, bool) {
-	a, b, ok := strings.Cut(strings.TrimSpace(s), ":")
-	if !ok {
-		return 0, 0, false
-	}
-	x, err1 := strconv.ParseInt(strings.TrimSpace(a), 10, 64)
-	y, err2 := strconv.ParseInt(strings.TrimSpace(b), 10, 64)
-	return x, y, err1 == nil && err2 == nil
-}
-
-func parseAge(s string) time.Duration {
-	f := strings.Split(strings.TrimSpace(s), ":")
-	if len(f) != 3 {
-		return 0
-	}
-	h, _ := strconv.Atoi(f[0])
-	m, _ := strconv.Atoi(f[1])
-	sec, _ := strconv.Atoi(f[2])
-	return time.Duration(h)*time.Hour + time.Duration(m)*time.Minute + time.Duration(sec)*time.Second
-}
-
-// splitHostPort handles "1.2.3.4:443" and "[fd00::1]:443".
-func splitHostPort(s string) (string, int) {
-	s = strings.TrimSpace(s)
-	if strings.HasPrefix(s, "[") {
-		if i := strings.Index(s, "]"); i > 0 {
-			p := 0
-			if len(s) > i+2 && s[i+1] == ':' {
-				p, _ = strconv.Atoi(s[i+2:])
-			}
-			return s[1:i], p
-		}
-	}
-	i := strings.LastIndexByte(s, ':')
-	if i < 0 {
-		return s, 0
-	}
-	// An IPv6 address without brackets has more than one colon.
-	if strings.Count(s, ":") > 1 {
-		return s, 0
-	}
-	p, _ := strconv.Atoi(s[i+1:])
-	return s[:i], p
-}
-
-func portOf(s string) int { _, p := splitHostPort(s); return p }

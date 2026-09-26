@@ -120,6 +120,9 @@ func (m *Module) Setup(ctx *core.Context) error {
 		return err
 	}
 	ctx.Publish("firewall", m)
+	enf := &pfEnforcer{m: m}
+	ctx.Publish(core.ServiceEnforcer, enf)
+	ctx.Publish(core.ServiceConnStates, enf)
 	if m.Available() {
 		ctx.Provider(&provider{m: m})
 		ctx.Every("local-table", 60*time.Second, m.refreshLocal)

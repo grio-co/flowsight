@@ -33,7 +33,7 @@ type policyDoc interface {
 
 type Module struct {
 	ctx      *core.Context
-	fw       firewall.Firewall
+	fw       core.Enforcer
 	catalog  core.AppCatalog
 	identity core.Identity
 	mu       sync.Mutex
@@ -74,7 +74,7 @@ func (m *Module) Info() core.ModuleInfo {
 
 func (m *Module) Setup(ctx *core.Context) error {
 	m.ctx = ctx
-	m.fw, _ = ctx.Service("firewall").(firewall.Firewall)
+	m.fw, _ = ctx.Service(core.ServiceEnforcer).(core.Enforcer)
 	m.catalog, _ = ctx.Service("app_catalog").(core.AppCatalog)
 	m.identity, _ = ctx.Service("identity").(core.Identity)
 	m.added = map[string]int64{}
@@ -258,7 +258,7 @@ func (m *Module) onFlows(flows []core.Flow) {
 			byTable[a.table] = append(byTable[a.table], a.addr)
 		}
 		for t, addrs := range byTable {
-			if err := m.fw.AddToTable("policy", t, addrs); err != nil {
+			if err := m.fw.AddToSet(t, addrs); err != nil {
 				m.mu.Lock()
 				m.lastErr = err.Error()
 				m.mu.Unlock()
@@ -301,7 +301,7 @@ func (m *Module) expire() error {
 		return nil
 	}
 	for t := range tables {
-		if err := m.fw.ReplaceTable("policy", t, byTable[t]); err != nil {
+		if err := m.fw.ReplaceSet(t, byTable[t]); err != nil {
 			return err
 		}
 	}

@@ -3,7 +3,15 @@ package egress
 import (
 	"strings"
 	"testing"
+
+	"github.com/grioghar/flowsight/internal/modules/firewall"
 )
+
+// parseStates runs a pf capture through the whole path: pf's parser into
+// backend-neutral connections, then the orientation this package adds.
+func parseStates(text string, isLocal func(string) bool) []State {
+	return fromConns(firewall.ParseStates(text), isLocal)
+}
 
 // Real output from `pfctl -ss -v` on an OPNsense gateway. Reading a download
 // as an upload would make every alert here meaningless, so the direction is
@@ -71,24 +79,6 @@ func TestParseStatesDirection(t *testing.T) {
 	}
 	if plex.In != 42419 || plex.Out != 83330 {
 		t.Errorf("inbound session read backwards: out=%d in=%d", plex.Out, plex.In)
-	}
-}
-
-func TestSplitHostPort(t *testing.T) {
-	for _, c := range []struct {
-		in   string
-		host string
-		port int
-	}{
-		{"1.2.3.4:443", "1.2.3.4", 443},
-		{"[2606:4700::1]:443", "2606:4700::1", 443},
-		{"fd99::112a", "fd99::112a", 0},
-		{"10.0.0.1", "10.0.0.1", 0},
-	} {
-		h, p := splitHostPort(c.in)
-		if h != c.host || p != c.port {
-			t.Errorf("%q -> %q:%d, want %q:%d", c.in, h, p, c.host, c.port)
-		}
 	}
 }
 

@@ -31,7 +31,6 @@ import (
 
 	"github.com/grioghar/flowsight/internal/core"
 	"github.com/grioghar/flowsight/internal/modules/enrich"
-	"github.com/grioghar/flowsight/internal/modules/firewall"
 )
 
 func init() { core.Register(func() core.Module { return &Module{} }) }
@@ -47,7 +46,8 @@ type reverseLookup interface {
 type Module struct {
 	ctx      *core.Context
 	identity core.Identity
-	fw       firewall.Firewall
+	enf      core.Enforcer
+	states   core.StateReader
 	rdns     reverseLookup
 
 	mu       sync.Mutex
@@ -151,7 +151,8 @@ func (m *Module) Info() core.ModuleInfo {
 func (m *Module) Setup(ctx *core.Context) error {
 	m.ctx = ctx
 	m.identity, _ = ctx.Service("identity").(core.Identity)
-	m.fw, _ = ctx.Service("firewall").(firewall.Firewall)
+	m.enf, _ = ctx.Service(core.ServiceEnforcer).(core.Enforcer)
+	m.states, _ = ctx.Service(core.ServiceConnStates).(core.StateReader)
 	m.rdns, _ = ctx.Service("enrich").(reverseLookup)
 	m.prev = map[string]State{}
 	m.live = map[string]*Transfer{}
@@ -218,8 +219,8 @@ func (m *Module) Subscribe(fn func(Event)) {
 }
 
 func (m *Module) Health() core.Health {
-	if m.fw == nil || !m.fw.Available() {
-		return core.Health{OK: true, Detail: "no pf on this platform; live egress is unavailable"}
+	if m.states == nil || !m.states.Available() {
+		return core.Health{OK: true, Detail: "no firewall connection table on this platform; live egress is unavailable"}
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -236,11 +237,11 @@ func (m *Module) Health() core.Health {
 // ---------------------------------------------------------------- the sweep
 
 func (m *Module) sweep() error {
-	if m.fw == nil || !m.fw.Available() {
+	if m.states == nil || !m.states.Available() {
 		return nil
 	}
 	isLocal := func(ip string) bool { return m.identity != nil && m.identity.IsLocal(ip) }
-	states, err := readStates(isLocal)
+	states, err := readStates(m.states, isLocal)
 	if err != nil {
 		m.mu.Lock()
 		m.lastErr = err.Error()
@@ -726,10 +727,10 @@ func (m *Module) apiStop(r *core.Req) (any, error) {
 	if in.Local == "" || in.Peer == "" {
 		return nil, core.BadRequest("local and peer are both required")
 	}
-	if m.fw == nil || !m.fw.Available() {
+	if m.enf == nil || !m.enf.Available() {
 		return nil, core.BadRequest("no firewall on this platform")
 	}
-	if err := m.fw.KillStates(in.Local, in.Peer); err != nil {
+	if err := m.enf.KillStates(in.Local, in.Peer); err != nil {
 		return nil, err
 	}
 	m.ctx.Event("egress", fmt.Sprintf("transfer from %s to %s was stopped by hand", in.Local, in.Peer),

@@ -66,6 +66,23 @@ A module that only observes must never claim a `.block` capability; the
 compiler trusts the declaration, and a false one produces a policy that
 silently does nothing.
 
+### Enforcement services
+
+Modules that fill address sets, cut connections or read the live
+connection table do not talk to pf. They use two published services,
+defined in `internal/core/enforce.go`:
+
+| Service | Contract | Used by |
+|---|---|---|
+| `enforcer` | `core.Enforcer`: fill or replace a named address set, drop established connections | appcontrol, egress |
+| `conn_states` | `core.StateReader`: live connections, described by who opened them, with both sides of any translation and bytes each way | egress |
+
+The firewall module provides both over pf: sets are tables in the
+`flowsight/policy` anchor, and connections come from `pfctl -ss -v`. The
+set names are the ones the firewall's policy provider declared from the
+policy document. Another backend (nftables, a firewall's API) provides the
+same services and these modules work unchanged.
+
 ## Data path
 
 FlowSight is not inline. pf redirects port 80 and 443 from the local networks
