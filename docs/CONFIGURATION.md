@@ -97,6 +97,7 @@ Claude as FlowSight's analyst, and FlowSight as tools for Claude (MCP). Off by d
 |---|---|---|---|---|
 | `provider` | AI provider | choice | `off` | off: nothing leaves. anthropic: the daemon runs the agent loop against the Messages API. claude-code: Claude Code / the Agent SDK, run headless on the gateway with FlowSight attached as an MCP server. |
 | `api_key` | API key | secret |  | Anthropic key for the anthropic provider. Empty means: use the map's `ai_key` (Settings › paths) if one is set. Never shown again once saved; a masked value on save means keep. |
+| `workspace_id` | Anthropic workspace id | string |  | Only for an organisation-level key: the workspace requests are billed to (`anthropic-workspace-id` header). A key created inside a workspace needs nothing here. |
 | `model` | Model | string | `claude-sonnet-5` | anthropic provider: claude-fable-5-1, claude-opus-5-5, claude-sonnet-5, claude-haiku-4-5-20251001. Claude Code uses its own model setting. |
 | `claude_path` | Claude CLI path | string | `claude` | claude-code provider: the binary, on PATH or absolute. |
 | `max_turns` | Max turns | int | `8` | Request/answer cycles (tool rounds) per question, 1–20. |

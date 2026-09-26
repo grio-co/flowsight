@@ -12,6 +12,13 @@ name, and every release's assets carry that string in their file names.
 
 The newest entry is first.
 
+## 0.9.8r202609261853
+
+**Organisation-level Anthropic keys.** Such a key is accepted by the API
+only with a workspace id; the assistant gains a `workspace_id` setting sent
+as the `anthropic-workspace-id` header. A key created inside a workspace
+needs nothing.
+
 ## 0.9.8r202609261845
 
 **Assistant settings apply without a restart.** The module read its

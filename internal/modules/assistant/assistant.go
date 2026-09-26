@@ -69,6 +69,7 @@ type Tool struct {
 type assistConfig struct {
 	Provider           string
 	APIKey             string
+	WorkspaceID        string
 	Model              string
 	ClaudePath         string
 	MaxTurns           int
@@ -91,6 +92,7 @@ func (m *Module) Info() core.ModuleInfo {
 		Defaults: map[string]any{
 			"provider":              "off",
 			"api_key":               "",
+			"workspace_id":          "",
 			"model":                 "claude-sonnet-5",
 			"claude_path":           "claude",
 			"max_turns":             8,
@@ -105,6 +107,7 @@ func (m *Module) Info() core.ModuleInfo {
 			{Section: "Provider", Key: "provider", Label: "AI Provider", Type: "choice", Help: "off: assistant disabled. anthropic: Anthropic's Messages API. claude-code: Claude Code CLI / Agent SDK.",
 				Choices: []string{"off", "anthropic", "claude-code"}},
 			{Section: "Provider", Key: "api_key", Label: "API Key", Type: "secret", Help: "For anthropic provider only. Your Anthropic API key. Never shown; reads from secure storage."},
+			{Section: "Provider", Key: "workspace_id", Label: "Anthropic workspace id", Type: "string", Help: "Only for an organisation-level key: the workspace the requests are billed to (sent as anthropic-workspace-id). A key created inside a workspace needs nothing here."},
 			{Section: "Provider", Key: "model", Label: "Model", Type: "string", Help: "For anthropic provider: claude-fable-5-1, claude-haiku-4-5-20251001, claude-sonnet-5, claude-opus-5-5. claude-code ignores this."},
 			{Section: "Provider", Key: "claude_path", Label: "Claude CLI Path", Type: "string", Help: "For claude-code provider: path to the claude binary (default: on PATH)."},
 			{Section: "Behavior", Key: "max_turns", Label: "Max conversation turns", Type: "int", Help: "Maximum number of request/response cycles before stopping."},
@@ -198,6 +201,7 @@ func (m *Module) loadConfig() {
 	m.config = assistConfig{
 		Provider:           provider,
 		APIKey:             strings.TrimSpace(core.Str(s, "api_key", "")),
+		WorkspaceID:        strings.TrimSpace(core.Str(s, "workspace_id", "")),
 		Model:              strings.TrimSpace(core.Str(s, "model", "claude-sonnet-5")),
 		ClaudePath:         strings.TrimSpace(core.Str(s, "claude_path", "claude")),
 		MaxTurns:           core.Int(s, "max_turns", 8),

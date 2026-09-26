@@ -137,6 +137,9 @@ func (m *Module) runAnthropic(ctx context.Context, question string, cfg assistCo
 		req.Header.Set("x-api-key", cfg.APIKey)
 		req.Header.Set("anthropic-version", "2023-06-01")
 		req.Header.Set("Accept", "text/event-stream")
+		if cfg.WorkspaceID != "" {
+			req.Header.Set("anthropic-workspace-id", cfg.WorkspaceID)
+		}
 		resp, err := client.Do(req)
 		if err != nil {
 			return res, err
