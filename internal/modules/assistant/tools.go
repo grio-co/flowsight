@@ -128,27 +128,62 @@ func (m *Module) callToolHTTP(ctx context.Context, toolName string, args map[str
 		return fmt.Sprintf("error: HTTP %d: %s", resp.StatusCode, string(respBody)), nil
 	}
 
-	// Parse JSON response and pretty-print
+	// JSON answers that are too big are shrunk at array boundaries, so the
+	// model gets valid JSON with fewer rows and a note, not half a row.
 	var parsed any
 	if err := json.Unmarshal(respBody, &parsed); err != nil {
-		// Not JSON, return as-is
 		result := string(respBody)
 		if len(result) > m.config.MaxToolResultBytes {
 			result = result[:m.config.MaxToolResultBytes] + "\n[result truncated: narrow the query with ip, hours, minutes or limit]"
 		}
 		return result, nil
 	}
+	return shrinkJSON(parsed, m.config.MaxToolResultBytes), nil
+}
 
-	// Pretty-print JSON
-	prettyBytes, _ := json.MarshalIndent(parsed, "", "  ")
-	result := string(prettyBytes)
-
-	// Truncate if needed
-	if len(result) > m.config.MaxToolResultBytes {
-		result = result[:m.config.MaxToolResultBytes] + "\n[result truncated: narrow the query with ip, hours, minutes or limit]"
+// shrinkJSON renders v within cap bytes. When it does not fit, the largest
+// array among the top-level fields is shortened until it does, and a
+// _truncated field says which one and how many rows were kept of how many.
+func shrinkJSON(v any, cap int) string {
+	b, _ := json.Marshal(v)
+	if len(b) <= cap {
+		return string(b)
 	}
-
-	return result, nil
+	obj, ok := v.(map[string]any)
+	if !ok {
+		if arr, isArr := v.([]any); isArr {
+			obj = map[string]any{"rows": arr}
+		} else {
+			s := string(b)
+			return s[:cap] + "\n[result truncated]"
+		}
+	}
+	field, size := "", 0
+	for k, x := range obj {
+		if arr, ok := x.([]any); ok && len(arr) > size {
+			field, size = k, len(arr)
+		}
+	}
+	if field == "" {
+		s := string(b)
+		return s[:cap] + "\n[result truncated: narrow the query with ip, hours, minutes or limit]"
+	}
+	arr := obj[field].([]any)
+	lo, hi := 0, len(arr)
+	for lo < hi { // the most rows that still fit
+		mid := (lo + hi + 1) / 2
+		obj[field] = arr[:mid]
+		obj["_truncated"] = map[string]any{"field": field, "kept": mid, "total": len(arr), "note": "narrow the query with ip, hours, minutes or limit for the rest"}
+		if bb, _ := json.Marshal(obj); len(bb) <= cap {
+			lo = mid
+		} else {
+			hi = mid - 1
+		}
+	}
+	obj[field] = arr[:lo]
+	obj["_truncated"] = map[string]any{"field": field, "kept": lo, "total": len(arr), "note": "narrow the query with ip, hours, minutes or limit for the rest"}
+	bb, _ := json.Marshal(obj)
+	return string(bb)
 }
 
 // getFlowSightURL returns the base URL for API calls.

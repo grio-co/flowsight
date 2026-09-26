@@ -392,3 +392,25 @@ func TestGeneratedSSHKeyIsOpenSSHFormat(t *testing.T) {
 		t.Fatal("key regenerated on second call")
 	}
 }
+
+func TestShrinkJSONKeepsWholeRows(t *testing.T) {
+	rows := make([]any, 0, 400)
+	for i := 0; i < 400; i++ {
+		rows = append(rows, map[string]any{"ip": fmt.Sprintf("192.168.1.%d", i), "name": strings.Repeat("x", 40), "sessions": i})
+	}
+	out := shrinkJSON(map[string]any{"devices": rows, "home_country": "US"}, 8000)
+	if len(out) > 8000 {
+		t.Fatalf("still %d bytes", len(out))
+	}
+	var back map[string]any
+	if err := json.Unmarshal([]byte(out), &back); err != nil {
+		t.Fatalf("not valid JSON: %v", err)
+	}
+	tr := back["_truncated"].(map[string]any)
+	if back["home_country"] != "US" || tr["field"] != "devices" || int(tr["total"].(float64)) != 400 || int(tr["kept"].(float64)) < 10 {
+		t.Fatalf("truncation note: %v kept %v", tr, len(back["devices"].([]any)))
+	}
+	if small := shrinkJSON(map[string]any{"ok": true}, 8000); small != `{"ok":true}` {
+		t.Fatalf("small results untouched: %s", small)
+	}
+}

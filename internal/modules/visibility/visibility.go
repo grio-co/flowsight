@@ -158,7 +158,8 @@ func (m *Module) Setup(ctx *core.Context) error {
 	}
 	ctx.Route("GET", "/api/visibility/abroad", m.apiAbroad,
 		core.Query("hours", "integer", "Time window in hours (default 24)", false, 24),
-		core.Query("ip", "string", "Filter by single device IP address", false, "192.168.1.10"),
+		core.Query("ip", "string", "One device: any of its addresses (all of them are matched)", false, "192.168.1.10"),
+		core.Query("limit", "integer", "Devices to return, busiest first (default 50); devices_total says how many there were", false, 50),
 		core.Doc("Show per-device traffic to foreign countries with session and byte counts by country"),
 		core.Returns("Destination countries by device", map[string]any{
 			"devices": []map[string]any{
@@ -854,6 +855,7 @@ func (m *Module) homeCountry() string {
 func (m *Module) apiAbroad(r *core.Req) (any, error) {
 	hours := r.Hours(24)
 	since := time.Now().Add(-time.Duration(hours) * time.Hour).Unix()
+	devLimit := r.QInt("limit", 50, 1, 1000)
 	ip, err := r.QSafe("ip", "", 64)
 	if err != nil {
 		return nil, err
@@ -868,8 +870,18 @@ func (m *Module) apiAbroad(r *core.Req) (any, error) {
 		args = append(args, home)
 	}
 	if ip != "" {
-		q += ` AND src_ip=?`
-		args = append(args, ip)
+		// The address stands for its device: every address the device
+		// holds, v4 and v6, or the rows for an IPv6-only lease go unseen.
+		addrs := []string{ip}
+		if ab, ok := m.ctx.Service("identity").(core.AddressBook); ok {
+			if list := ab.Addresses(ip); len(list) > 0 {
+				addrs = list
+			}
+		}
+		q += ` AND src_ip IN (?` + strings.Repeat(",?", len(addrs)-1) + `)`
+		for _, a := range addrs {
+			args = append(args, a)
+		}
 	}
 	q += ` GROUP BY src_ip, cc, dst_ip ORDER BY sessions DESC`
 	rows, err := m.ctx.Store.Rows(q, args...)
@@ -968,8 +980,12 @@ func (m *Module) apiAbroad(r *core.Req) (any, error) {
 		sort.Slice(d.Countries, func(i, j int) bool { return d.Countries[i].Sessions > d.Countries[j].Sessions })
 		out = append(out, d)
 	}
+	total := len(out)
+	if len(out) > devLimit {
+		out = out[:devLimit]
+	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Sessions > out[j].Sessions })
-	return map[string]any{"home_country": home, "hours": hours, "devices": out}, nil
+	return map[string]any{"home_country": home, "devices_total": total, "limit": devLimit, "hours": hours, "devices": out}, nil
 }
 
 // topHostsBy answers "who does this": for each key (an app, a category, a
