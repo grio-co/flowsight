@@ -52,7 +52,7 @@ func testModule(t *testing.T) *Module {
 }
 
 func TestRouteToToolName(t *testing.T) {
-	for path, want := range map[string]string{"/api/visibility/flows": "visibility_flows", "/api/policy/matches": "policy_matches", "/api/paths/path/{ip}": "paths_path"} {
+	for path, want := range map[string]string{"/api/visibility/flows": "visibility_flows", "/api/policy/matches": "policy_matches", "/api/paths/path/{ip}": "paths_path_by_ip", "/api/alerting/channel-types": "alerting_channel_types"} {
 		if got := routeToToolName(path); got != want {
 			t.Errorf("%s -> %s, want %s", path, got, want)
 		}

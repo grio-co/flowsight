@@ -12,6 +12,14 @@ name, and every release's assets carry that string in their file names.
 
 The newest entry is first.
 
+## 0.9.8r202609261837
+
+**Tool names are unique.** A collection route and its item route (for
+example `/api/alerting/channels` and `/api/alerting/channels/{id}`) had
+produced the same tool name, which MCP clients reject; the path parameter
+now stays in the name (`alerting_channels_by_id`), hyphens and dots become
+underscores, and the gate asserts there are no duplicates.
+
 ## 0.9.8r202609261834
 
 **Claude as FlowSight's analyst via Claude Code Agent SDK:** Two new features expand FlowSight's AI capabilities and integrate with Claude Code.

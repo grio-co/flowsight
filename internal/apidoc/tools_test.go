@@ -30,6 +30,13 @@ func TestAssistantToolsCoverTheAPI(t *testing.T) {
 		t.Fatalf("tools %d, GET routes %d", n, gets)
 	}
 	t.Logf("MCP tools on the real registry: %d", m.ToolCount())
+	seen := map[string]bool{}
+	for _, name := range m.ToolNames() {
+		if seen[name] {
+			t.Fatalf("duplicate tool name %q", name)
+		}
+		seen[name] = true
+	}
 }
 
 func contains(s, sub string) bool {

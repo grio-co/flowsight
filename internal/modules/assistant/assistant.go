@@ -228,6 +228,18 @@ func (m *Module) ToolCount() int {
 	return len(m.tools)
 }
 
+// ToolNames lists the tools, for tests and diagnostics.
+func (m *Module) ToolNames() []string {
+	m.ensureTools()
+	m.toolsMu.RLock()
+	defer m.toolsMu.RUnlock()
+	out := make([]string, 0, len(m.tools))
+	for _, t := range m.tools {
+		out = append(out, t.Name)
+	}
+	return out
+}
+
 // ensureTools builds the tool list the first time anything asks for it.
 func (m *Module) ensureTools() {
 	m.toolsMu.RLock()
@@ -272,26 +284,22 @@ func (m *Module) generateTools() error {
 
 // routeToToolName converts a path like /api/visibility/flows to visibility_flows.
 func routeToToolName(path string) string {
-	// Remove /api/ prefix
+	// /api/alerting/channels/{id} -> alerting_channels_by_id: the parameter
+	// stays in the name so a collection and one of its items are two tools.
 	path = strings.TrimPrefix(path, "/api/")
-
-	// Remove {id} or other path params - strip entire {*} blocks
-	var result strings.Builder
-	inBrace := false
-	for _, r := range path {
-		if r == '{' {
-			inBrace = true
-		} else if r == '}' {
-			inBrace = false
-		} else if !inBrace {
-			result.WriteRune(r)
+	var parts []string
+	for _, seg := range strings.Split(path, "/") {
+		if seg == "" {
+			continue
 		}
+		if strings.HasPrefix(seg, "{") && strings.HasSuffix(seg, "}") {
+			parts = append(parts, "by_"+strings.Trim(seg, "{}"))
+			continue
+		}
+		parts = append(parts, seg)
 	}
-	path = result.String()
-
-	// Convert slashes to underscores
-	name := strings.ReplaceAll(path, "/", "_")
-	// Clean up multiple underscores and leading/trailing underscores
+	name := strings.Join(parts, "_")
+	name = strings.NewReplacer(".", "_", "-", "_").Replace(name)
 	for strings.Contains(name, "__") {
 		name = strings.ReplaceAll(name, "__", "_")
 	}
