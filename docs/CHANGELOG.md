@@ -12,7 +12,7 @@ name, and every release's assets carry that string in their file names.
 
 The newest entry is first.
 
-## 0.9.8r202609262130
+## 0.9.8r202609262107
 
 **DNS keeps working after Unbound restarts.** A DNS-block policy's zone file
 was kept in `/var/unbound/etc`, which OPNsense empties every time it starts
@@ -25,6 +25,12 @@ survives restarts, and an Unbound that is enabled but stopped is started
 rather than reloaded. An Unbound the operator has disabled is never started.
 Old zone files are removed on the first reconcile. Nothing to do; if
 Unbound is down on an older version, see OPERATIONS.md.
+
+**Two pages that failed to load their script.** Packet Inspection read its
+helpers from the wrong place and never registered, so its menu entry opened
+the Overview; and the Space page's calibration functions were attached
+before their namespace existed, and later replaced with it. Both load
+cleanly now.
 
 ## 0.9.8r202609262045
 

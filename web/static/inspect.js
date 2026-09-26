@@ -1,7 +1,10 @@
 /* FlowSight Packet Inspection: Stateful and Deep Inspection. */
 'use strict';
 (function () {
-  const { esc, num, bytes, ago, when, pill, card, kpi, table, get, post, FS } = window.FS || {};
+  // window.FS is the namespace itself; destructuring FS out of it left the
+  // page with an undefined FS and it never registered.
+  const FS = window.FS || {};
+  const { esc, num, bytes, ago, when, pill, card, kpi, table, get, post } = FS;
 
   // Helper to format IP:port
   const ipPort = (ip, port) => port ? `${esc(ip)}:${port}` : esc(ip);

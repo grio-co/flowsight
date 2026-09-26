@@ -179,15 +179,16 @@ FS.registerPage('space', {
       }
     };
 
-    // Store in FS for subsequent interactions
-    FS.space = {
+    // Store in FS for subsequent interactions, keeping the pure functions
+    // that were attached to FS.space when the script loaded.
+    FS.space = Object.assign(FS.space || {}, {
       layout,
       devices,
       records,
       planCanvas,
       canvas3d,
       showToast: showToast
-    };
+    });
   }
 });
 
@@ -1800,6 +1801,8 @@ function initUploadScan(el) {
 }
 
 // === Pure Functions for Calibration ===
+
+if (!FS.space) FS.space = {};
 
 // Fit a plane through three points and return the normal vector
 FS.space.planeFromPoints = function(p1, p2, p3) {
