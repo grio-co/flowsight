@@ -1,6 +1,8 @@
 // Package visibility reads flows, hosts and application identity from ntopng
-// (nDPI underneath) and keeps them in the store. It publishes a flow bus so
-// enforcement modules react to what was just seen without polling.
+// (nDPI underneath) and keeps them in the store. It publishes each batch on
+// core's flow bus, so enforcement modules react to what was just seen
+// without polling, and it is the classifier: nDPI's catalogue is the
+// vocabulary application policy is written in.
 package visibility
 
 import (
@@ -20,31 +22,6 @@ import (
 
 func init() { core.Register(func() core.Module { return &Module{} }) }
 
-// FlowBus lets modules subscribe to flows as they are observed.
-type FlowBus struct {
-	mu   sync.RWMutex
-	subs []func([]core.Flow)
-}
-
-func (b *FlowBus) Subscribe(fn func([]core.Flow)) {
-	b.mu.Lock()
-	b.subs = append(b.subs, fn)
-	b.mu.Unlock()
-}
-
-func (b *FlowBus) publish(fl []core.Flow) {
-	b.mu.RLock()
-	subs := make([]func([]core.Flow), len(b.subs))
-	copy(subs, b.subs)
-	b.mu.RUnlock()
-	for _, s := range subs {
-		func() {
-			defer func() { recover() }()
-			s(fl)
-		}()
-	}
-}
-
 type Module struct {
 	epMu     sync.Mutex              // guards the site->endpoint memo below
 	epBest   map[string]endpointPick // site -> endpoint, from the last join
@@ -52,7 +29,7 @@ type Module struct {
 	epAt     time.Time               // and when
 	ctx      *core.Context
 	nt       *ntopng
-	bus      *FlowBus
+	bus      *core.FlowBus
 	mu       sync.Mutex
 	seen     map[string]flowState // flow key -> last cumulative counters
 	apps     map[string]appInfo   // l7 name -> category/breed
@@ -112,13 +89,15 @@ func (m *Module) Info() core.ModuleInfo {
 
 func (m *Module) Setup(ctx *core.Context) error {
 	m.ctx = ctx
-	m.bus = &FlowBus{}
+	m.bus, _ = ctx.Service(core.ServiceFlowBus).(*core.FlowBus)
+	if m.bus == nil {
+		m.bus = &core.FlowBus{} // a context without core's bus, as in tests
+	}
 	m.seen = map[string]flowState{}
 	m.apps = map[string]appInfo{}
 	m.identity, _ = ctx.Service("identity").(core.Identity)
 	m.configure(ctx.Settings())
-	ctx.Publish("flow_bus", m.bus)
-	ctx.Publish("app_catalog", m)
+	ctx.Publish(core.ServiceClassifier, m)
 	m.registerAppRoutes(ctx)
 	every := time.Duration(core.Int(ctx.Settings(), "poll_seconds", 10)) * time.Second
 	if every < 3*time.Second {
@@ -282,6 +261,9 @@ func (m *Module) Health() core.Health {
 	}
 	return core.Health{OK: true, Detail: fmt.Sprintf("%d interfaces, %d flows tracked", len(m.ifs), len(m.seen))}
 }
+
+// Name is the classifier engine: ntopng names applications with nDPI.
+func (m *Module) Name() string { return "ndpi" }
 
 // AppCategory implements the catalog service: nDPI category for an app name.
 func (m *Module) AppCategory(app string) string {
@@ -546,7 +528,7 @@ func (m *Module) poll() error {
 	if err := m.ctx.Store.UpsertHosts(ups); err != nil {
 		return err
 	}
-	m.bus.publish(flows)
+	m.bus.Publish(flows)
 	return nil
 }
 

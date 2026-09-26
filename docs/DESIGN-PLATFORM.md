@@ -93,9 +93,12 @@ Facts from the code today:
   package, `.deb` and `.rpm`. No container image, no Helm chart.
 - **External integrations.** Proxmox, Pi-hole, ntopng, NetFlow/IPFIX
   ingestion. No firewall or switch vendor APIs.
-- **What limits reach today.** pf is called directly from seven modules
-  (so Linux gateways get no web or application enforcement), and a few
-  places assume OPNsense's configd and `config.xml`.
+- **What limits reach today.** Until Phase 1 (below), pf was called
+  directly from seven modules, so Linux gateways got no web or application
+  enforcement. After it, only the firewall module speaks pf, behind the
+  contracts in `internal/core/enforce.go` and `internal/core/classify.go`;
+  what is missing for Linux is an nftables provider of those contracts. A
+  few places still assume OPNsense's configd and `config.xml`.
 
 # Track 1: FlowSight everywhere
 
@@ -167,10 +170,13 @@ type RuleReader interface {
 	CountersSince() time.Time // when the counters started; zero if unknown
 }
 
-// Classifier names flows. It never decides; policy does. Not built yet.
+// Classifier names applications; its catalogue is the vocabulary policy is
+// written in. Flows, named as far as their source can, travel on core's
+// FlowBus, which any source may publish to. Implemented in
+// internal/core/classify.go.
 type Classifier interface {
-	Name() string
-	Subscribe(func([]ClassifiedFlow))
+	Name() string // "ndpi", ...
+	AppCatalog    // Apps(), AppCategory()
 }
 ```
 
@@ -190,7 +196,12 @@ behaviour. That refactor comes first, and it makes every later port cheap.
 | Web's interception as a `core.RedirectSpec` through a new `core.Redirector` (render, load, clear); web no longer writes pf syntax. Fail-open tests written and committed against the old code first; the pf rules are pinned byte for byte by a golden test | Done |
 | enroll's zone isolation as a `core.IsolationSpec` through a new `core.Isolator`; the pf rules pinned byte for byte | Done |
 | qos's shaping behind a new `core.Shaper`: qos keeps the policy (rules, names, which side an address is on), the firewall module owns dummynet and the pf rules. Golden test on rules, tables and every `dnctl` call; on the test bed the old and new builds produced identical anchors, tables, pipes and queues | Done |
-| Classifier contract over ntopng | Later |
+| The flow bus moves into core, so any source can publish flows; `core.Classifier` (engine name plus application catalogue) provided by the visibility module over nDPI; appcontrol and policy use them instead of their own copies. appcontrol now requires a classifier rather than a particular module | Done |
+
+Phase 1 is complete: outside the firewall module nothing speaks pf, and
+nothing outside the visibility module assumes ntopng. appcontrol still
+takes set names from `firewall.TableFor`, which is how the policy compiler
+names the sets it declares.
 
 ### Providers out of process
 

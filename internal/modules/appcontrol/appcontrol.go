@@ -23,10 +23,6 @@ import (
 
 func init() { core.Register(func() core.Module { return &Module{} }) }
 
-type flowBus interface {
-	Subscribe(func([]core.Flow))
-}
-
 type policyDoc interface {
 	Doc() *core.PolicyDoc
 }
@@ -34,7 +30,7 @@ type policyDoc interface {
 type Module struct {
 	ctx      *core.Context
 	fw       core.Enforcer
-	catalog  core.AppCatalog
+	catalog  core.Classifier
 	identity core.Identity
 	mu       sync.Mutex
 	rules    []rule           // compiled from the policy document
@@ -75,14 +71,19 @@ func (m *Module) Info() core.ModuleInfo {
 func (m *Module) Setup(ctx *core.Context) error {
 	m.ctx = ctx
 	m.fw, _ = ctx.Service(core.ServiceEnforcer).(core.Enforcer)
-	m.catalog, _ = ctx.Service("app_catalog").(core.AppCatalog)
+	m.catalog, _ = ctx.Service(core.ServiceClassifier).(core.Classifier)
 	m.identity, _ = ctx.Service("identity").(core.Identity)
 	m.added = map[string]int64{}
-	if bus, ok := ctx.Service("flow_bus").(flowBus); ok {
-		bus.Subscribe(m.onFlows)
-	} else {
-		return fmt.Errorf("visibility module (flow bus) is required")
+	// Application names come from a classifier; without one no flow can
+	// ever match an application and nothing here would happen.
+	if m.catalog == nil {
+		return fmt.Errorf("an application classifier is required (the visibility module, ntopng with nDPI)")
 	}
+	bus, ok := ctx.Service(core.ServiceFlowBus).(*core.FlowBus)
+	if !ok {
+		return fmt.Errorf("core flow bus missing")
+	}
+	bus.Subscribe(m.onFlows)
 	ctx.Every("refresh-rules", 30*time.Second, m.refresh)
 	ctx.Every("expire", 10*time.Minute, m.expire, core.Delayed())
 	ctx.Route("GET", "/api/appcontrol/status", m.apiStatus, core.Doc("Retrieve active application control rules with current block counts and enforcement status"),

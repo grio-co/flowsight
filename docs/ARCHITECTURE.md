@@ -21,12 +21,12 @@ with a token.
 flowsightd
 ├── core        config · store (SQLite, WAL) · scheduler · API · module registry · policy model
 ├── identity    names and MACs: DHCP leases (dnsmasq/ISC/Kea), ARP/NDP, reservations, resolver answers, OUI
-├── visibility  ntopng REST → flows, hosts, apps, throughput; publishes a flow bus
+├── visibility  ntopng REST → flows, hosts, apps, throughput; publishes flows on the flow bus; the classifier (nDPI)
 ├── web         owns a transparent squid: SNI on every session, web.block, tls.inspect, block page
 ├── dns         Unbound reply log → DNS log; cache → address names; provider dns.block (RPZ + views)
 ├── pihole      Pi-hole query log (v6 REST API, v5 api.php) → the same DNS log, with blocks, lists, client names
 ├── firewall    pf anchors flowsight/*; provider net.block and the tables for app.block
-├── appcontrol  subscribes to the flow bus; denied apps → pf table + state kill
+├── appcontrol  subscribes to the flow bus; denied apps → enforcer set + state kill
 ├── baseline    learns per-device profiles (countries, ports, destinations); detects anomalies (new-country, beaconing, DNS tunneling); findings with context
 ├── tls         inspection CA (EC, generated in Go), certificate inventory, findings
 ├── ids         Suricata EVE → alerts, TLS sessions and certificates
@@ -80,6 +80,8 @@ defined in `internal/core/enforce.go`:
 | `redirector` | `core.Redirector`: interception described as a spec (sources, ports, listener, exclusions), rendered into the backend's own rules, loaded while the listener answers and cleared the moment it does not | web |
 | `isolator` | `core.Isolator`: zones described as subnets and what each may reach (other zones, the internet, only its gateway when captive), rendered into the backend's own rules and loaded by name | enroll |
 | `shaper` | `core.Shaper`: link rates, three weighted classes and per-rule ceilings as a plan; the backend configures its pipes and queues and the rules that feed them, clears exactly what it configured, and reports queue statistics | qos |
+| `flow_bus` | `core.FlowBus`, owned by core: flows as they are observed, from any source, to any module that reacts to them; a subscriber that panics is contained | appcontrol (published by visibility) |
+| `classifier` | `core.Classifier`: the engine's name and its application catalogue, the vocabulary application policy is written in | appcontrol, policy (provided by visibility, nDPI through ntopng) |
 
 The firewall module provides all of them over pf: sets are tables in the
 `flowsight/policy` anchor, connections come from `pfctl -ss -v`, rules from

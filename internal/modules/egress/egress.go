@@ -166,7 +166,7 @@ func (m *Module) Setup(ctx *core.Context) error {
 	m.enf, _ = ctx.Service(core.ServiceEnforcer).(core.Enforcer)
 	m.states, _ = ctx.Service(core.ServiceConnStates).(core.StateReader)
 	m.rdns, _ = ctx.Service("enrich").(reverseLookup)
-	m.apps, _ = ctx.Service("app_catalog").(core.AppCatalog)
+	m.apps, _ = ctx.Service(core.ServiceClassifier).(core.Classifier)
 	m.cats, _ = ctx.Service("categories").(core.Categories)
 	m.anycast, _ = ctx.Service("anycast").(core.AnycastLookup)
 	m.intel = newIntelCache()

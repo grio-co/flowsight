@@ -117,7 +117,7 @@ func New(version, configPath, dataDir string, static fs.FS, log *slog.Logger) (*
 	}
 	c := &Core{Version: version, Platform: p, Config: cfg, Store: st, Log: log,
 		Started: time.Now(), Modules: map[string]Module{}, Infos: map[string]ModuleInfo{},
-		Errors: map[string]string{}, Services: map[string]any{}}
+		Errors: map[string]string{}, Services: map[string]any{ServiceFlowBus: &FlowBus{}}}
 	c.Scheduler = NewScheduler(cfg.Core().Workers, log.With("component", "scheduler"))
 	c.API = NewAPI(c, static, log.With("component", "api"))
 	return c, nil

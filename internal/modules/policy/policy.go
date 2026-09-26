@@ -935,7 +935,7 @@ func (m *Module) apiCapabilities(r *core.Req) (any, error) {
 	}
 	var apps []map[string]any
 	appCats := map[string]bool{}
-	if ac, ok := m.ctx.Service("app_catalog").(core.AppCatalog); ok {
+	if ac, ok := m.ctx.Service(core.ServiceClassifier).(core.Classifier); ok {
 		for name, a := range ac.Apps() {
 			apps = append(apps, map[string]any{"app": name, "category": a.Category, "breed": a.Breed})
 			if a.Category != "" {
