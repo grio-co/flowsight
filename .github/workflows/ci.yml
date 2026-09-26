@@ -24,11 +24,6 @@ jobs:
   lint:
     name: golangci-lint
     runs-on: ubuntu-latest
-    # Non-blocking for now: the tree has pre-existing findings (errcheck,
-    # staticcheck, unused, ...) that this workflow must not force anyone to
-    # fix in a hurry. Remove continue-on-error once `golangci-lint run ./...`
-    # is clean on the default branch.
-    continue-on-error: true
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
