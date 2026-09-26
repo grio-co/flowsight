@@ -12,7 +12,7 @@ name, and every release's assets carry that string in their file names.
 
 The newest entry is first.
 
-## 0.9.8r202609262014
+## 0.9.8r202609262017
 
 **Survive a restore.** Found when the gateway moved hosts from a backup taken
 mid-write: `flowsight.json` came back empty, the daemon ran on defaults
