@@ -55,6 +55,9 @@ func (s *pfShaper) Apply(p core.ShapePlan) error {
 
 func (s *pfShaper) Clear() {
 	_ = s.m.FlushAnchor(shapeAnchor)
+	// The rule tables are persistent, so flushing the rules leaves them
+	// behind; they are this shaper's too.
+	_, _ = s.m.pfctl("-a", rootAnchor+"/"+shapeAnchor, "-F", "Tables")
 	s.mu.Lock()
 	ceils := s.ceilings
 	s.ceilings = nil
