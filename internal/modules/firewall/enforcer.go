@@ -239,6 +239,40 @@ func (e *pfEnforcer) Rules() ([]core.Rule, error) {
 	return ParseRules(out), nil
 }
 
+func (e *pfEnforcer) CountersSince() time.Time {
+	out, err := e.m.pfctl("-si")
+	if err != nil {
+		return time.Time{}
+	}
+	return rulesLoadedAt(out, time.Now())
+}
+
+var (
+	enabledForRe = regexp.MustCompile(`Enabled for (\d+) days (\d+):(\d+):(\d+)`)
+	loadedAtRe   = regexp.MustCompile(`Loaded at (.+) by`)
+)
+
+// rulesLoadedAt reads when pf started counting from `pfctl -si`. FreeBSD
+// prints "Status: Enabled for 0 days 01:32:10"; some builds print "Loaded
+// at <date> by <user>". It is zero when pfctl does not say.
+func rulesLoadedAt(info string, now time.Time) time.Time {
+	if m := enabledForRe.FindStringSubmatch(info); m != nil {
+		d, _ := strconv.Atoi(m[1])
+		h, _ := strconv.Atoi(m[2])
+		mi, _ := strconv.Atoi(m[3])
+		sec, _ := strconv.Atoi(m[4])
+		return now.Add(-time.Duration(d*86400+h*3600+mi*60+sec) * time.Second)
+	}
+	if m := loadedAtRe.FindStringSubmatch(info); m != nil {
+		for _, layout := range []string{"Mon Jan 2 15:04:05 2006", "Mon Jan _2 15:04:05 2006"} {
+			if t, err := time.Parse(layout, strings.TrimSpace(m[1])); err == nil {
+				return t
+			}
+		}
+	}
+	return time.Time{}
+}
+
 var (
 	ruleCounterRe = regexp.MustCompile(`Evaluations:\s*(\d+)\s+Packets:\s*(\d+)\s+Bytes:\s*(\d+)\s+States:\s*(\d+)`)
 	ruleLabelRe   = regexp.MustCompile(`label\s+"([^"]+)"`)

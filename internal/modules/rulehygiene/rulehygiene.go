@@ -1,4 +1,6 @@
-// Package rulehygiene analyses the live pf ruleset for policy issues.
+// Package rulehygiene analyses the live pf ruleset for policy issues. It
+// reads the ruleset through the core.RuleReader service and analyses it
+// when the reader speaks pf syntax.
 //
 // Firewall rulesets decay: rules shadow each other, stop matching anything,
 // and quietly widen exposure. This module reports findings grounded in live
@@ -6,7 +8,7 @@
 // only counters separate a genuinely dead rule from one rarely hit—and that
 // distinction makes the output trustworthy enough to act on.
 //
-// On OPNsense, it watches /conf/config.xml for changes and diffs the <filter>
+// Where the platform names a config.xml (OPNsense), it watches it for changes and diffs the <filter>
 // and <nat> sections, recording who made the change from the revision metadata.
 package rulehygiene
 
@@ -17,7 +19,6 @@ import (
 	"fmt"
 	"os"
 	"regexp"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -33,6 +34,7 @@ type Module struct {
 	lastErr  string
 	lastRun  time.Time
 	platform string
+	rules    core.RuleReader
 
 	// OPNsense config tracking
 	configPath     string
@@ -45,7 +47,7 @@ func (m *Module) Info() core.ModuleInfo {
 		Name: "rulehygiene", Version: "1.0",
 		Description:  "Firewall ruleset analysis: shadowed, unused, redundant and overly permissive rules.",
 		Capabilities: []string{core.CapRuleAnalyse},
-		After:        []string{"identity"},
+		After:        []string{"identity", "firewall"},
 		Defaults: map[string]any{
 			"analyse_minutes":         15,
 			"min_evaluations_unused":  1000,
@@ -67,12 +69,13 @@ func (m *Module) Setup(ctx *core.Context) error {
 	m.ctx = ctx
 	m.platform = ctx.Platform.Name
 
-	if ctx.Platform.Firewall == "pf" && ctx.Platform.Pfctl != "" {
+	m.rules, _ = ctx.Service(core.ServiceRules).(core.RuleReader)
+	if m.canAnalyse() {
 		interval := time.Duration(core.Int(ctx.Settings(), "analyse_minutes", 15)) * time.Minute
 		ctx.Every("analyse", interval, m.analyse, core.NeedsJob("firewall.analyse"))
 
-		// Track config changes on OPNsense.
-		if ctx.Platform.IsOPNsense() && ctx.Platform.ConfigXML != "" {
+		// Track config changes where the platform keeps a config.xml.
+		if ctx.Platform.ConfigXML != "" {
 			m.configPath = ctx.Platform.ConfigXML
 			ctx.Every("watch-config", 1*time.Minute, m.watchConfig, core.NeedsJob("firewall.analyse"), core.Delayed())
 		}
@@ -128,10 +131,16 @@ func (m *Module) Setup(ctx *core.Context) error {
 	return nil
 }
 
+// canAnalyse reports whether there is a ruleset this module can read: the
+// analysis below understands pf syntax only.
+func (m *Module) canAnalyse() bool {
+	return m.rules != nil && m.rules.Available() && m.rules.Syntax() == "pf"
+}
+
 func (m *Module) Health() core.Health {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if m.ctx.Platform.Firewall != "pf" {
+	if !m.canAnalyse() {
 		return core.Health{OK: true, Detail: "firewall is not pf; analysis unavailable"}
 	}
 	if m.lastErr != "" {
@@ -157,7 +166,7 @@ func timeAgo(t time.Time) string {
 	}
 }
 
-// Rule represents a parsed pf rule with its counters.
+// Rule is one rule of the live ruleset with its counters, as analysed here.
 type Rule struct {
 	Index       int
 	Text        string
@@ -167,53 +176,6 @@ type Rule struct {
 	States      int64
 	Label       string // OPNsense label UUID
 	Description string // OPNsense label description
-}
-
-// parseRules parses `pfctl -vvsr` output into rules with counters.
-func parseRules(text string) []Rule {
-	var rules []Rule
-	var current *Rule
-
-	for _, line := range strings.Split(text, "\n") {
-		trimmed := strings.TrimSpace(line)
-		if trimmed == "" {
-			continue
-		}
-
-		// Rule line: not indented and not a counter line.
-		if !strings.HasPrefix(line, " ") && !strings.HasPrefix(trimmed, "[") {
-			r := Rule{
-				Index: len(rules),
-				Text:  trimmed,
-			}
-			rules = append(rules, r)
-			current = &rules[len(rules)-1]
-			continue
-		}
-
-		// Counter line: indented and in brackets.
-		if current == nil || !strings.HasPrefix(trimmed, "[") {
-			continue
-		}
-
-		// Extract counters: "[ Evaluations: 123  Packets: 456  Bytes: 789  States: 0 ]"
-		re := regexp.MustCompile(`Evaluations:\s*(\d+)\s+Packets:\s*(\d+)\s+Bytes:\s*(\d+)\s+States:\s*(\d+)`)
-		if m := re.FindStringSubmatch(trimmed); m != nil {
-			_, _ = fmt.Sscanf(m[0], "Evaluations: %d Packets: %d Bytes: %d States: %d",
-				&current.Evaluations, &current.Packets, &current.Bytes, &current.States)
-		}
-	}
-
-	return rules
-}
-
-// extractLabel extracts the OPNsense label UUID from a rule.
-func extractLabel(text string) string {
-	re := regexp.MustCompile(`label\s+"([^"]+)"`)
-	if m := re.FindStringSubmatch(text); m != nil {
-		return m[1]
-	}
-	return ""
 }
 
 // OPNsenseConfig models /conf/config.xml.
@@ -302,39 +264,35 @@ func (m *Module) analyse() error {
 	m.lastErr = ""
 	m.mu.Unlock()
 
-	if m.ctx.Platform.Firewall != "pf" || m.ctx.Platform.Pfctl == "" {
+	if !m.canAnalyse() {
 		return nil
 	}
 
 	// Get live rules with counters.
-	out, err := core.Run(30*time.Second, m.ctx.Platform.Pfctl, "-vvsr")
+	live, err := m.rules.Rules()
 	if err != nil {
 		m.mu.Lock()
-		m.lastErr = fmt.Sprintf("pfctl failed: %v", err)
+		m.lastErr = fmt.Sprintf("reading the %s ruleset failed: %v", m.rules.Name(), err)
 		m.mu.Unlock()
 		return nil // not a fatal error; just unavailable
 	}
 
-	rules := parseRules(out)
+	// When the counters started; zero when the backend cannot say.
+	var rulesetLoadedSec int64
+	if t := m.rules.CountersSince(); !t.IsZero() {
+		rulesetLoadedSec = t.Unix()
+	}
 
-	// Get ruleset load time.
-	infoOut, err := core.Run(10*time.Second, m.ctx.Platform.Pfctl, "-si")
-	rulesetLoadedSec := getRulesetLoadTime(infoOut)
-
-	// Load OPNsense label mappings.
+	// Rule descriptions from the platform's config.xml, keyed by label.
 	var labelMap map[string]string
-	if m.ctx.Platform.IsOPNsense() && m.configPath != "" {
+	if m.configPath != "" {
 		labelMap, _, _ = loadOPNsenseConfig(m.configPath)
 	}
 
-	// Enrich rules with descriptions.
-	for i := range rules {
-		if label := extractLabel(rules[i].Text); label != "" {
-			rules[i].Label = label
-			if desc, ok := labelMap[label]; ok {
-				rules[i].Description = desc
-			}
-		}
+	rules := make([]Rule, len(live))
+	for i, r := range live {
+		rules[i] = Rule{Index: i, Text: r.Text, Label: r.Label, Evaluations: r.Evaluations,
+			Packets: r.Packets, Bytes: r.Bytes, States: r.States, Description: labelMap[r.Label]}
 	}
 
 	// Analyse for issues.
@@ -374,29 +332,6 @@ func (m *Module) analyse() error {
 	m.mu.Unlock()
 
 	return nil
-}
-
-// getRulesetLoadTime returns the unix time the ruleset was loaded, or 0 when
-// pfctl does not say. FreeBSD prints "Status: Enabled for 0 days 01:32:10";
-// some builds print "Loaded at <date> by <user>". Unknown means "not long
-// enough": counters that cannot be dated must not produce findings.
-func getRulesetLoadTime(infoOut string) int64 {
-	if m := regexp.MustCompile(`Enabled for (\d+) days (\d+):(\d+):(\d+)`).FindStringSubmatch(infoOut); m != nil {
-		d, _ := strconv.Atoi(m[1])
-		h, _ := strconv.Atoi(m[2])
-		mi, _ := strconv.Atoi(m[3])
-		sec, _ := strconv.Atoi(m[4])
-		elapsed := int64(d*86400 + h*3600 + mi*60 + sec)
-		return time.Now().Unix() - elapsed
-	}
-	if m := regexp.MustCompile(`Loaded at (.+) by`).FindStringSubmatch(infoOut); m != nil {
-		for _, layout := range []string{"Mon Jan 2 15:04:05 2006", "Mon Jan _2 15:04:05 2006"} {
-			if t, err := time.Parse(layout, strings.TrimSpace(m[1])); err == nil {
-				return t.Unix()
-			}
-		}
-	}
-	return 0
 }
 
 // findIssues analyses rules for policy issues.

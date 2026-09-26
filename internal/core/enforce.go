@@ -102,9 +102,14 @@ type Rule struct {
 
 // RuleReader reads the active ruleset. Syntax names the language Rule.Text
 // is written in ("pf", "nft"), so an analyser knows whether it can read it.
+// Rule.Text is the rule as the backend prints it.
 type RuleReader interface {
 	Name() string
 	Syntax() string
 	Available() bool
 	Rules() ([]Rule, error)
+	// CountersSince is when the rule counters started counting, usually
+	// when the ruleset was loaded. It is zero when the backend cannot say,
+	// and counters that cannot be dated must not be judged.
+	CountersSince() time.Time
 }

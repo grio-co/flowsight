@@ -2,6 +2,7 @@ package firewall
 
 import (
 	"testing"
+	"time"
 
 	"github.com/grioghar/flowsight/internal/core"
 )
@@ -107,5 +108,54 @@ block drop in log quick on vtnet1 all
 func TestSplitHostPortPFIPv6(t *testing.T) {
 	if h, p := SplitHostPort("2600:1700::9[52034]"); h != "2600:1700::9" || p != 52034 {
 		t.Errorf("pf ipv6 form: %q:%d", h, p)
+	}
+}
+
+// `pfctl -vvsr` numbers every rule. The text is kept exactly as pf prints
+// it, number included, because rulehygiene fingerprints its findings by it.
+func TestParseRulesVerboseNumbered(t *testing.T) {
+	input := `@0 pass in on em0 inet proto tcp from any to any port = 22 label "admin_ssh"
+  [ Evaluations: 1500  Packets: 42  Bytes: 12345  States: 5 ]
+@1 pass in on em0 inet proto tcp from any to any port = 80
+  [ Evaluations: 0  Packets: 0  Bytes: 0  States: 0 ]
+@2 pass in on vtnet1 inet from any to any
+  [ Evaluations: 500  Packets: 0  Bytes: 0  States: 0 ]
+@3 pass in on em0 label "uuid-123" inet proto tcp from 192.168.1.0/24 to any port = 443
+  [ Evaluations: 3000  Packets: 1500  Bytes: 5000000  States: 100 ]
+@4 block in on vtnet1 inet from any to 192.168.1.50
+  [ Evaluations: 100  Packets: 50  Bytes: 2000  States: 0 ]`
+	rules := ParseRules(input)
+	if len(rules) != 5 {
+		t.Fatalf("expected 5 rules, got %d", len(rules))
+	}
+	if rules[0].Text != `@0 pass in on em0 inet proto tcp from any to any port = 22 label "admin_ssh"` {
+		t.Errorf("rule 0 text changed: %q", rules[0].Text)
+	}
+	if rules[0].Evaluations != 1500 || rules[0].Packets != 42 || rules[0].Label != "admin_ssh" {
+		t.Errorf("rule 0 misread: %+v", rules[0])
+	}
+	if rules[1].Evaluations != 0 || rules[1].Label != "" {
+		t.Errorf("rule 1 misread: %+v", rules[1])
+	}
+	if rules[2].Evaluations != 500 || rules[2].Packets != 0 {
+		t.Errorf("rule 2 misread: %+v", rules[2])
+	}
+	if rules[3].Label != "uuid-123" {
+		t.Errorf("label in the middle of a rule not read: %+v", rules[3])
+	}
+}
+
+func TestRulesLoadedAt(t *testing.T) {
+	now := time.Date(2026, 9, 26, 12, 0, 0, 0, time.UTC)
+	got := rulesLoadedAt("Status: Enabled for 1 days 01:32:10           Debug: Urgent\n", now)
+	if want := now.Add(-(25*time.Hour + 32*time.Minute + 10*time.Second)); !got.Equal(want) {
+		t.Errorf("enabled-for form: got %v, want %v", got, want)
+	}
+	got = rulesLoadedAt("Loaded at Sat Sep 26 10:00:00 2026 by root\n", now)
+	if want := time.Date(2026, 9, 26, 10, 0, 0, 0, time.UTC); !got.Equal(want) {
+		t.Errorf("loaded-at form: got %v, want %v", got, want)
+	}
+	if got := rulesLoadedAt("Status: Disabled\n", now); !got.IsZero() {
+		t.Errorf("unknown must be zero, got %v", got)
 	}
 }

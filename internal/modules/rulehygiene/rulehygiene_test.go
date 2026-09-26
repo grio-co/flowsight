@@ -4,69 +4,6 @@ import (
 	"testing"
 )
 
-// TestParseRules tests the pfctl -vvsr output parser.
-func TestParseRules(t *testing.T) {
-	input := `@0 pass in on em0 inet proto tcp from any to any port = 22 label "admin_ssh"
-  [ Evaluations: 1500  Packets: 42  Bytes: 12345  States: 5 ]
-@1 pass in on em0 inet proto tcp from any to any port = 80
-  [ Evaluations: 0  Packets: 0  Bytes: 0  States: 0 ]
-@2 pass in on vtnet1 inet from any to any
-  [ Evaluations: 500  Packets: 0  Bytes: 0  States: 0 ]
-@3 pass in on em0 inet proto tcp from 192.168.1.0/24 to any port = 443
-  [ Evaluations: 3000  Packets: 1500  Bytes: 5000000  States: 100 ]
-@4 block in on vtnet1 inet from any to 192.168.1.50
-  [ Evaluations: 100  Packets: 50  Bytes: 2000  States: 0 ]`
-
-	rules := parseRules(input)
-
-	if len(rules) != 5 {
-		t.Fatalf("expected 5 rules, got %d", len(rules))
-	}
-
-	// Check first rule.
-	if rules[0].Index != 0 {
-		t.Errorf("rule 0 index: expected 0, got %d", rules[0].Index)
-	}
-	if rules[0].Evaluations != 1500 {
-		t.Errorf("rule 0 evals: expected 1500, got %d", rules[0].Evaluations)
-	}
-	if rules[0].Packets != 42 {
-		t.Errorf("rule 0 packets: expected 42, got %d", rules[0].Packets)
-	}
-
-	// Check shadowed rule (no evaluations).
-	if rules[1].Evaluations != 0 {
-		t.Errorf("rule 1 evals: expected 0, got %d", rules[1].Evaluations)
-	}
-
-	// Check rule with zero packets but high evals.
-	if rules[2].Evaluations != 500 {
-		t.Errorf("rule 2 evals: expected 500, got %d", rules[2].Evaluations)
-	}
-	if rules[2].Packets != 0 {
-		t.Errorf("rule 2 packets: expected 0, got %d", rules[2].Packets)
-	}
-}
-
-// TestExtractLabel tests label extraction from rules.
-func TestExtractLabel(t *testing.T) {
-	tests := []struct {
-		rule     string
-		expected string
-	}{
-		{`pass in on em0 inet proto tcp from any to any port = 22 label "a1b2c3d4"`, "a1b2c3d4"},
-		{`pass in on em0 inet from any to any`, ""},
-		{`pass in on em0 label "uuid-123" inet proto tcp from any to any`, "uuid-123"},
-	}
-
-	for _, tt := range tests {
-		got := extractLabel(tt.rule)
-		if got != tt.expected {
-			t.Errorf("extractLabel(%q): expected %q, got %q", tt.rule, tt.expected, got)
-		}
-	}
-}
-
 // TestMatchesAnySource tests source matching.
 func TestMatchesAnySource(t *testing.T) {
 	m := &Module{}

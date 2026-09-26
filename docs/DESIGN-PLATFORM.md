@@ -156,6 +156,7 @@ type RuleReader interface {
 	Syntax() string // "pf", "nft", ...
 	Available() bool
 	Rules() ([]Rule, error)
+	CountersSince() time.Time // when the counters started; zero if unknown
 }
 
 // Classifier names flows. It never decides; policy does. Not built yet.
@@ -177,7 +178,7 @@ behaviour. That refactor comes first, and it makes every later port cheap.
 | appcontrol fills sets and cuts connections through `core.Enforcer` | Done |
 | egress reads connections through `core.StateReader`; pf's format is parsed in `firewall.ParseStates`, and the existing capture test still pins the direction of every counter | Done |
 | inspect's state and rule views through `StateReader` and a new `core.RuleReader`; its pf parser merged into `firewall.ParseStates`, and its existing tests pass unchanged through the new path | Done |
-| rulehygiene's ruleset reading through `RuleReader` (dropping its own copy of the rule parser); its OPNsense `config.xml` labels behind the platform | Next |
+| rulehygiene's ruleset reading through `RuleReader` (its own copy of the rule parser removed, the ruleset load time behind `CountersSince`); rule descriptions and change tracking follow the platform's `ConfigXML` path instead of checking for OPNsense | Done. The analysis itself still reads pf syntax; an nftables analyser is a later provider |
 | Redirects as a backend-neutral spec, so web's interception rules stop being pf text (the `Declare` and `Detach` methods sketched above) | Next; touches interception, so it gets its own fail-open test first |
 | qos's shaping (dummynet) behind a `Shaper` contract | Later |
 | Classifier contract over ntopng | Later |

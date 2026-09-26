@@ -76,11 +76,11 @@ defined in `internal/core/enforce.go`:
 |---|---|---|
 | `enforcer` | `core.Enforcer`: fill or replace a named address set, drop established connections | appcontrol, egress |
 | `conn_states` | `core.StateReader`: live connections, described by who opened them, with both sides of any translation, the interface and direction, and bytes and packets each way | egress, inspect |
-| `fw_rules` | `core.RuleReader`: the active ruleset with its counters, in the backend's own syntax (named by `Syntax()`) | inspect |
+| `fw_rules` | `core.RuleReader`: the active ruleset with its counters, in the backend's own syntax (named by `Syntax()`), and when the counters started | inspect, rulehygiene (which analyses pf syntax only) |
 
 The firewall module provides all three over pf: sets are tables in the
 `flowsight/policy` anchor, connections come from `pfctl -ss -v`, rules from
-`pfctl -vvsr`. There is one pf state parser (`firewall.ParseStates`) and one
+`pfctl -vvsr` and their counting start from `pfctl -si`. There is one pf state parser (`firewall.ParseStates`) and one
 rule parser (`firewall.ParseRules`). The
 set names are the ones the firewall's policy provider declared from the
 policy document. Another backend (nftables, a firewall's API) provides the
