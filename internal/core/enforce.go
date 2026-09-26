@@ -18,6 +18,7 @@ const (
 	ServiceConnStates = "conn_states"
 	ServiceRules      = "fw_rules"
 	ServiceRedirector = "redirector"
+	ServiceIsolator   = "isolator"
 )
 
 // Capabilities an Enforcer or StateReader can report.
@@ -151,4 +152,34 @@ type Redirector interface {
 	// fail-open path: safe to repeat, and it must not depend on the
 	// listener or on anything the caller has rendered.
 	ClearRedirects(name string) error
+}
+
+// IsolationSpec describes network zones and what each may reach: other
+// zones it names, the internet or not, and for a captive zone only its
+// gateway.
+type IsolationSpec struct {
+	Zones []IsolationZone
+}
+
+// IsolationZone is one zone. Traffic between two zones is refused unless the
+// source zone lists the destination in Reach.
+type IsolationZone struct {
+	ID       string
+	Subnet   string
+	Gateway  string
+	Internet bool     // may reach addresses outside its own subnet that are not other zones
+	Captive  bool     // may reach nothing but its gateway, and DNS on its DNS servers
+	DNS      []string // the zone's DNS servers
+	Reach    []string // IDs of other zones it may reach
+}
+
+// Isolator installs and withdraws zone isolation, the same way a Redirector
+// does interception: the backend renders the spec into its own text, the
+// caller keeps the text, and it is loaded and cleared by name.
+type Isolator interface {
+	Name() string
+	Available() bool
+	RenderIsolation(spec IsolationSpec) string
+	LoadIsolation(name, text string) error
+	ClearIsolation(name string) error
 }

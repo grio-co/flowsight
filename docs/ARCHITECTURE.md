@@ -78,11 +78,13 @@ defined in `internal/core/enforce.go`:
 | `conn_states` | `core.StateReader`: live connections, described by who opened them, with both sides of any translation, the interface and direction, and bytes and packets each way | egress, inspect |
 | `fw_rules` | `core.RuleReader`: the active ruleset with its counters, in the backend's own syntax (named by `Syntax()`), and when the counters started | inspect, rulehygiene (which analyses pf syntax only) |
 | `redirector` | `core.Redirector`: interception described as a spec (sources, ports, listener, exclusions), rendered into the backend's own rules, loaded while the listener answers and cleared the moment it does not | web |
+| `isolator` | `core.Isolator`: zones described as subnets and what each may reach (other zones, the internet, only its gateway when captive), rendered into the backend's own rules and loaded by name | enroll |
 
-The firewall module provides all four over pf: sets are tables in the
+The firewall module provides all of them over pf: sets are tables in the
 `flowsight/policy` anchor, connections come from `pfctl -ss -v`, rules from
 `pfctl -vvsr` and their counting start from `pfctl -si`. Redirects become `rdr` rules in the
-`flowsight/web` anchor, checked with `pfctl -n` before loading. There is one pf state parser (`firewall.ParseStates`) and one
+`flowsight/web` anchor, checked with `pfctl -n` before loading. Zone isolation becomes tables and
+block rules in `flowsight/enroll`. There is one pf state parser (`firewall.ParseStates`) and one
 rule parser (`firewall.ParseRules`). The
 set names are the ones the firewall's policy provider declared from the
 policy document. Another backend (nftables, a firewall's API) provides the

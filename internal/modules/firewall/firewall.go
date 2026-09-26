@@ -125,6 +125,7 @@ func (m *Module) Setup(ctx *core.Context) error {
 	ctx.Publish(core.ServiceConnStates, enf)
 	ctx.Publish(core.ServiceRules, enf)
 	ctx.Publish(core.ServiceRedirector, enf)
+	ctx.Publish(core.ServiceIsolator, enf)
 	if m.Available() {
 		ctx.Provider(&provider{m: m})
 		ctx.Every("local-table", 60*time.Second, m.refreshLocal)

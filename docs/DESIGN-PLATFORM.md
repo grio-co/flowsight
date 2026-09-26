@@ -188,8 +188,8 @@ behaviour. That refactor comes first, and it makes every later port cheap.
 | inspect's state and rule views through `StateReader` and a new `core.RuleReader`; its pf parser merged into `firewall.ParseStates`, and its existing tests pass unchanged through the new path | Done |
 | rulehygiene's ruleset reading through `RuleReader` (its own copy of the rule parser removed, the ruleset load time behind `CountersSince`); rule descriptions and change tracking follow the platform's `ConfigXML` path instead of checking for OPNsense | Done. The analysis itself still reads pf syntax; an nftables analyser is a later provider |
 | Web's interception as a `core.RedirectSpec` through a new `core.Redirector` (render, load, clear); web no longer writes pf syntax. Fail-open tests written and committed against the old code first; the pf rules are pinned byte for byte by a golden test | Done |
-| enroll's zone rules and qos's anchor through the same kind of spec | Next |
-| qos's shaping (dummynet) behind a `Shaper` contract | Later |
+| enroll's zone isolation as a `core.IsolationSpec` through a new `core.Isolator`; the pf rules pinned byte for byte | Done |
+| qos's shaping (dummynet pipes and queues plus the pf rules that feed them) behind a `Shaper` contract | Next |
 | Classifier contract over ntopng | Later |
 
 ### Providers out of process
