@@ -64,7 +64,6 @@ CREATE INDEX IF NOT EXISTS flows_app ON flows(app, ts);
 CREATE INDEX IF NOT EXISTS flows_domain ON flows(domain, ts);
 CREATE INDEX IF NOT EXISTS flows_dst ON flows(dst_ip, ts);
 CREATE INDEX IF NOT EXISTS flows_country ON flows(country, src_ip, ts);
-CREATE INDEX IF NOT EXISTS flows_country_anycast ON flows(country, anycast, ts);
 
 CREATE TABLE IF NOT EXISTS rollup_app (
     bucket INTEGER NOT NULL, src_ip TEXT NOT NULL, app TEXT NOT NULL,
@@ -232,6 +231,13 @@ func (s *Store) migrate() error {
 	_ = s.db.QueryRow(`SELECT CAST(value AS INTEGER) FROM meta WHERE key='schema_version'`).Scan(&have)
 	// Additive migrations only. A downgrade must never lose data.
 	if err := s.ensureColumn("flows", "anycast", "INTEGER DEFAULT 0"); err != nil {
+		return err
+	}
+	// An index on a column a migration adds is created here, after the
+	// column, never in the base schema: the base schema runs first, and on a
+	// database from before the column it would fail and the daemon would
+	// not start.
+	if _, err := s.db.Exec(`CREATE INDEX IF NOT EXISTS flows_country_anycast ON flows(country, anycast, ts)`); err != nil {
 		return err
 	}
 	if err := s.ensureColumn("flows", "domain_source", "TEXT"); err != nil {
