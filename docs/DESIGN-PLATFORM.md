@@ -136,9 +136,17 @@ type Enforcer interface {
 	ReplaceSet(set string, addrs []string) error
 	AddToSet(set string, addrs []string) error
 	KillStates(src, dst string) error
-	// Still to come, with the redirect work:
-	// Declare(spec EnforceSpec) (string, error) // validate, back up, apply, revert on rejection
-	// Detach() error                            // fail open: remove every redirect and drop rule we own
+}
+
+// Redirector installs and withdraws interception. The caller loads
+// redirects only while its listener answers. Implemented in
+// internal/core/enforce.go.
+type Redirector interface {
+	Name() string
+	Available() bool
+	RenderRedirects(spec RedirectSpec) string // backend text, kept with the caller's artifact
+	LoadRedirects(name, text string) error    // validate with the backend's checker, then load
+	ClearRedirects(name string) error         // the fail-open path
 }
 
 // StateReader reads live connections, described by who opened them.
@@ -179,7 +187,8 @@ behaviour. That refactor comes first, and it makes every later port cheap.
 | egress reads connections through `core.StateReader`; pf's format is parsed in `firewall.ParseStates`, and the existing capture test still pins the direction of every counter | Done |
 | inspect's state and rule views through `StateReader` and a new `core.RuleReader`; its pf parser merged into `firewall.ParseStates`, and its existing tests pass unchanged through the new path | Done |
 | rulehygiene's ruleset reading through `RuleReader` (its own copy of the rule parser removed, the ruleset load time behind `CountersSince`); rule descriptions and change tracking follow the platform's `ConfigXML` path instead of checking for OPNsense | Done. The analysis itself still reads pf syntax; an nftables analyser is a later provider |
-| Redirects as a backend-neutral spec, so web's interception rules stop being pf text (the `Declare` and `Detach` methods sketched above) | Next; touches interception, so it gets its own fail-open test first |
+| Web's interception as a `core.RedirectSpec` through a new `core.Redirector` (render, load, clear); web no longer writes pf syntax. Fail-open tests written and committed against the old code first; the pf rules are pinned byte for byte by a golden test | Done |
+| enroll's zone rules and qos's anchor through the same kind of spec | Next |
 | qos's shaping (dummynet) behind a `Shaper` contract | Later |
 | Classifier contract over ntopng | Later |
 

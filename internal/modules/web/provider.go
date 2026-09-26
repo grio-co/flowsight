@@ -192,15 +192,12 @@ func (p *provider) Compile(doc *core.PolicyDoc) (core.Artifact, error) {
 	for name, text := range files {
 		out[filepath.Join(m.dir, name)] = text
 	}
-	localTable := "flowsight_local"
-	if m.fw != nil {
-		localTable = m.fw.LocalTable()
-	}
 	rdr := ""
-	if m.wanted() {
-		rdr = pfRules(core.Strs(s, "interfaces"), v4nets, excluded, params.HTTPPort, params.HTTPSPort, localTable, params.V6Listener)
+	if m.wanted() && m.rdr != nil {
+		rdr = m.rdr.RenderRedirects(redirectSpec(core.Strs(s, "interfaces"), v4nets, excluded,
+			params.HTTPPort, params.HTTPSPort, params.V6Listener))
 	}
-	out[filepath.Join(m.dir, "pf-web.conf")] = rdr
+	out[m.redirectPath()] = rdr
 	note := fmt.Sprintf("%d web polic(ies)", len(pols))
 	if !m.wanted() {
 		note += ", interception off"
@@ -264,8 +261,8 @@ func (p *provider) Current() (core.Artifact, error) {
 			files[filepath.Join(p.m.dir, n)] = string(b)
 		}
 	}
-	if _, ok := files[filepath.Join(p.m.dir, "pf-web.conf")]; !ok {
-		files[filepath.Join(p.m.dir, "pf-web.conf")] = ""
+	if _, ok := files[p.m.redirectPath()]; !ok {
+		files[p.m.redirectPath()] = ""
 	}
 	return core.Artifact{Files: files}, nil
 }
@@ -310,7 +307,7 @@ func (p *provider) Apply(a core.Artifact) (string, error) {
 			}
 		}
 	}
-	rdr := a.Files[filepath.Join(m.dir, "pf-web.conf")]
+	rdr := a.Files[m.redirectPath()]
 	if !m.wanted() {
 		if m.running() {
 			m.stopSquid()
@@ -321,24 +318,21 @@ func (p *provider) Apply(a core.Artifact) (string, error) {
 		// Keep the rejected configuration beside the live one for inspection.
 		_ = os.WriteFile(filepath.Join(m.dir, "squid.conf.rejected"), []byte(a.Files[filepath.Join(m.dir, "squid.conf")]), 0o644)
 		restore()
-		if m.fw != nil {
-			_ = m.fw.FlushAnchor("web")
-		}
+		m.clearRedirects()
 		m.setErr(err.Error())
 		return "", err
 	}
 	if !m.waitListening(15 * time.Second) {
-		if m.fw != nil {
-			_ = m.fw.FlushAnchor("web")
-		}
+		m.clearRedirects()
 		m.setErr("proxy accepted the configuration but is not listening; interception withheld")
 		return "", fmt.Errorf("proxy is not accepting connections on its ports; interception withheld (see %s/cache.log)", m.logDir)
 	}
 	m.setErr("")
-	if m.fw != nil {
-		if err := m.fw.LoadAnchor("web", rdr); err != nil {
-			return "", fmt.Errorf("proxy reloaded but interception rules failed: %v", err)
-		}
+	if m.rdr == nil {
+		return "proxy reconfigured; no firewall module to load the interception rules into", nil
+	}
+	if err := m.rdr.LoadRedirects(redirectName, rdr); err != nil {
+		return "", fmt.Errorf("proxy reloaded but interception rules failed: %v", err)
 	}
 	sum := sha256.Sum256([]byte(a.Files[filepath.Join(m.dir, "squid.conf")]))
 	return "proxy reconfigured, interception loaded (" + hex.EncodeToString(sum[:5]) + ")", nil

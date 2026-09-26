@@ -10,6 +10,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strconv"
 	"sync"
 	"testing"
@@ -104,7 +105,7 @@ func newFailOpenBed(t *testing.T) *failOpenBed {
 		logDir: filepath.Join(root, "log"),
 		runDir: filepath.Join(root, "run"),
 	}
-	b.m.fw = newFakeRedirector(b.fw)
+	b.m.rdr = newFakeRedirector(b.fw)
 	for _, d := range []string{b.m.dir, b.m.logDir, b.m.runDir} {
 		if err := os.MkdirAll(d, 0o755); err != nil {
 			t.Fatal(err)
@@ -177,7 +178,7 @@ func TestApplyWithdrawsRedirectsWhenSquidRejects(t *testing.T) {
 	b := newFailOpenBed(t)
 	p := &provider{m: b.m}
 	art := core.Artifact{Files: map[string]string{
-		b.m.confPath(): "http_port 3128\n",
+		b.m.confPath():                        "http_port 3128\n",
 		filepath.Join(b.m.dir, "pf-web.conf"): "rdr pass on lan0 inet proto tcp from 192.0.2.0/24 to any port 443 -> 127.0.0.1 port 3129\n",
 	}}
 	if _, err := p.Apply(art); err == nil {
@@ -186,5 +187,30 @@ func TestApplyWithdrawsRedirectsWhenSquidRejects(t *testing.T) {
 	loads, clears := b.fw.counts()
 	if loads != 0 || clears == 0 {
 		t.Fatalf("squid rejected: want redirects cleared and never loaded, got %d load(s), %d clear(s)", loads, clears)
+	}
+}
+
+// The spec web asks for is the one the firewall's golden test renders
+// (firewall/redirect_test.go, webSpec), so the rules loaded into pf are the
+// ones this module loaded before its renderer moved there.
+func TestRedirectSpecMatchesFirewallGolden(t *testing.T) {
+	got := redirectSpec([]string{"vtnet0", "igb1"}, []string{"192.168.1.0/24", "10.99.0.0/16"},
+		[]string{"192.168.1.50", "fd00::5"}, 3128, 3129, "fd00::1")
+	nets := []string{"192.168.1.0/24", "10.99.0.0/16"}
+	want := core.RedirectSpec{
+		Interfaces: []string{"vtnet0", "igb1"},
+		Excluded:   []string{"192.168.1.50", "fd00::5"},
+		Rules: []core.RedirectRule{
+			{Family: "inet", Sources: nets, Port: 80, To: core.Endpoint{Addr: "127.0.0.1", Port: 3128}},
+			{Family: "inet", Sources: nets, Port: 443, To: core.Endpoint{Addr: "127.0.0.1", Port: 3129}},
+			{Family: "inet6", Port: 80, To: core.Endpoint{Addr: "fd00::1", Port: 3128}},
+			{Family: "inet6", Port: 443, To: core.Endpoint{Addr: "fd00::1", Port: 3129}},
+		},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("spec changed:\n got %+v\nwant %+v", got, want)
+	}
+	if empty := redirectSpec(nil, nil, []string{"192.168.1.50"}, 3128, 3129, "fd00::1"); len(empty.Rules) != 0 {
+		t.Fatalf("no IPv4 networks must mean no redirects, got %+v", empty.Rules)
 	}
 }

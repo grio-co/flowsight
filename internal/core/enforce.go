@@ -17,6 +17,7 @@ const (
 	ServiceEnforcer   = "enforcer"
 	ServiceConnStates = "conn_states"
 	ServiceRules      = "fw_rules"
+	ServiceRedirector = "redirector"
 )
 
 // Capabilities an Enforcer or StateReader can report.
@@ -112,4 +113,42 @@ type RuleReader interface {
 	// when the ruleset was loaded. It is zero when the backend cannot say,
 	// and counters that cannot be dated must not be judged.
 	CountersSince() time.Time
+}
+
+// RedirectSpec describes interception: new TCP connections from some
+// sources to some ports are steered to a local listener. Redirects never
+// apply to destinations on the local networks, and a source in Excluded is
+// never redirected in either address family.
+type RedirectSpec struct {
+	Interfaces []string // where to redirect; empty means any interface
+	Excluded   []string // addresses and prefixes left alone
+	Rules      []RedirectRule
+}
+
+// RedirectRule is one family and port to steer.
+type RedirectRule struct {
+	Family  string   // "inet" or "inet6"
+	Sources []string // addresses and prefixes; empty means the local networks
+	Port    int      // destination port matched
+	To      Endpoint // the listener
+}
+
+// Redirector installs and withdraws interception. Interception must never
+// fail closed, so the caller loads redirects only while its listener
+// answers, and clears them the moment it does not.
+type Redirector interface {
+	// Name is the backend, for display and for naming the rendered file.
+	Name() string
+	Available() bool
+	// RenderRedirects compiles a spec into the backend's own text without
+	// touching the system. The caller keeps the text with its other
+	// configuration, so what will be loaded can be shown and compared.
+	RenderRedirects(spec RedirectSpec) string
+	// LoadRedirects checks text with the backend's own validator and loads
+	// it under name, replacing what was there.
+	LoadRedirects(name, text string) error
+	// ClearRedirects removes everything loaded under name. It is the
+	// fail-open path: safe to repeat, and it must not depend on the
+	// listener or on anything the caller has rendered.
+	ClearRedirects(name string) error
 }

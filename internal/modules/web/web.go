@@ -34,7 +34,6 @@ import (
 	"time"
 
 	"github.com/grioghar/flowsight/internal/core"
-	"github.com/grioghar/flowsight/internal/modules/firewall"
 )
 
 func init() { core.Register(func() core.Module { return &Module{} }) }
@@ -49,7 +48,7 @@ type Module struct {
 	lastErr  string
 	requests int64
 	identity core.Identity
-	fw       firewall.Firewall
+	rdr      core.Redirector
 	cats     core.Categories
 	blockSrv *http.Server
 	blocks   map[string]int64 // policy -> count since start
@@ -112,7 +111,7 @@ func (m *Module) Info() core.ModuleInfo {
 func (m *Module) Setup(ctx *core.Context) error {
 	m.ctx = ctx
 	m.identity, _ = ctx.Service("identity").(core.Identity)
-	m.fw, _ = ctx.Service("firewall").(firewall.Firewall)
+	m.rdr, _ = ctx.Service(core.ServiceRedirector).(core.Redirector)
 	m.cats, _ = ctx.Service("categories").(core.Categories)
 	m.blocks = map[string]int64{}
 	m.dir = filepath.Join(ctx.Platform.EtcDir, "squid")
@@ -309,27 +308,43 @@ func (m *Module) supervise() error {
 	if !m.running() {
 		if err := m.startSquid(); err != nil {
 			m.setErr(err.Error())
-			if m.fw != nil {
-				_ = m.fw.FlushAnchor("web")
-			}
+			m.clearRedirects()
 			return err
 		}
 	}
 	if !m.waitListening(superviseListenWait) {
 		// Running but deaf: pull the redirects rather than blackhole the LAN.
-		if m.fw != nil {
-			_ = m.fw.FlushAnchor("web")
-		}
+		m.clearRedirects()
 		m.setErr("proxy process is up but not accepting connections; interception withdrawn (see squid cache.log)")
 		return fmt.Errorf("proxy not listening")
 	}
-	if m.fw != nil {
-		if rdr, err := os.ReadFile(filepath.Join(m.dir, "pf-web.conf")); err == nil {
-			_ = m.fw.LoadAnchor("web", string(rdr))
+	if m.rdr != nil {
+		if rdr, err := os.ReadFile(m.redirectPath()); err == nil {
+			_ = m.rdr.LoadRedirects(redirectName, string(rdr))
 		}
 	}
 	m.setErr("")
 	return nil
+}
+
+// redirectName is what the web module's redirects are loaded under.
+const redirectName = "web"
+
+// redirectPath is where the rendered redirects are kept, named after the
+// backend that rendered them ("pf-web.conf").
+func (m *Module) redirectPath() string {
+	name := "pf"
+	if m.rdr != nil {
+		name = m.rdr.Name()
+	}
+	return filepath.Join(m.dir, name+"-web.conf")
+}
+
+// clearRedirects withdraws interception: the fail-open path.
+func (m *Module) clearRedirects() {
+	if m.rdr != nil {
+		_ = m.rdr.ClearRedirects(redirectName)
+	}
 }
 
 func (m *Module) wanted() bool {
@@ -388,9 +403,7 @@ func (m *Module) stopSquid() {
 	if bin := m.squidBin(); bin != "" {
 		_, _ = core.Run(60*time.Second, bin, "-k", "shutdown", "-f", m.confPath(), "-n", "flowsight")
 	}
-	if m.fw != nil {
-		_ = m.fw.FlushAnchor("web")
-	}
+	m.clearRedirects()
 	m.ctx.Event("system", "proxy stopped", nil)
 }
 
