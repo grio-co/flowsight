@@ -12,6 +12,17 @@ name, and every release's assets carry that string in their file names.
 
 The newest entry is first.
 
+## 0.9.8r202609262119
+
+**Packet Inspection's SYN-flood and scan findings work.** pf reports a TCP
+state as a pair (`SYN_SENT:CLOSED`), and the checks compared it with a
+single word, so SYN floods were never reported, the half-open count on the
+state summary was always 0, and every UDP or unfinished state counted
+towards "port scan", which a busy client could trip on its own. The checks
+now read the opener's half of the pair, count only TCP handshakes that were
+never answered, and name the address that opened the connections: a flood
+arriving through a port forward used to be blamed on the server it hit.
+
 ## 0.9.8r202609262112
 
 **Traffic shaping survives a reboot.** Shaping checked that dummynet was

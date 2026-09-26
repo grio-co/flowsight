@@ -464,54 +464,83 @@ func (m *Module) detectAnomalies(states []*PFState) {
 	if m.ctx == nil || m.ctx.Store == nil {
 		return
 	}
+	for _, f := range findAnomalies(states, m.synFloodThresh, m.portScanThresh) {
+		m.ctx.Store.AddFinding("inspect", f.Kind, f.Severity, f.Subject, f.Title, f.Detail, f.Key)
+	}
+}
 
-	// Group states by source IP
-	bySrc := make(map[string][]*PFState)
+// anomaly is one finding from the state table.
+type anomaly struct {
+	Kind, Severity, Subject, Title, Detail, Key string
+}
+
+// openerState is the TCP state of the end that opened the connection. pf
+// prints the pair as "opener:responder", SYN_SENT:CLOSED for a handshake
+// nobody answered, so a comparison with a single word never matched.
+func openerState(s *PFState) string {
+	st, _, _ := strings.Cut(s.State, ":")
+	return st
+}
+
+// opener is the address that opened the connection. A state created coming
+// in is shown with the local end as its source, the way pf prints it, so the
+// opener is then the destination column.
+func opener(s *PFState) string {
+	if s.Direction == "in" {
+		return s.Dst
+	}
+	return s.Src
+}
+
+// halfOpen reports a TCP handshake the far end has not answered.
+func halfOpen(s *PFState) bool { return s.Proto == "tcp" && openerState(s) == "SYN_SENT" }
+
+// findAnomalies reads the state table for two patterns, per opener: many
+// unanswered handshakes (a SYN flood) and unanswered handshakes to many
+// destinations (a scan). Only TCP counts: UDP and ICMP states never look
+// "established", and counting them made every busy client a scanner.
+func findAnomalies(states []*PFState, synThresh, scanThresh int) []anomaly {
+	half := map[string]int{}
+	dests := map[string]map[string]bool{}
 	for _, s := range states {
-		bySrc[s.Src] = append(bySrc[s.Src], s)
+		if !halfOpen(s) {
+			continue
+		}
+		src := opener(s)
+		half[src]++
+		dst, port := s.Dst, s.DstPort
+		if s.Direction == "in" {
+			dst, port = s.Src, s.SrcPort
+		}
+		if dests[src] == nil {
+			dests[src] = map[string]bool{}
+		}
+		dests[src][fmt.Sprintf("%s:%d", dst, port)] = true
 	}
+	var out []anomaly
+	for _, src := range sortedKeys(half) {
+		if n := half[src]; n > synThresh {
+			out = append(out, anomaly{Kind: "syn_flood", Severity: "high", Subject: src,
+				Title: fmt.Sprintf("SYN flood detected from %s", src), Detail: fmt.Sprintf("%d half-open connections", n),
+				Key: "syn_flood_" + src})
+		}
+		if n := len(dests[src]); n > scanThresh {
+			out = append(out, anomaly{Kind: "port_scan", Severity: "medium", Subject: src,
+				Title:  fmt.Sprintf("Possible port scan from %s", src),
+				Detail: fmt.Sprintf("Unanswered connection attempts to %d different destinations", n),
+				Key:    "port_scan_" + src})
+		}
+	}
+	return out
+}
 
-	// Check for SYN floods
-	for src, srcStates := range bySrc {
-		synCount := 0
-		for _, s := range srcStates {
-			if s.State == "SYN_SENT" {
-				synCount++
-			}
-		}
-		if synCount > m.synFloodThresh {
-			m.ctx.Store.AddFinding(
-				"inspect",
-				"syn_flood",
-				"high",
-				src,
-				fmt.Sprintf("SYN flood detected from %s", src),
-				fmt.Sprintf("%d half-open connections", synCount),
-				fmt.Sprintf("syn_flood_%s", src),
-			)
-		}
+func sortedKeys(m map[string]int) []string {
+	out := make([]string, 0, len(m))
+	for k := range m {
+		out = append(out, k)
 	}
-
-	// Check for port scans
-	for src, srcStates := range bySrc {
-		uniqueDsts := make(map[string]int)
-		for _, s := range srcStates {
-			if s.State != "ESTABLISHED" {
-				uniqueDsts[s.Dst]++
-			}
-		}
-		if len(uniqueDsts) > m.portScanThresh {
-			m.ctx.Store.AddFinding(
-				"inspect",
-				"port_scan",
-				"medium",
-				src,
-				fmt.Sprintf("Possible port scan from %s", src),
-				fmt.Sprintf("Connections to %d different hosts in non-established state", len(uniqueDsts)),
-				fmt.Sprintf("port_scan_%s", src),
-			)
-		}
-	}
+	sort.Strings(out)
+	return out
 }
 
 // API Handlers
@@ -577,7 +606,7 @@ func (m *Module) apiStatesSummary(r *core.Req) (any, error) {
 	for _, s := range m.states {
 		summary.ByProto[s.Proto]++
 		summary.ByState[s.State]++
-		if s.State == "SYN_SENT" {
+		if halfOpen(s) {
 			summary.HalfOpenCount++
 		}
 	}
