@@ -14,7 +14,12 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"crypto/ed25519"
+	"crypto/rand"
+	"encoding/base64"
+	"encoding/binary"
 	"encoding/json"
+	"encoding/pem"
 	"errors"
 	"fmt"
 	"io"
@@ -361,6 +366,9 @@ func claudeArgs(question string, cfg assistConfig, mcpConfigPath string) []strin
 // runClaudeCode runs Claude Code headless with FlowSight attached as an MCP
 // server and relays its transcript.
 func (m *Module) runClaudeCode(ctx context.Context, question string, cfg assistConfig, emit func(Event)) (runResult, error) {
+	if cfg.ClaudeSSH != "" {
+		return m.runClaudeCodeSSH(ctx, question, cfg, emit)
+	}
 	var res runResult
 	bin, err := exec.LookPath(cfg.ClaudePath)
 	if err != nil {
@@ -417,6 +425,25 @@ func (m *Module) runClaudeCode(ctx context.Context, question string, cfg assistC
 // runClaudeCodePlain: one prompt, no tools, the result text.
 func (m *Module) runClaudeCodePlain(ctx context.Context, prompt string, cfg assistConfig) (runResult, error) {
 	var res runResult
+	if cfg.ClaudeSSH != "" {
+		cmd, err := m.sshCommand(ctx, cfg, []string{cfg.ClaudePath, "-p", prompt, "--output-format", "json", "--max-turns", "1"})
+		if err != nil {
+			return res, err
+		}
+		out, err := cmd.Output()
+		if err != nil {
+			return res, err
+		}
+		var r struct {
+			Result string `json:"result"`
+		}
+		if json.Unmarshal(out, &r) == nil && r.Result != "" {
+			res.Answer = r.Result
+		} else {
+			res.Answer = strings.TrimSpace(string(out))
+		}
+		return res, nil
+	}
 	bin, err := exec.LookPath(cfg.ClaudePath)
 	if err != nil {
 		return res, fmt.Errorf("claude not found at %q", cfg.ClaudePath)
@@ -559,4 +586,157 @@ func (m *Module) buildMCPToolsForAnthropic() []map[string]any {
 		tools = append(tools, map[string]any{"name": t.Name, "description": t.Description, "input_schema": t.InputSchema})
 	}
 	return tools
+}
+
+// ---------------------------------------------------------------- claude over ssh
+
+// runClaudeCodeSSH runs Claude Code on another machine, where it is
+// installed and logged in, and relays its transcript. The remote Claude
+// reaches FlowSight over HTTP MCP at mcp_url; FlowSight reaches the machine
+// with its own key.
+func (m *Module) runClaudeCodeSSH(ctx context.Context, question string, cfg assistConfig, emit func(Event)) (runResult, error) {
+	var res runResult
+	if cfg.MCPURL == "" {
+		return res, errors.New("mcp_url is required with claude_ssh")
+	}
+	mcp := map[string]any{"mcpServers": map[string]any{"flowsight": map[string]any{
+		"type": "http", "url": cfg.MCPURL, "headers": map[string]string{"X-Flowsight-Token": m.getFlowSightToken()}}}}
+	mb, _ := json.Marshal(mcp)
+	remote := append([]string{cfg.ClaudePath}, claudeArgs(question, cfg, string(mb))...)
+	cmd, err := m.sshCommand(ctx, cfg, remote)
+	if err != nil {
+		return res, err
+	}
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		return res, err
+	}
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	if err := cmd.Start(); err != nil {
+		return res, err
+	}
+	answer, calls, turns, in, out := relayClaudeStream(stdout, emit)
+	res.Answer, res.Calls, res.Turns, res.InputTokens, res.OutputTokens = answer, calls, turns, in, out
+	werr := cmd.Wait()
+	if ctx.Err() != nil {
+		return res, fmt.Errorf("claude on %s did not finish within %d s", cfg.ClaudeSSH, cfg.TimeoutSeconds)
+	}
+	if werr != nil && res.Answer == "" {
+		msg := strings.TrimSpace(stderr.String())
+		if len(msg) > 400 {
+			msg = msg[:400]
+		}
+		return res, fmt.Errorf("claude on %s: %v %s", cfg.ClaudeSSH, werr, msg)
+	}
+	return res, nil
+}
+
+// sshCommand is `ssh -i key user@host -- <remote argv, quoted for its shell>`.
+func (m *Module) sshCommand(ctx context.Context, cfg assistConfig, remote []string) (*exec.Cmd, error) {
+	if _, err := m.sshPublicKey(cfg); err != nil {
+		return nil, err
+	}
+	sshBin := cfg.SSHPath
+	if sshBin == "" {
+		sshBin = "ssh"
+	}
+	quoted := make([]string, len(remote))
+	for i, a := range remote {
+		quoted[i] = shellQuote(a)
+	}
+	args := []string{"-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=accept-new",
+		"-o", "UserKnownHostsFile=" + m.sshKnownHosts(), "-o", "ConnectTimeout=10",
+		"-i", m.sshKeyPath(cfg), "-T", cfg.ClaudeSSH, "--", strings.Join(quoted, " ")}
+	cmd := exec.CommandContext(ctx, sshBin, args...)
+	cmd.Env = claudeEnv()
+	cmd.Stdin = nil
+	ownProcessGroup(cmd)
+	cmd.WaitDelay = 2 * time.Second
+	return cmd, nil
+}
+
+func shellQuote(s string) string {
+	if s == "" {
+		return "''"
+	}
+	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
+}
+
+func (m *Module) sshKeyPath(cfg assistConfig) string {
+	if cfg.SSHKey != "" {
+		return cfg.SSHKey
+	}
+	return filepath.Join(m.ctx.Platform.EtcDir, "assistant_ssh_key")
+}
+
+func (m *Module) sshKnownHosts() string {
+	return filepath.Join(m.ctx.Platform.EtcDir, "assistant_known_hosts")
+}
+
+// sshPublicKey returns the OpenSSH public key for claude_ssh, generating an
+// ed25519 pair under FlowSight's config directory the first time.
+func (m *Module) sshPublicKey(cfg assistConfig) (string, error) {
+	priv := m.sshKeyPath(cfg)
+	pubPath := priv + ".pub"
+	if b, err := os.ReadFile(pubPath); err == nil && len(b) > 0 {
+		return strings.TrimSpace(string(b)), nil
+	}
+	if _, err := os.Stat(priv); err == nil {
+		return "", fmt.Errorf("%s exists but %s does not; provide the public key or remove both", priv, pubPath)
+	}
+	if err := os.MkdirAll(filepath.Dir(priv), 0o755); err != nil {
+		return "", err
+	}
+	pub, key, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		return "", err
+	}
+	privPEM, line := opensshKeyPair(pub, key, "flowsight-assistant")
+	if err := os.WriteFile(priv, privPEM, 0o600); err != nil {
+		return "", err
+	}
+	if err := os.WriteFile(pubPath, []byte(line+"\n"), 0o644); err != nil {
+		return "", err
+	}
+	return line, nil
+}
+
+// opensshKeyPair encodes an ed25519 key in OpenSSH's own formats: the
+// unencrypted "openssh-key-v1" private file and the authorized_keys line.
+// Written by hand because the daemon carries no third-party code; the
+// format is a handful of length-prefixed strings.
+func opensshKeyPair(pub ed25519.PublicKey, key ed25519.PrivateKey, comment string) (privPEM []byte, authorized string) {
+	str := func(b []byte) []byte {
+		out := make([]byte, 4+len(b))
+		binary.BigEndian.PutUint32(out, uint32(len(b)))
+		copy(out[4:], b)
+		return out
+	}
+	pubBlob := append(str([]byte("ssh-ed25519")), str(pub)...)
+	authorized = "ssh-ed25519 " + base64.StdEncoding.EncodeToString(pubBlob) + " " + comment
+	var check [4]byte
+	_, _ = rand.Read(check[:])
+	var sec []byte
+	sec = append(sec, check[:]...)
+	sec = append(sec, check[:]...)
+	sec = append(sec, str([]byte("ssh-ed25519"))...)
+	sec = append(sec, str(pub)...)
+	sec = append(sec, str(key)...) // seed || public, 64 bytes
+	sec = append(sec, str([]byte(comment))...)
+	for i := 1; len(sec)%8 != 0; i++ {
+		sec = append(sec, byte(i))
+	}
+	var body []byte
+	body = append(body, []byte("openssh-key-v1\x00")...)
+	body = append(body, str([]byte("none"))...) // cipher
+	body = append(body, str([]byte("none"))...) // kdf
+	body = append(body, str(nil)...)            // kdf options
+	var one [4]byte
+	binary.BigEndian.PutUint32(one[:], 1)
+	body = append(body, one[:]...)
+	body = append(body, str(pubBlob)...)
+	body = append(body, str(sec)...)
+	privPEM = pem.EncodeToMemory(&pem.Block{Type: "OPENSSH PRIVATE KEY", Bytes: body})
+	return privPEM, authorized
 }

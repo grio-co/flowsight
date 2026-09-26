@@ -99,7 +99,11 @@ Claude as FlowSight's analyst, and FlowSight as tools for Claude (MCP). Off by d
 | `api_key` | API key | secret |  | Anthropic key for the anthropic provider. Empty means: use the map's `ai_key` (Settings › paths) if one is set. Never shown again once saved; a masked value on save means keep. |
 | `workspace_id` | Anthropic workspace id | string |  | Only for an organisation-level key: the workspace requests are billed to (`anthropic-workspace-id` header). A key created inside a workspace needs nothing here. |
 | `model` | Model | string | `claude-sonnet-5` | anthropic provider: claude-fable-5-1, claude-opus-5-5, claude-sonnet-5, claude-haiku-4-5-20251001. Claude Code uses its own model setting. |
-| `claude_path` | Claude CLI path | string | `claude` | claude-code provider: the binary, on PATH or absolute. |
+| `claude_path` | Claude CLI path | string | `claude` | claude-code provider: the binary, on PATH or absolute; with `claude_ssh` set, the path on the remote machine. |
+| `claude_ssh` | Run Claude Code over SSH on | string |  | `user@host` of a machine where Claude Code is installed and logged in; empty runs it on the gateway. FlowSight connects with its own key (`GET /api/assistant/ssh_key`, or `ssh_public_key` in the status). |
+| `mcp_url` | MCP URL for a remote Claude | string |  | Required with `claude_ssh`: this daemon's `/api/mcp` as the remote machine sees it, e.g. `http://192.168.0.1:8080/api/mcp`. |
+| `claude_ssh_key` | SSH private key | string |  | Empty: `assistant_ssh_key` under the config directory, generated on first use (ed25519). |
+| `ssh_path` | ssh binary | string | `ssh` |  |
 | `max_turns` | Max turns | int | `8` | Request/answer cycles (tool rounds) per question, 1–20. |
 | `max_tool_result_bytes` | Max tool result bytes | int | `65536` | A tool result larger than this is cut with a note before it goes to the model. |
 | `allow_writes` | Allow write operations | bool | `false` | When on, the model may call POST/PUT/DELETE routes. Keep off unless you mean it. |

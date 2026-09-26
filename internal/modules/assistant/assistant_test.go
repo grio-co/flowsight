@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -313,5 +314,70 @@ func TestConversationsPersistInTheStore(t *testing.T) {
 	m.config.RetentionDays = 1
 	if err := m.cleanConversations(); err != nil || m.getConversation("c-2") != nil {
 		t.Fatal("retention did not remove an old conversation")
+	}
+}
+
+func TestClaudeCodeOverSSHQuotesAndAttachesHTTPMCP(t *testing.T) {
+	m := testModule(t)
+	m.ctx.Platform.EtcDir = t.TempDir()
+	fake := fakeClaude(t, `
+printf '%s\n' "$@" > "$(dirname "$0")/argv"
+cat <<'JSON'
+{"type":"assistant","message":{"content":[{"type":"text","text":"echo it is"}],"usage":{"input_tokens":5,"output_tokens":3}}}
+{"type":"result","subtype":"success","result":"echo it is","num_turns":1}
+JSON
+`)
+	cfg := m.config
+	cfg.Provider, cfg.ClaudeSSH, cfg.ClaudePath, cfg.SSHPath, cfg.MCPURL = "claude-code", "grio@192.168.1.190", "/home/grio/.local/bin/claude", fake, "http://192.168.0.1:8080/api/mcp"
+	cfg.MaxTurns, cfg.TimeoutSeconds = 6, 20
+	t.Setenv("FLOWSIGHT_TOKEN", "tok-1")
+	res, err := m.run(context.Background(), "what's 192.168.1.115? it's \"the echo\"", cfg, nil)
+	if err != nil || res.Answer != "echo it is" {
+		t.Fatalf("answer %q err %v", res.Answer, err)
+	}
+	argv, _ := os.ReadFile(filepath.Join(filepath.Dir(fake), "argv"))
+	a := string(argv)
+	for _, want := range []string{"BatchMode=yes", "StrictHostKeyChecking=accept-new", "grio@192.168.1.190", "-T", "--"} {
+		if !strings.Contains(a, want+"\n") {
+			t.Fatalf("ssh argv lacks %q:\n%s", want, a)
+		}
+	}
+	lines := strings.Split(strings.TrimSpace(a), "\n")
+	remote := lines[len(lines)-1]
+	for _, want := range []string{"'/home/grio/.local/bin/claude' '-p' 'what'\\''s 192.168.1.115? it'\\''s \"the echo\"'", "'--output-format' 'stream-json'", "'--mcp-config' '{\"mcpServers\":{\"flowsight\":{\"headers\":{\"X-Flowsight-Token\":\"tok-1\"},\"type\":\"http\",\"url\":\"http://192.168.0.1:8080/api/mcp\"}}}'", "'--allowedTools' 'mcp__flowsight__*'"} {
+		if !strings.Contains(remote, want) {
+			t.Fatalf("remote command lacks %q:\n%s", want, remote)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(m.ctx.Platform.EtcDir, "assistant_ssh_key")); err != nil {
+		t.Fatal("ssh key was not generated")
+	}
+}
+
+func TestGeneratedSSHKeyIsOpenSSHFormat(t *testing.T) {
+	m := testModule(t)
+	m.ctx.Platform.EtcDir = t.TempDir()
+	cfg := m.config
+	pub, err := m.sshPublicKey(cfg)
+	if err != nil || !strings.HasPrefix(pub, "ssh-ed25519 AAAA") || !strings.HasSuffix(pub, " flowsight-assistant") {
+		t.Fatalf("public key %q err %v", pub, err)
+	}
+	priv := filepath.Join(m.ctx.Platform.EtcDir, "assistant_ssh_key")
+	if b, _ := os.ReadFile(priv); !bytes.HasPrefix(b, []byte("-----BEGIN OPENSSH PRIVATE KEY-----")) {
+		t.Fatal("private key is not an OpenSSH file")
+	}
+	// The real ssh-keygen must accept it and derive the same public key.
+	if kg, err := exec.LookPath("ssh-keygen"); err == nil {
+		out, err := exec.Command(kg, "-y", "-f", priv).Output()
+		if err != nil {
+			t.Fatalf("ssh-keygen rejects the key: %v", err)
+		}
+		if strings.Fields(string(out))[1] != strings.Fields(pub)[1] {
+			t.Fatalf("ssh-keygen derives a different public key:\n%s\n%s", out, pub)
+		}
+	}
+	again, _ := m.sshPublicKey(cfg)
+	if again != pub {
+		t.Fatal("key regenerated on second call")
 	}
 }

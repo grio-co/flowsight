@@ -114,7 +114,7 @@ itself, and Claude Code reaches FlowSight through a stdio bridge
 gateway only. `redact_addresses` replaces internal addresses with stable
 placeholders first; names and domains still leave. Write routes are not
 offered to the model or to MCP clients unless `allow_writes` /
-`mcp_allow_writes` are on. The MCP endpoint `POST /api/mcp` is behind the
+`mcp_allow_writes` are on. With `claude_ssh`, the token is handed to the remote Claude Code in its MCP configuration on that machine (a named token from `api_tokens` is the right one to use there), and FlowSight keeps an ed25519 key of its own under its config directory to reach that machine. The MCP endpoint `POST /api/mcp` is behind the
 same authentication as the rest of the API. Conversations are kept in the
 store for `retention_days` and can be forgotten from the Ask page.
 

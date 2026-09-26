@@ -12,6 +12,18 @@ name, and every release's assets carry that string in their file names.
 
 The newest entry is first.
 
+## 0.9.8r202609261903
+
+**Claude Code on another machine.** The claude-code provider can run the
+CLI over SSH on a VM or container where Claude Code is installed and logged
+in with a subscription, so no API key is needed and nothing but an SSH key
+is added to the gateway. FlowSight generates its own ed25519 key (shown as
+`ssh_public_key` in the status, `GET /api/assistant/ssh_key`), quotes the
+command for the remote shell, and attaches itself to that Claude over HTTP
+MCP at `mcp_url`. Settings: `claude_ssh`, `mcp_url`, `claude_ssh_key`,
+`ssh_path`. The key file is OpenSSH's own format, encoded in the daemon
+without third-party code and checked against `ssh-keygen` in the tests.
+
 ## 0.9.8r202609261853
 
 **Organisation-level Anthropic keys.** Such a key is accepted by the API

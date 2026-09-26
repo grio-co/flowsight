@@ -72,6 +72,10 @@ type assistConfig struct {
 	WorkspaceID        string
 	Model              string
 	ClaudePath         string
+	ClaudeSSH          string // user@host: run claude there over ssh
+	SSHKey             string // private key path; generated when missing
+	SSHPath            string // the ssh binary
+	MCPURL             string // where a remote claude reaches FlowSight (HTTP MCP)
 	MaxTurns           int
 	MaxToolResultBytes int
 	AllowWrites        bool
@@ -95,6 +99,10 @@ func (m *Module) Info() core.ModuleInfo {
 			"workspace_id":          "",
 			"model":                 "claude-sonnet-5",
 			"claude_path":           "claude",
+			"claude_ssh":            "",
+			"claude_ssh_key":        "",
+			"ssh_path":              "ssh",
+			"mcp_url":               "",
 			"max_turns":             8,
 			"max_tool_result_bytes": 65536,
 			"allow_writes":          false,
@@ -109,7 +117,11 @@ func (m *Module) Info() core.ModuleInfo {
 			{Section: "Provider", Key: "api_key", Label: "API Key", Type: "secret", Help: "For anthropic provider only. Your Anthropic API key. Never shown; reads from secure storage."},
 			{Section: "Provider", Key: "workspace_id", Label: "Anthropic workspace id", Type: "string", Help: "Only for an organisation-level key: the workspace the requests are billed to (sent as anthropic-workspace-id). A key created inside a workspace needs nothing here."},
 			{Section: "Provider", Key: "model", Label: "Model", Type: "string", Help: "For anthropic provider: claude-fable-5-1, claude-haiku-4-5-20251001, claude-sonnet-5, claude-opus-5-5. claude-code ignores this."},
-			{Section: "Provider", Key: "claude_path", Label: "Claude CLI Path", Type: "string", Help: "For claude-code provider: path to the claude binary (default: on PATH)."},
+			{Section: "Provider", Key: "claude_path", Label: "Claude CLI path", Type: "string", Help: "claude-code provider: the claude binary, on PATH or absolute. With claude_ssh set this is the path on the remote machine (for example /home/you/.local/bin/claude)."},
+			{Section: "Provider", Key: "claude_ssh", Label: "Run Claude Code over SSH on", Type: "string", Placeholder: "user@host", Help: "Leave empty to run claude on this gateway. Set user@host to run it on another machine where Claude Code is installed and logged in (a VM or container); FlowSight connects with its own key (shown in the status as ssh_public_key; add it to that user's authorized_keys) and the remote Claude reaches FlowSight at mcp_url."},
+			{Section: "Provider", Key: "mcp_url", Label: "MCP URL for a remote Claude", Type: "string", Placeholder: "http://192.168.0.1:8080/api/mcp", Help: "Required with claude_ssh: the address of this daemon's /api/mcp as seen from the remote machine. The API token is passed along; use a named token (api_tokens) so it can be rotated on its own."},
+			{Section: "Provider", Key: "claude_ssh_key", Label: "SSH private key", Type: "string", Help: "Path of the key used for claude_ssh. Empty: assistant_ssh_key under FlowSight's config directory, generated on first use."},
+			{Section: "Provider", Key: "ssh_path", Label: "ssh binary", Type: "string", Help: "Normally just ssh."},
 			{Section: "Behavior", Key: "max_turns", Label: "Max conversation turns", Type: "int", Help: "Maximum number of request/response cycles before stopping."},
 			{Section: "Behavior", Key: "max_tool_result_bytes", Label: "Max tool result bytes", Type: "int", Help: "Results larger than this are truncated."},
 			{Section: "Behavior", Key: "allow_writes", Label: "Allow write operations", Type: "bool", Help: "If on, the assistant can POST/PUT/DELETE to FlowSight's API. Default off for safety."},
@@ -154,6 +166,9 @@ func (m *Module) Setup(ctx *core.Context) error {
 		core.Doc("Forget one saved conversation; the answer and its tool trail are removed from the store"),
 		core.PathParam("id", "string", "Conversation id", "c-1790376243-1"),
 		core.Write(), core.Returns("Acknowledgement", map[string]any{"ok": true}))
+	ctx.Route("GET", "/api/assistant/ssh_key", m.apiSSHKey,
+		core.Doc("The public half of the key FlowSight uses to run Claude Code on another machine (claude_ssh); generated on first request. Add it to that user's authorized_keys"),
+		core.Returns("Public key", map[string]any{"public_key": "ssh-ed25519 AAAA… flowsight-assistant", "path": "/usr/local/etc/flowsight/assistant_ssh_key"}))
 	ctx.Route("GET", "/api/assistant/tools", m.apiTools,
 		core.Doc("The FlowSight tools the model and MCP clients can call: one per documented API route, with its input schema"),
 		core.Returns("Tools", map[string]any{"tools": []map[string]any{{"name": "visibility_flows", "description": "Recent sessions …", "inputSchema": map[string]any{"type": "object", "properties": map[string]any{"minutes": map[string]any{"type": "integer"}}}}}, "count": 190}))
@@ -204,6 +219,10 @@ func (m *Module) loadConfig() {
 		WorkspaceID:        strings.TrimSpace(core.Str(s, "workspace_id", "")),
 		Model:              strings.TrimSpace(core.Str(s, "model", "claude-sonnet-5")),
 		ClaudePath:         strings.TrimSpace(core.Str(s, "claude_path", "claude")),
+		ClaudeSSH:          strings.TrimSpace(core.Str(s, "claude_ssh", "")),
+		SSHKey:             strings.TrimSpace(core.Str(s, "claude_ssh_key", "")),
+		SSHPath:            strings.TrimSpace(core.Str(s, "ssh_path", "ssh")),
+		MCPURL:             strings.TrimSpace(core.Str(s, "mcp_url", "")),
 		MaxTurns:           core.Int(s, "max_turns", 8),
 		MaxToolResultBytes: core.Int(s, "max_tool_result_bytes", 65536),
 		AllowWrites:        core.Bool(s, "allow_writes", false),
@@ -428,6 +447,20 @@ func (m *Module) apiStatus(r *core.Req) (any, error) {
 	} else if cfg.Provider == "anthropic" && cfg.APIKey == "" {
 		status["ready"] = false
 		status["reason"] = "anthropic provider requires api_key"
+	} else if cfg.Provider == "claude-code" && cfg.ClaudeSSH != "" {
+		pub, err := m.sshPublicKey(cfg)
+		status["ssh_public_key"] = pub
+		status["claude_ssh"] = cfg.ClaudeSSH
+		switch {
+		case err != nil:
+			status["ready"] = false
+			status["reason"] = "ssh key: " + err.Error()
+		case cfg.MCPURL == "":
+			status["ready"] = false
+			status["reason"] = "mcp_url is required with claude_ssh: the address of this daemon's /api/mcp as the remote machine sees it"
+		default:
+			status["ready"] = true
+		}
 	} else if cfg.Provider == "claude-code" {
 		// Check if claude binary exists
 		if _, err := exec.LookPath(cfg.ClaudePath); err != nil {
@@ -805,4 +838,13 @@ func (m *Module) callTool(ctx context.Context, tool *Tool, args json.RawMessage)
 		return fmt.Sprintf("error: %v", err)
 	}
 	return result
+}
+
+func (m *Module) apiSSHKey(r *core.Req) (any, error) {
+	cfg := m.cfg()
+	pub, err := m.sshPublicKey(cfg)
+	if err != nil {
+		return nil, err
+	}
+	return map[string]any{"public_key": pub, "path": m.sshKeyPath(cfg)}, nil
 }

@@ -95,6 +95,7 @@ Download the full OpenAPI 3.0 specification at `GET /api/openapi.json` for use w
 | GET | `/api/assistant/conversations` | Recent questions and answers kept in the store, newest first, with the tools each answer used | limit, offset |
 | DELETE | `/api/assistant/conversations/{id}` | Forget one saved conversation; the answer and its tool trail are removed from the store | id |
 | GET | `/api/assistant/conversations/{id}` | One saved conversation: the question, the full answer and every tool call with its route | id |
+| GET | `/api/assistant/ssh_key` | The public half of the key FlowSight uses to run Claude Code on another machine (claude_ssh); generated on first request. Add it to that user's authorized_keys | none |
 | GET | `/api/assistant/status` | The assistant's state: which provider is configured, whether it is ready to answer and if not why, the model, how many FlowSight tools it can call | none |
 | GET | `/api/assistant/tools` | The FlowSight tools the model and MCP clients can call: one per documented API route, with its input schema | none |
 
