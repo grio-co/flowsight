@@ -17,7 +17,7 @@ Every save of `flowsight.json` first keeps the previous contents as `flowsight.j
 | `log_level` | `info` | `debug`, `info`, `warn`, `error`. |
 | `memory_limit_mb` | `256` | Soft limit handed to the Go runtime; the daemon trims caches and collects earlier as it nears it. |
 | `retention.*` | flows 7, dns 7, alerts 30, events 30, rollups 400, tls 30 days | Capped by the license tier (Community 7 days, Pro 90, Business 365) except rollups. |
-| `paths.*` | per platform | Where the backends keep their files (Unbound config, squid binary, pf, Suricata EVE log, DHCP leases). |
+| `paths.*` | per platform | Where the backends keep their files (Unbound config, squid binary, pf, Suricata EVE log, DHCP leases). `unbound_zone_dir` is where DNS-block zone files go (OPNsense: `/var/unbound/flowsight`, inside the resolver's chroot and outside the directory it empties on every start); `unbound_persist_dir` is where includes are kept that the platform copies in when it starts the resolver (OPNsense: `/usr/local/etc/unbound.opnsense.d`). |
 
 ## Modules
 

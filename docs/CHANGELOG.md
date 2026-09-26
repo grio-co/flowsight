@@ -12,6 +12,20 @@ name, and every release's assets carry that string in their file names.
 
 The newest entry is first.
 
+## 0.9.8r202609262130
+
+**DNS keeps working after Unbound restarts.** A DNS-block policy's zone file
+was kept in `/var/unbound/etc`, which OPNsense empties every time it starts
+Unbound, while the include naming the zone file came back. After a reboot,
+or a restart from the GUI, Unbound refused to start ("cannot open zonefile")
+and DNS was down for every client until someone intervened; FlowSight then
+tried to reload the stopped resolver, failed, and reverted, so it never
+recovered by itself. Zone files now live in `/var/unbound/flowsight`, which
+survives restarts, and an Unbound that is enabled but stopped is started
+rather than reloaded. An Unbound the operator has disabled is never started.
+Old zone files are removed on the first reconcile. Nothing to do; if
+Unbound is down on an older version, see OPERATIONS.md.
+
 ## 0.9.8r202609262045
 
 **Upgrading from an older build starts again.** 0.9.8r202609262017 created

@@ -5,6 +5,7 @@ package core
 
 import (
 	"context"
+	"encoding/xml"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -31,8 +32,17 @@ type Platform struct {
 	UnboundConfig    string `json:"unbound_config"` // "" means do not pass -c
 	UnboundCheckconf string `json:"unbound_checkconf"`
 	UnboundInclude   string `json:"unbound_include"`
-	UnboundDuckDB    string `json:"unbound_duckdb"`
-	UnboundLog       string `json:"unbound_log"`
+	// UnboundPersistDir is where includes are kept that the platform copies
+	// into the live include directory whenever it (re)starts the resolver
+	// (OPNsense's unbound.opnsense.d). Empty: the include directory is live
+	// and persistent itself.
+	UnboundPersistDir string `json:"unbound_persist_dir"`
+	// UnboundZoneDir is where RPZ zone files go: inside the resolver's
+	// chroot, and never in a directory the platform empties on a restart.
+	// Empty: next to the include.
+	UnboundZoneDir string `json:"unbound_zone_dir"`
+	UnboundDuckDB  string `json:"unbound_duckdb"`
+	UnboundLog     string `json:"unbound_log"`
 
 	SuricataEve      string `json:"suricata_eve"`
 	SuricataRulesDir string `json:"suricata_rules_dir"`
@@ -81,11 +91,16 @@ func opnsense() *Platform {
 		UnboundControl: "/usr/local/sbin/unbound-control", UnboundConfig: "/var/unbound/unbound.conf",
 		UnboundCheckconf: "/usr/local/sbin/unbound-checkconf",
 		UnboundInclude:   "/var/unbound/etc/flowsight-policy.conf",
-		UnboundDuckDB:    "/var/unbound/data/unbound.duckdb",
-		UnboundLog:       "/var/log/resolver/latest.log",
-		SuricataEve:      "/var/log/suricata/eve.json",
-		SuricataRulesDir: "/usr/local/etc/suricata/opnsense.rules",
-		SquidAccessLog:   "/var/log/squid/access.log", SquidIncludeDir: "/usr/local/etc/squid/pre-auth",
+		// OPNsense's start.sh empties /var/unbound/etc on every start and
+		// copies back only *.conf from unbound.opnsense.d, so a zone file
+		// there vanishes while the include naming it comes back.
+		UnboundPersistDir: "/usr/local/etc/unbound.opnsense.d",
+		UnboundZoneDir:    "/var/unbound/flowsight",
+		UnboundDuckDB:     "/var/unbound/data/unbound.duckdb",
+		UnboundLog:        "/var/log/resolver/latest.log",
+		SuricataEve:       "/var/log/suricata/eve.json",
+		SuricataRulesDir:  "/usr/local/etc/suricata/opnsense.rules",
+		SquidAccessLog:    "/var/log/squid/access.log", SquidIncludeDir: "/usr/local/etc/squid/pre-auth",
 		SquidBin: "/usr/local/sbin/squid", SquidConf: "/usr/local/etc/squid/squid.conf",
 		NtopngURL: "http://127.0.0.1:3000", NtopngConf: "/usr/local/etc/ntopng.conf",
 		DHCPLeases: []string{"/var/db/dnsmasq.leases", "/var/dhcpd/var/db/dhcpd.leases",
@@ -101,6 +116,8 @@ func freebsd() *Platform {
 	p.Name = "freebsd"
 	p.UnboundConfig = "/usr/local/etc/unbound/unbound.conf"
 	p.UnboundInclude = "/usr/local/etc/unbound/conf.d/flowsight-policy.conf"
+	p.UnboundPersistDir = ""
+	p.UnboundZoneDir = ""
 	p.UnboundDuckDB = ""
 	p.UnboundLog = ""
 	p.SquidIncludeDir = "/usr/local/etc/squid/conf.d"
@@ -180,6 +197,54 @@ func (p *Platform) UnboundCheck() (string, error) {
 		dir = filepath.Dir(p.UnboundConfig)
 	}
 	return RunIn(dir, 60*time.Second, p.UnboundCheckconf, args...)
+}
+
+// UnboundRunning reports whether the resolver answers its control channel.
+// Without a control program it cannot tell and says yes, so callers keep
+// reloading as they always have.
+func (p *Platform) UnboundRunning() bool {
+	if p.UnboundControl == "" {
+		return true
+	}
+	args := []string{}
+	if p.UnboundConfig != "" {
+		args = append(args, "-c", p.UnboundConfig)
+	}
+	_, err := Run(15*time.Second, p.UnboundControl, append(args, "status")...)
+	return err == nil
+}
+
+// UnboundEnabled reports whether the operator has the resolver switched on,
+// so that FlowSight may start it when it is down. FlowSight never starts a
+// resolver someone turned off, so anything it cannot read counts as off.
+func (p *Platform) UnboundEnabled() bool {
+	switch {
+	case p.IsOPNsense() && p.ConfigXML != "":
+		b, err := os.ReadFile(p.ConfigXML)
+		if err != nil {
+			return false
+		}
+		var cfg struct {
+			OPNsense struct {
+				Unbound struct {
+					General struct {
+						Enabled string `xml:"enabled"`
+					} `xml:"general"`
+				} `xml:"unboundplus"`
+			} `xml:"OPNsense"`
+		}
+		if xml.Unmarshal(b, &cfg) != nil {
+			return false
+		}
+		return strings.TrimSpace(cfg.OPNsense.Unbound.General.Enabled) == "1"
+	case p.Family == "freebsd":
+		_, err := Run(15*time.Second, "/usr/sbin/service", "unbound", "enabled")
+		return err == nil
+	case p.Family == "linux":
+		_, err := Run(15*time.Second, "systemctl", "is-enabled", "--quiet", "unbound")
+		return err == nil
+	}
+	return false
 }
 
 // Service restarts or reloads a backend the platform manages. On OPNsense the
