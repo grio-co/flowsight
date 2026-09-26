@@ -12,6 +12,11 @@ name, and every release's assets carry that string in their file names.
 
 The newest entry is first.
 
+## 0.9.8r202609261927
+
+**Assistant told to page.** Its instructions now name the summary and paging
+parameters so an overview of many devices is one call, not one per device.
+
 ## 0.9.8r202609261926
 
 **Abroad fits in one answer.** `/api/visibility/abroad` takes `detail=summary`
