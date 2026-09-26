@@ -1,9 +1,13 @@
 package qos
 
 import (
-	"errors"
+	"math"
+	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
+
+	"github.com/grioghar/flowsight/internal/core"
 )
 
 func TestParseRules(t *testing.T) {
@@ -54,91 +58,6 @@ func TestParseRules(t *testing.T) {
 // Shaping is applied on the LAN side, where addresses are not yet translated.
 // Getting the direction backwards would silently prioritise the wrong half of
 // every conversation, and nothing about the running system would look wrong.
-func TestRenderDirections(t *testing.T) {
-	in := anchorInput{
-		LAN:          "vtnet0",
-		DefaultClass: Normal,
-		Rules: parseRules([]string{
-			"192.168.1.178 = low",
-			"redgifs.com = high",
-		}),
-		Addrs:    map[string][]string{"redgifs.com": {"203.0.113.7", "203.0.113.8"}},
-		Ceilings: map[string]ceiling{},
-	}
-	text, tables := render(in)
-
-	if len(tables) != 2 {
-		t.Fatalf("want a table per rule, got %d: %v", len(tables), tables)
-	}
-	// One rule per match, on the direction that opens the connection, naming
-	// both queues. A separate rule for the reply never fires: the reply comes
-	// back through the state the first rule created.
-	wantHost := []string{
-		"match in on vtnet0 from <qos_r0> to any dnqueue(" + itoa(qUpLow) + ")",
-		"match out on vtnet0 from any to <qos_r0> dnqueue(" + itoa(qDownLow) + ")",
-	}
-	wantSvc := []string{
-		"match in on vtnet0 from any to <qos_r1> dnqueue(" + itoa(qUpHigh) + ")",
-		"match out on vtnet0 from <qos_r1> to any dnqueue(" + itoa(qDownHigh) + ")",
-	}
-	for _, w := range append(wantHost, wantSvc...) {
-		if !strings.Contains(text, w) {
-			t.Errorf("missing rule:\n  %s\ngot:\n%s", w, text)
-		}
-	}
-	// The default has to come first so a named rule can override it: pf takes
-	// the last match when nothing is quick, and nothing here is.
-	iDefault := strings.Index(text, "match in on vtnet0 all")
-	iRule := strings.Index(text, "from <qos_r0> to any dnqueue")
-	if iDefault < 0 || iRule < 0 || iDefault > iRule {
-		t.Error("the default class must be emitted before the specific rules")
-	}
-	if strings.Contains(text, "quick") {
-		t.Error("no rule here may be quick; shaping must not decide whether traffic passes")
-	}
-	if strings.Contains(text, "pass ") || strings.Contains(text, "block ") {
-		t.Error("shaping must only match, never pass or block")
-	}
-	// Every class rule needs a partner on the reply direction; a queue named
-	// on a directional rule applies only to that direction.
-	if strings.Count(text, "match in on") != strings.Count(text, "match out on") {
-		t.Errorf("each direction needs its own rule:\n%s", text)
-	}
-}
-
-// A name nobody has resolved yet matches no addresses, so it must produce no
-// table and no rule rather than an empty table that matches everything.
-func TestUnresolvedDomainProducesNothing(t *testing.T) {
-	text, tables := render(anchorInput{
-		LAN: "vtnet0", DefaultClass: Normal,
-		Rules: parseRules([]string{"never-looked-up.example = high"}),
-		Addrs: map[string][]string{}, Ceilings: map[string]ceiling{},
-	})
-	if len(tables) != 0 {
-		t.Errorf("an unresolved name must not create a table: %v", tables)
-	}
-	if strings.Contains(text, "qos_r0") {
-		t.Errorf("an unresolved name must not create a rule:\n%s", text)
-	}
-	if !strings.Contains(text, "match in on vtnet0 all dnqueue(") {
-		t.Error("the default class should still be applied")
-	}
-}
-
-func TestCeilingUsesItsOwnPipe(t *testing.T) {
-	rules := parseRules([]string{"192.168.1.178 = low, 20Mbit"})
-	text, _ := render(anchorInput{
-		LAN: "vtnet0", DefaultClass: Normal, Rules: rules,
-		Ceilings: map[string]ceiling{"192.168.1.178": {Mbit: 20, DownPipe: ceilDownBase, UpPipe: ceilUpBase}},
-	})
-	if !strings.Contains(text, "dnpipe("+itoa(ceilUpBase)+")") || !strings.Contains(text, "dnpipe("+itoa(ceilDownBase)+")") {
-		t.Errorf("a ceiling must have a pipe on each direction:\n%s", text)
-	}
-	if !strings.Contains(text, "dnqueue("+itoa(qUpLow)+")") {
-		t.Error("a rule with both a class and a ceiling must still get its class")
-	}
-}
-
 func TestRateParsing(t *testing.T) {
 	for in, want := range map[string]float64{
 		"20": 20, "20mbit": 20, "20 Mbit/s": 20, "500kbit": 0.5, "1gbit": 1000,
@@ -155,76 +74,69 @@ func TestRateParsing(t *testing.T) {
 	}
 }
 
-// The buffer has to match the rate. Measured on a test gateway, the default
-// fifty-slot queue held a 14 Mbit/s pipe to 4.6 Mbit/s of real throughput,
-// because TCP was being told to back off by loss rather than by delay.
-func TestQueueBytesTracksRate(t *testing.T) {
-	if got := queueBytes(100); got != int(100e6/8*0.05) {
-		t.Errorf("100 Mbit should buffer about 50ms of it, got %d bytes", got)
+type fakeIdentity struct{ core.Identity }
+
+func (fakeIdentity) IsLocal(ip string) bool {
+	return strings.HasPrefix(ip, "192.168.1.") || strings.HasPrefix(ip, "10.0.5.")
+}
+
+func newPlanModule(t *testing.T) *Module {
+	t.Helper()
+	cfg, err := core.LoadConfig(filepath.Join(t.TempDir(), "flowsight.json"))
+	if err != nil {
+		t.Fatal(err)
 	}
-	if got := queueBytes(0.1); got < 50<<10 {
-		t.Errorf("a tiny pipe still needs a floor, got %d", got)
+	cfg.DeclareModule("qos", map[string]any{"download_mbit": 100, "upload_mbit": 20,
+		"weight_high": 70, "weight_normal": 25, "weight_low": 5, "default_class": "normal"})
+	return &Module{ctx: &core.Context{Name: "qos", Config: cfg}, identity: fakeIdentity{}}
+}
+
+// The plan these rules make is the one the firewall's golden test renders
+// (firewall/shaper_test.go, goldenShapePlan), so what reaches pf and
+// dummynet is what this module loaded before its engine moved there.
+func TestPlanMatchesFirewallGolden(t *testing.T) {
+	m := newPlanModule(t)
+	rules := parseRules([]string{
+		"192.168.1.178 = low, 20Mbit",
+		"redgifs.com = high",
+		"never-looked-up.example = high",
+		"203.0.113.9 = high",
+		"backup.example = 5",
+		"10.0.5.0/24 = low",
+	})
+	addrs := map[string][]string{"redgifs.com": {"203.0.113.7", "203.0.113.8"}, "backup.example": {"198.51.100.4"}}
+	got := m.plan("vtnet0", rules, addrs, 0.93)
+	want := core.ShapePlan{LAN: "vtnet0", DownMbit: 93, UpMbit: 18.6, WeightHigh: 70, WeightNormal: 25, WeightLow: 5,
+		DefaultClass: "normal", Rules: []core.ShapeRule{
+			{Key: "10.0.5.0/24", Label: "10.0.5.0/24 = low", Addrs: []string{"10.0.5.0/24"}, Local: true, Class: "low"},
+			{Key: "192.168.1.178", Label: "192.168.1.178 = low, 20Mbit", Addrs: []string{"192.168.1.178"}, Local: true, Class: "low", CeilingMbit: 20},
+			{Key: "203.0.113.9", Label: "203.0.113.9 = high", Addrs: []string{"203.0.113.9"}, Class: "high"},
+			{Key: "backup.example", Label: "backup.example = 5", Addrs: []string{"198.51.100.4"}, CeilingMbit: 5},
+			{Key: "never-looked-up.example", Label: "never-looked-up.example = high", Class: "high"},
+			{Key: "redgifs.com", Label: "redgifs.com = high", Addrs: []string{"203.0.113.7", "203.0.113.8"}, Class: "high"},
+		}}
+	if math.Abs(got.DownMbit-want.DownMbit) > 1e-9 || math.Abs(got.UpMbit-want.UpMbit) > 1e-9 {
+		t.Fatalf("rates: got %v/%v", got.DownMbit, got.UpMbit)
 	}
-	if got := queueBytes(10000); got > 2<<20 {
-		t.Errorf("a huge pipe must be capped or the queue is just delay, got %d", got)
+	got.DownMbit, got.UpMbit = want.DownMbit, want.UpMbit
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("plan changed:\n got %+v\nwant %+v", got, want)
 	}
 }
 
 // The same address literal can name either end of a conversation. Deciding
 // wrongly shapes the opposite half of everything that matches, and nothing
-// about the running system looks wrong while it does.
+// about the running system looks wrong while it does. A name is always out
+// there.
 func TestAddressRuleDependsOnWhichSideItIsOn(t *testing.T) {
-	local := func(ip string) bool { return strings.HasPrefix(ip, "192.168.1.") }
-	mk := func(rule string) string {
-		text, _ := render(anchorInput{
-			LAN: "vtnet0", Rules: parseRules([]string{rule}),
-			Addrs: map[string][]string{}, Ceilings: map[string]ceiling{}, IsLocal: local,
-		})
-		return text
+	m := newPlanModule(t)
+	p := m.plan("vtnet0", parseRules([]string{"192.168.1.178 = low", "203.0.113.9 = high", "example.com = high"}),
+		map[string][]string{"example.com": {"192.168.1.9"}}, 1)
+	side := map[string]bool{}
+	for _, r := range p.Rules {
+		side[r.Key] = r.Local
 	}
-	// A device here opens connections: it is the source on the way out.
-	here := mk("192.168.1.178 = low")
-	if !strings.Contains(here, "match in on vtnet0 from <qos_r0> to any") ||
-		!strings.Contains(here, "match out on vtnet0 from any to <qos_r0>") {
-		t.Errorf("a local address must be treated as a device here:\n%s", here)
-	}
-	// Something out there is the destination on the way out.
-	there := mk("203.0.113.9 = high")
-	if !strings.Contains(there, "match in on vtnet0 from any to <qos_r0>") ||
-		!strings.Contains(there, "match out on vtnet0 from <qos_r0> to any") {
-		t.Errorf("a remote address must be treated as a far end:\n%s", there)
-	}
-}
-
-// After a reboot dummynet is not in the kernel, yet "dnctl pipe show" still
-// succeeds; trusting it left shaping failing on every apply with "Protocol
-// not available". The kernel is asked instead, and the module loaded.
-func TestAvailableLoadsDummynetWhenTheKernelLacksIt(t *testing.T) {
-	var sys []string
-	loaded := false
-	d := &dn{
-		run: func(args ...string) (string, error) { return "", nil }, // dnctl answers either way
-		sys: func(name string, args ...string) (string, error) {
-			sys = append(sys, name+" "+strings.Join(args, " "))
-			switch name {
-			case "kldstat":
-				if !loaded {
-					return "", errors.New("exit status 1")
-				}
-			case "kldload":
-				loaded = true
-			}
-			return "", nil
-		},
-	}
-	if err := d.available(); err != nil {
-		t.Fatal(err)
-	}
-	if !loaded {
-		t.Fatalf("dummynet was not loaded; calls: %v", sys)
-	}
-	sys = nil
-	if err := d.available(); err != nil || len(sys) != 1 || sys[0] != "kldstat -q -m dummynet" {
-		t.Fatalf("with dummynet loaded, only the check should run: %v %v", err, sys)
+	if !side["192.168.1.178"] || side["203.0.113.9"] || side["example.com"] {
+		t.Errorf("local address must be this device, remote and names the far end: %v", side)
 	}
 }

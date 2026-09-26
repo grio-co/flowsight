@@ -1,4 +1,4 @@
-package qos
+package firewall
 
 // The shaping engine underneath: dummynet, driven through dnctl(8).
 //
@@ -40,14 +40,14 @@ const (
 	ceilUpBase   = 200
 )
 
-func classQueue(c Class, down bool) int {
+func classQueue(c string, down bool) int {
 	switch c {
-	case High:
+	case "high":
 		if down {
 			return qDownHigh
 		}
 		return qUpHigh
-	case Low:
+	case "low":
 		if down {
 			return qDownLow
 		}

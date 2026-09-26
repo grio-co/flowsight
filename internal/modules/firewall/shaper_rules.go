@@ -1,4 +1,4 @@
-package qos
+package firewall
 
 // Turning the plan into pf rules.
 //
@@ -28,29 +28,34 @@ package qos
 import (
 	"fmt"
 	"strings"
+
+	"github.com/grioghar/flowsight/internal/core"
 )
 
-// anchorInput is what render needs that does not come from the rules.
-type anchorInput struct {
-	LAN          string
-	Rules        []Rule
-	Addrs        map[string][]string // domain rule -> addresses seen for it
-	DefaultClass Class
-	Ceilings     map[string]ceiling // rule match -> its two pipes
-	// IsLocal decides which end of a conversation an address rule names. The
-	// same literal can mean either: 192.168.1.178 is a device on this network
-	// and needs the rules written one way round, while 203.0.113.9 is
-	// something out there and needs them the other. Guessing wrong shapes the
-	// opposite half of every matching conversation and looks fine doing it.
-	IsLocal func(string) bool
+// shapeTable is a pf table per rule, named from its position so that two
+// rules matching similar things never collide.
+func shapeTable(i int) string { return fmt.Sprintf("qos_r%d", i) }
+
+// shapeCeilings gives each rule with a ceiling a pipe of its own per
+// direction, numbered in rule order; the map is by rule key.
+func shapeCeilings(p core.ShapePlan) ([]ceiling, map[string]ceiling) {
+	var list []ceiling
+	byKey := map[string]ceiling{}
+	n := 0
+	for _, r := range p.Rules {
+		if r.CeilingMbit <= 0 {
+			continue
+		}
+		c := ceiling{Mbit: r.CeilingMbit, DownPipe: ceilDownBase + n, UpPipe: ceilUpBase + n}
+		byKey[r.Key] = c
+		list = append(list, c)
+		n++
+	}
+	return list, byKey
 }
 
-// tableName is a pf table per rule, named from its position so that two rules
-// matching similar things never collide.
-func tableName(i int) string { return fmt.Sprintf("qos_r%d", i) }
-
-// render returns the anchor text and the table contents to load with it.
-func render(in anchorInput) (string, map[string][]string) {
+// renderShaping returns the anchor text and the table contents to load with it.
+func renderShaping(p core.ShapePlan) (string, map[string][]string) {
 	var b strings.Builder
 	tables := map[string][]string{}
 	w := func(format string, args ...any) { fmt.Fprintf(&b, format+"\n", args...) }
@@ -59,61 +64,55 @@ func render(in anchorInput) (string, map[string][]string) {
 	w("# waits is moved onto this firewall, and these rules decide who waits.")
 	w("# Matched on the LAN side, where addresses are not yet translated.")
 	w("")
-	if in.LAN == "" || len(valid(in.Rules)) == 0 && in.DefaultClass == "" {
+	if p.LAN == "" || len(p.Rules) == 0 && p.DefaultClass == "" {
 		return "", tables
 	}
+	_, ceilings := shapeCeilings(p)
 
-	rules := valid(in.Rules)
-	for i, r := range rules {
-		addrs := []string{r.Match}
-		if !r.IsHost {
-			addrs = in.Addrs[r.Match]
-		}
-		if len(addrs) == 0 {
+	for i, r := range p.Rules {
+		if len(r.Addrs) == 0 {
 			continue // a name nothing has resolved yet matches nothing, quietly
 		}
-		tables[tableName(i)] = addrs
-		w("table <%s> persist", tableName(i))
+		tables[shapeTable(i)] = r.Addrs
+		w("table <%s> persist", shapeTable(i))
 	}
 	w("")
 
 	// The default first, so a more specific rule later overrides it: pf takes
 	// the last matching rule when none of them is quick, and none is.
-	if in.DefaultClass != "" {
-		w("# Everything starts in the %s class.", in.DefaultClass)
-		w("match in on %s all dnqueue(%d)", in.LAN, classQueue(in.DefaultClass, false))
-		w("match out on %s all dnqueue(%d)", in.LAN, classQueue(in.DefaultClass, true))
+	if p.DefaultClass != "" {
+		w("# Everything starts in the %s class.", p.DefaultClass)
+		w("match in on %s all dnqueue(%d)", p.LAN, classQueue(p.DefaultClass, false))
+		w("match out on %s all dnqueue(%d)", p.LAN, classQueue(p.DefaultClass, true))
 		w("")
 	}
 
-	for i, r := range rules {
-		if _, ok := tables[tableName(i)]; !ok {
+	for i, r := range p.Rules {
+		if _, ok := tables[shapeTable(i)]; !ok {
 			continue
 		}
-		t := tableName(i)
+		t := shapeTable(i)
 		side := "the far end"
-		if r.IsHost && (in.IsLocal == nil || in.IsLocal(r.Match)) {
+		if r.Local {
 			side = "this device"
 		}
-		w("# %s: %s", strings.TrimSpace(r.Raw), side)
+		w("# %s: %s", strings.TrimSpace(r.Label), side)
 		// A device here is the source going out and the destination coming
-		// back; something out there is the reverse. A name is always out
-		// there. An address is whichever side of the local networks it falls.
-		here := r.IsHost && (in.IsLocal == nil || in.IsLocal(r.Match))
+		// back; something out there is the reverse.
 		// Each direction needs its own rule. A queue named on a rule that
 		// specifies "in" or "out" applies only to that direction, so the pair
 		// form buys nothing here and the reply would go unshaped.
 		sel, rev := "from <"+t+"> to any", "from any to <"+t+">"
-		if !here {
+		if !r.Local {
 			sel, rev = "from any to <"+t+">", "from <"+t+"> to any"
 		}
 		if r.Class != "" {
-			w("match in on %s %s dnqueue(%d)", in.LAN, sel, classQueue(r.Class, false))
-			w("match out on %s %s dnqueue(%d)", in.LAN, rev, classQueue(r.Class, true))
+			w("match in on %s %s dnqueue(%d)", p.LAN, sel, classQueue(r.Class, false))
+			w("match out on %s %s dnqueue(%d)", p.LAN, rev, classQueue(r.Class, true))
 		}
-		if c, ok := in.Ceilings[r.Match]; ok && r.Ceiling > 0 {
-			w("match in on %s %s dnpipe(%d)", in.LAN, sel, c.UpPipe)
-			w("match out on %s %s dnpipe(%d)", in.LAN, rev, c.DownPipe)
+		if c, ok := ceilings[r.Key]; ok && r.CeilingMbit > 0 {
+			w("match in on %s %s dnpipe(%d)", p.LAN, sel, c.UpPipe)
+			w("match out on %s %s dnpipe(%d)", p.LAN, rev, c.DownPipe)
 		}
 		w("")
 	}

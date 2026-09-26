@@ -32,7 +32,6 @@ import (
 	"time"
 
 	"github.com/grioghar/flowsight/internal/core"
-	"github.com/grioghar/flowsight/internal/modules/firewall"
 )
 
 func init() { core.Register(func() core.Module { return &Module{} }) }
@@ -40,21 +39,18 @@ func init() { core.Register(func() core.Module { return &Module{} }) }
 // Module implements core.Module.
 type Module struct {
 	ctx      *core.Context
-	fw       firewall.Firewall
+	shaper   core.Shaper
 	identity core.Identity
-	dn       *dn
 
 	mu        sync.Mutex
 	applied   bool
 	lastErr   string
-	lastPlan  plan
+	lastPlan  core.ShapePlan
 	rules     []Rule
 	addrs     map[string][]string
 	appliedAt time.Time
 	sp        *speedState // bandwidth tests, see speed.go
 }
-
-const anchorName = "qos"
 
 func (m *Module) Info() core.ModuleInfo {
 	return core.ModuleInfo{
@@ -102,9 +98,8 @@ func (m *Module) Info() core.ModuleInfo {
 
 func (m *Module) Setup(ctx *core.Context) error {
 	m.ctx = ctx
-	m.fw, _ = ctx.Service("firewall").(firewall.Firewall)
+	m.shaper, _ = ctx.Service(core.ServiceShaper).(core.Shaper)
 	m.identity, _ = ctx.Service("identity").(core.Identity)
-	m.dn = newDN()
 	m.addrs = map[string][]string{}
 	ctx.Every("apply", 60*time.Second, m.reconcile)
 	ctx.Every("resolve", 120*time.Second, m.resolve)
@@ -196,8 +191,12 @@ func (m *Module) reconcile() error {
 	if !want {
 		return m.tearDown()
 	}
-	if m.fw == nil || !m.fw.Available() {
-		m.fail("no pf on this platform; shaping is unavailable")
+	if m.shaper == nil {
+		m.fail("no firewall module; shaping is unavailable")
+		return nil
+	}
+	if !m.shaper.Available() {
+		m.fail("no " + m.shaper.Name() + " on this platform; shaping is unavailable")
 		return nil
 	}
 	down := float64(core.Int(s, "download_mbit", 0))
@@ -214,7 +213,7 @@ func (m *Module) reconcile() error {
 		m.fail("could not work out which interface faces the local network; set it by hand")
 		return nil
 	}
-	if err := m.dn.available(); err != nil {
+	if err := m.shaper.Ready(); err != nil {
 		m.fail(err.Error())
 		return nil
 	}
@@ -226,47 +225,15 @@ func (m *Module) reconcile() error {
 	scale := 1 - head/100
 
 	rules := parseRules(core.Strs(s, "rules"))
-	ceilings := map[string]ceiling{}
-	var list []ceiling
-	n := 0
-	for _, r := range valid(rules) {
-		if r.Ceiling <= 0 {
-			continue
-		}
-		c := ceiling{Mbit: r.Ceiling, DownPipe: ceilDownBase + n, UpPipe: ceilUpBase + n}
-		ceilings[r.Match] = c
-		list = append(list, c)
-		n++
-	}
-	p := plan{
-		DownMbit: down * scale, UpMbit: up * scale,
-		WeightHigh: core.Int(s, "weight_high", 70), WeightNormal: core.Int(s, "weight_normal", 25),
-		WeightLow: core.Int(s, "weight_low", 5), Ceilings: list,
-	}
-	if err := m.dn.configure(p); err != nil {
+	m.mu.Lock()
+	addrs := m.addrs
+	m.mu.Unlock()
+	p := m.plan(lan, rules, addrs, scale)
+	if err := m.shaper.Apply(p); err != nil {
 		m.fail(err.Error())
 		return nil
 	}
 
-	m.mu.Lock()
-	addrs := m.addrs
-	m.mu.Unlock()
-	def := Class(core.Str(s, "default_class", "normal"))
-	if !def.valid() {
-		def = Normal
-	}
-	text, tables := render(anchorInput{LAN: lan, Rules: rules, Addrs: addrs, DefaultClass: def,
-		Ceilings: ceilings, IsLocal: m.isLocal})
-	if err := m.fw.LoadAnchor(anchorName, text); err != nil {
-		m.fail(err.Error())
-		return nil
-	}
-	for t, addrs := range tables {
-		if err := m.fw.ReplaceTable(anchorName, t, addrs); err != nil {
-			m.fail(err.Error())
-			return nil
-		}
-	}
 	m.mu.Lock()
 	first := !m.applied
 	m.applied, m.lastErr, m.lastPlan, m.rules, m.appliedAt = true, "", p, rules, time.Now()
@@ -290,16 +257,15 @@ func (m *Module) fail(msg string) {
 
 func (m *Module) tearDown() error {
 	m.mu.Lock()
-	was, ceils := m.applied, m.lastPlan.Ceilings
+	was := m.applied
 	m.applied, m.lastErr = false, ""
 	m.mu.Unlock()
 	if !was {
 		return nil
 	}
-	if m.fw != nil {
-		_ = m.fw.FlushAnchor(anchorName)
+	if m.shaper != nil {
+		m.shaper.Clear()
 	}
-	m.dn.teardown(ceils)
 	m.ctx.Event("qos", "traffic shaping is off; the link is unmanaged again", nil)
 	return nil
 }
@@ -441,7 +407,13 @@ func (m *Module) apiStatus(r *core.Req) (any, error) {
 	if rules == nil {
 		rules = parseRules(core.Strs(s, "rules"))
 	}
-	stats, _ := m.dn.stats()
+	var queues []map[string]any
+	if m.shaper != nil {
+		stats, _ := m.shaper.Stats()
+		for _, q := range stats {
+			queues = append(queues, map[string]any{"queue": q.Queue, "name": q.Name, "detail": q.Detail})
+		}
+	}
 	return map[string]any{
 		"active":    core.Bool(s, "active", false),
 		"applied":   applied,
@@ -450,7 +422,7 @@ func (m *Module) apiStatus(r *core.Req) (any, error) {
 		"down_mbit": p.DownMbit, "up_mbit": p.UpMbit,
 		"rules":    rules,
 		"resolved": addrs,
-		"queues":   parseQueueStats(stats),
+		"queues":   queues,
 		"note":     "Weights are shares, not reservations: a class only holds anything back when something else wants the link at the same moment. Download shaping is blunter than upload, because those packets have already crossed the carrier's bottleneck by the time this firewall sees them.",
 	}, nil
 }
@@ -462,23 +434,13 @@ func (m *Module) apiPreview(r *core.Req) (any, error) {
 		lan = m.detectLAN()
 	}
 	rules := parseRules(core.Strs(s, "rules"))
-	def := Class(core.Str(s, "default_class", "normal"))
-	if !def.valid() {
-		def = Normal
-	}
-	ceilings := map[string]ceiling{}
-	n := 0
-	for _, r := range valid(rules) {
-		if r.Ceiling > 0 {
-			ceilings[r.Match] = ceiling{Mbit: r.Ceiling, DownPipe: ceilDownBase + n, UpPipe: ceilUpBase + n}
-			n++
-		}
-	}
 	m.mu.Lock()
 	addrs := m.addrs
 	m.mu.Unlock()
-	text, tables := render(anchorInput{LAN: lan, Rules: rules, Addrs: addrs, DefaultClass: def,
-		Ceilings: ceilings, IsLocal: m.isLocal})
+	text, tables := "", map[string][]string{}
+	if m.shaper != nil {
+		text, tables = m.shaper.Render(m.plan(lan, rules, addrs, 1))
+	}
 	counts := map[string]int{}
 	for t, a := range tables {
 		counts[t] = len(a)
@@ -486,28 +448,30 @@ func (m *Module) apiPreview(r *core.Req) (any, error) {
 	return map[string]any{"lan": lan, "rules": rules, "anchor": text, "tables": counts}, nil
 }
 
-// parseQueueStats turns `dnctl queue show` into something a page can render:
-// per queue, how much is waiting and how much has been dropped.
-func parseQueueStats(out string) []map[string]any {
-	var res []map[string]any
-	name := map[int]string{
-		qDownHigh: "download high", qDownNormal: "download normal", qDownLow: "download low",
-		qUpHigh: "upload high", qUpNormal: "upload normal", qUpLow: "upload low",
+// plan turns the settings and the rules into what the shaper applies. scale
+// takes the headroom off the link rates.
+func (m *Module) plan(lan string, rules []Rule, addrs map[string][]string, scale float64) core.ShapePlan {
+	s := m.ctx.Settings()
+	def := Class(core.Str(s, "default_class", "normal"))
+	if !def.valid() {
+		def = Normal
 	}
-	for _, line := range strings.Split(out, "\n") {
-		line = strings.TrimSpace(line)
-		if !strings.HasPrefix(line, "q") {
-			continue
-		}
-		var id int
-		if _, err := fmt.Sscanf(line, "q%d", &id); err != nil {
-			continue
-		}
-		label, ok := name[id]
-		if !ok {
-			continue
-		}
-		res = append(res, map[string]any{"queue": id, "name": label, "detail": line})
+	p := core.ShapePlan{
+		LAN:      lan,
+		DownMbit: float64(core.Int(s, "download_mbit", 0)) * scale, UpMbit: float64(core.Int(s, "upload_mbit", 0)) * scale,
+		WeightHigh: core.Int(s, "weight_high", 70), WeightNormal: core.Int(s, "weight_normal", 25),
+		WeightLow: core.Int(s, "weight_low", 5), DefaultClass: string(def),
 	}
-	return res
+	for _, r := range valid(rules) {
+		a := []string{r.Match}
+		if !r.IsHost {
+			a = addrs[r.Match]
+		}
+		// A device here is the source going out; something out there is the
+		// reverse. A name is always out there. An address is whichever side
+		// of the local networks it falls.
+		p.Rules = append(p.Rules, core.ShapeRule{Key: r.Match, Label: strings.TrimSpace(r.Raw), Addrs: a,
+			Local: r.IsHost && m.isLocal(r.Match), Class: string(r.Class), CeilingMbit: r.Ceiling})
+	}
+	return p
 }

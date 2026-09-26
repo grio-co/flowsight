@@ -19,6 +19,7 @@ const (
 	ServiceRules      = "fw_rules"
 	ServiceRedirector = "redirector"
 	ServiceIsolator   = "isolator"
+	ServiceShaper     = "shaper"
 )
 
 // Capabilities an Enforcer or StateReader can report.
@@ -182,4 +183,57 @@ type Isolator interface {
 	RenderIsolation(spec IsolationSpec) string
 	LoadIsolation(name, text string) error
 	ClearIsolation(name string) error
+}
+
+// ShapePlan describes traffic shaping: the link is sent through pipes a
+// little under its real rates so the queue that decides who waits is on this
+// firewall, and traffic is sorted into three weighted classes, with optional
+// per-rule ceilings.
+type ShapePlan struct {
+	LAN              string  // the interface facing the local network; matching happens there
+	DownMbit, UpMbit float64 // pipe rates, headroom already taken off
+	WeightHigh       int
+	WeightNormal     int
+	WeightLow        int
+	DefaultClass     string // "high", "normal" or "low"; empty leaves traffic unclassed
+	Rules            []ShapeRule
+}
+
+// ShapeRule sorts the traffic of some addresses. Rules are applied in order
+// and a later rule overrides an earlier one; a rule with no addresses (a name
+// nothing has resolved yet) matches nothing but keeps its place.
+type ShapeRule struct {
+	Key         string   // identifies the rule; ceilings are kept per key
+	Label       string   // the rule as the operator wrote it, for comments
+	Addrs       []string // addresses and prefixes it matches
+	Local       bool     // the addresses are devices on this network, not something out there
+	Class       string   // "high", "normal", "low", or empty for no change
+	CeilingMbit float64  // a rate limit of its own; 0 for none
+}
+
+// QueueStat is one class queue as the shaper reports it.
+type QueueStat struct {
+	Queue  int    `json:"queue"`
+	Name   string `json:"name"`
+	Detail string `json:"detail"`
+}
+
+// Shaper configures and removes traffic shaping. Shaping only ever sorts
+// traffic into queues: it must never be able to pass or block anything.
+type Shaper interface {
+	Name() string
+	// Available reports whether the backend is present at all.
+	Available() bool
+	// Ready reports why shaping cannot work here, loading what it needs
+	// when it can; nil means it can.
+	Ready() error
+	// Render returns the rules and the address sets the plan would load,
+	// for preview. It touches nothing.
+	Render(plan ShapePlan) (string, map[string][]string)
+	// Apply brings the system to the plan: pipes and queues, then the rules
+	// that feed them, then their address sets.
+	Apply(plan ShapePlan) error
+	// Clear removes everything Apply configured, and nothing else.
+	Clear()
+	Stats() ([]QueueStat, error)
 }
