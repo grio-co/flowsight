@@ -123,6 +123,7 @@ func (m *Module) Setup(ctx *core.Context) error {
 	enf := &pfEnforcer{m: m}
 	ctx.Publish(core.ServiceEnforcer, enf)
 	ctx.Publish(core.ServiceConnStates, enf)
+	ctx.Publish(core.ServiceRules, enf)
 	if m.Available() {
 		ctx.Provider(&provider{m: m})
 		ctx.Every("local-table", 60*time.Second, m.refreshLocal)
@@ -539,4 +540,15 @@ func (m *Module) saveGeoTableInfo() {
 	sort.Slice(list, func(i, j int) bool { return list[i].Name < list[j].Name })
 	b, _ := json.MarshalIndent(list, "", " ")
 	_ = os.WriteFile(m.geoInfoPath(), b, 0o644)
+}
+
+// anchorHasRules asks pf whether sub-anchor name currently holds any rule.
+// An error (pf not reachable) counts as loaded, so a transient failure does
+// not trigger a reload storm.
+func (m *Module) anchorHasRules(name string) bool {
+	out, err := m.pfctl("-a", rootAnchor+"/"+name, "-sr")
+	if err != nil {
+		return true
+	}
+	return strings.TrimSpace(out) != ""
 }

@@ -101,6 +101,9 @@ func New(version, configPath, dataDir string, static fs.FS, log *slog.Logger) (*
 	if err != nil {
 		return nil, err
 	}
+	if cfg.LoadNote != "" {
+		slog.Warn("configuration recovered", "note", cfg.LoadNote)
+	}
 	applyPathOverrides(p, cfg.Core().Paths)
 	if dataDir == "" {
 		dataDir = cfg.Core().DataDir

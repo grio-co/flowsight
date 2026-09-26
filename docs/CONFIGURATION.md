@@ -4,6 +4,8 @@ Every setting lives under **FlowSight › Settings** (module by module) and in `
 
 The core keys `bind`, `port`, `api_token` (and `api_tokens`, a list of `{"name","token"}` pairs whose names the audit log records), `data_dir` and `paths` can only be changed in the file, never through the API or the UI. Where an empty value means "platform default", the settings page shows the value actually in use beneath the field. With a token set, bind the daemon to `0.0.0.0` (the OPNsense WAN rules still block it from outside) and the OPNsense page reads the token from `flowsight.json` and presents it on every proxied request, so the GUI keeps working while LAN clients must send `X-Flowsight-Token`.
 
+Every save of `flowsight.json` first keeps the previous contents as `flowsight.json.prev`, and the daemon restores from that copy when the file comes back empty or unreadable (for example after a virtual machine backup taken mid-write). The recovery is logged as "configuration recovered".
+
 ## Core (`flowsight.json`)
 
 | Key | Default | Meaning |
@@ -501,7 +503,7 @@ Stateful and deep packet inspection via the firewall's state table and `tcpdump`
 | `max_capture_files` | Max rotated capture files | int | `5` | `tcpdump -W` limit: number of files in the ring buffer. |
 | `max_capture_bytes` | Max total capture storage (MB) | int | `100` | Hard cap; oldest captures deleted when exceeded. |
 | `payload_allowed` | Allow payload capture | bool | `false` | If true, users can select full payload (65535 bytes). Payload is sensitive. |
-| `state_poll_seconds` | State poll interval | int | `30` | How often to query pfctl for state changes. |
+| `state_poll_seconds` | State poll interval | int | `30` | How often to read the firewall's connection table. |
 | `syn_flood_threshold` | SYN flood alert threshold | int | `100` | Alert if SYN_SENT states from one source exceed this in the poll window. |
 | `port_scan_threshold` | Port scan alert threshold | int | `50` | Alert if one source has this many non-established destinations in one poll. |
 

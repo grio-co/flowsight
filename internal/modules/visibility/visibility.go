@@ -1763,8 +1763,11 @@ func (m *Module) checkDarkTraffic(hours int) error {
 
 	keep := make(map[string]bool)
 	for _, d := range devices {
-		ip := d["src_ip"].(string)
-		totalFlows := int64(d["total_flows"].(float64))
+		ip, _ := d["src_ip"].(string)
+		totalFlows := toI(d["total_flows"])
+		if ip == "" {
+			continue
+		}
 		if totalFlows < minSessions {
 			continue
 		}

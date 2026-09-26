@@ -12,6 +12,19 @@ name, and every release's assets carry that string in their file names.
 
 The newest entry is first.
 
+## 0.9.8r202609262014
+
+**Survive a restore.** Found when the gateway moved hosts from a backup taken
+mid-write: `flowsight.json` came back empty, the daemon ran on defaults
+(loopback bind, no token, no settings) and its first save made that
+permanent. Saves are now synced to disk before the rename, the previous
+contents are kept as `flowsight.json.prev`, and an empty or unreadable file
+is restored from that copy and logged. Also from that boot: the pf policy
+anchor was never reloaded because the rules file matched what was wanted
+while the kernel held nothing; the kernel is now checked, so a reboot gets
+its rules back on the first reconcile. The dark-traffic check no longer
+panics on integer counts.
+
 ## 0.9.8r202609261940
 
 **Proxmox poll errors are visible.** A node that could not be polled now

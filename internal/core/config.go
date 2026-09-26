@@ -16,7 +16,9 @@ import (
 // time, so a fresh install has every key and an upgrade that adds a key needs
 // no migration. Module settings live under "modules.<name>".
 type Config struct {
-	Path string
+	// LoadNote says when the file was recovered from its previous copy; the daemon logs it.
+	LoadNote string
+	Path     string
 
 	mu       sync.RWMutex
 	user     map[string]any            // exactly what is on disk
@@ -71,19 +73,46 @@ func LoadConfig(path string) (*Config, error) {
 	return c, nil
 }
 
+// prevPath is the copy of the previous contents kept beside the file on
+// every save. It is what a save falls back to when the file itself has
+// gone: a virtual machine backed up or reset between a rename and the data
+// reaching the disk comes back with an empty flowsight.json, and running on
+// an empty configuration (loopback bind, no token, no module settings) and
+// then saving would lose everything.
+func (c *Config) prevPath() string { return c.Path + ".prev" }
+
 func (c *Config) Reload() error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	user := map[string]any{}
+	c.LoadNote = ""
 	data, err := os.ReadFile(c.Path)
 	switch {
 	case errors.Is(err, os.ErrNotExist):
+		err, data = nil, nil
 	case err != nil:
 		return err
-	case len(data) > 0:
-		if err := json.Unmarshal(data, &user); err != nil {
-			return fmt.Errorf("%s: %w", c.Path, err)
+	}
+	if len(data) > 0 {
+		err = json.Unmarshal(data, &user)
+	}
+	if prev, perr := os.ReadFile(c.prevPath()); perr == nil && len(prev) > 0 && (err != nil || len(data) == 0) {
+		// The file is empty or unreadable but a previous copy is here:
+		// that copy is the configuration, and the file is rewritten from
+		// it so the next save does not start from nothing.
+		recovered := map[string]any{}
+		if json.Unmarshal(prev, &recovered) == nil && len(recovered) > 0 {
+			why := "empty"
+			if err != nil {
+				why = err.Error()
+			}
+			c.LoadNote = fmt.Sprintf("%s was %s; restored from %s", c.Path, why, c.prevPath())
+			user, err = recovered, nil
+			_ = writeDurably(c.Path, prev)
 		}
+	}
+	if err != nil {
+		return fmt.Errorf("%s: %w", c.Path, err)
 	}
 	c.user = user
 	core := defaultCore()
@@ -188,11 +217,41 @@ func (c *Config) saveLocked() error {
 	if err != nil {
 		return err
 	}
-	tmp := c.Path + ".tmp"
-	if err := os.WriteFile(tmp, append(b, '\n'), 0o600); err != nil {
+	// Keep what is there now beside the file before replacing it.
+	if old, err := os.ReadFile(c.Path); err == nil && len(old) > 0 {
+		_ = writeDurably(c.prevPath(), old)
+	}
+	return writeDurably(c.Path, append(b, '\n'))
+}
+
+// writeDurably writes through a temporary file, syncs the data and then
+// the directory entry, and renames into place, so the file is either the
+// old contents or the new ones however the machine stops.
+func writeDurably(path string, data []byte) error {
+	tmp := path + ".tmp"
+	f, err := os.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
+	if err != nil {
 		return err
 	}
-	return os.Rename(tmp, c.Path)
+	if _, err := f.Write(data); err != nil {
+		f.Close()
+		return err
+	}
+	if err := f.Sync(); err != nil {
+		f.Close()
+		return err
+	}
+	if err := f.Close(); err != nil {
+		return err
+	}
+	if err := os.Rename(tmp, path); err != nil {
+		return err
+	}
+	if d, err := os.Open(filepath.Dir(path)); err == nil {
+		_ = d.Sync()
+		d.Close()
+	}
+	return nil
 }
 
 // Helpers for module code reading loosely typed settings.

@@ -203,7 +203,25 @@ func (p *provider) Current() (core.Artifact, error) {
 	if err != nil {
 		return core.Artifact{Files: map[string]string{p.path(): ""}}, nil
 	}
+	// The file survives a reboot; the kernel's copy of it does not. When
+	// the anchor holds no rules while the file has some, nothing is in
+	// place, whatever the file says, and the plan must load it again.
+	if hasRules(string(b)) && !p.m.anchorHasRules("policy") {
+		return core.Artifact{Files: map[string]string{p.path(): ""}}, nil
+	}
 	return core.Artifact{Files: map[string]string{p.path(): string(b)}}, nil
+}
+
+// hasRules says whether a pf rules text contains a rule, not only comments
+// and table declarations.
+func hasRules(rules string) bool {
+	for _, l := range strings.Split(rules, "\n") {
+		t := strings.TrimSpace(l)
+		if strings.HasPrefix(t, "block") || strings.HasPrefix(t, "match") || strings.HasPrefix(t, "pass") || strings.HasPrefix(t, "rdr") {
+			return true
+		}
+	}
+	return false
 }
 
 func (p *provider) Apply(a core.Artifact) (string, error) {
