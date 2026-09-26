@@ -26,3 +26,12 @@ var arr = P.arrangement('t', { hop: { ax: 'r', w: 360 }, key: { folded: true } }
 if (arr.hop.ax !== 'r' || arr.hop.w !== 360 || arr.key.folded !== true) throw new Error('homes not applied');
 if (arr.hop.w < 180 || arr.key.h < 80) throw new Error('minimum sizes not applied');
 print('FS.panels places, snaps and clamps OK');
+// The toolbar's height is an inset: top offsets count from below it, and a
+// drop just under it snaps to the top margin, not to the toolbar's own top.
+var f = P.place(P.normalise({ ax: 'l', ay: 't', x: 10, y: 8, w: 300, h: 200 }), 1200, 800, 0, 44);
+if (f.top !== 52) throw new Error('top inset not applied: ' + f.top);
+var g = P.snap(s, 300, 44 + 8 + 5, 1200, 800, 300, 200, 44);
+if (g.ay !== 't' || g.y !== 8) throw new Error('should snap to the top margin under the toolbar: ' + JSON.stringify(g));
+var ff = P.place(P.normalise({ ax: 'r', ay: 't', x: 10, y: 8, w: 360, fill: true }), 1200, 800, 0, 44);
+if (ff.top + ff.height !== 800 - 8) throw new Error('a fill panel under the toolbar should still end at the bottom margin: ' + JSON.stringify(ff));
+print('FS.panels respects the toolbar inset OK');

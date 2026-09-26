@@ -12,7 +12,7 @@ name, and every release's assets carry that string in their file names.
 
 The newest entry is first.
 
-## 0.9.8r202609262110
+## 0.9.8r202609262112
 
 **Traffic shaping survives a reboot.** Shaping checked that dummynet was
 usable by running `dnctl pipe show`, which succeeds even when the dummynet
@@ -21,6 +21,11 @@ and every apply failed with "Protocol not available" until someone loaded it
 by hand. FlowSight now asks the kernel (`kldstat`) and loads dummynet when
 it is missing. If shaping is on and the Priority page shows that error,
 this revision fixes it on the next apply; nothing else to do.
+
+**Map panels stay under the toolbar.** When the filter toolbar wraps to a
+second row on a narrower window, the Route and Hop panels start below it
+instead of under it, and a panel dropped just beneath the toolbar docks
+there. The toolbar's controls are a little tighter so it wraps later.
 
 ## 0.9.8r202609262107
 

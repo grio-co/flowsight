@@ -39,14 +39,20 @@
   // foldedH is how tall the panel is when folded to its title, so a folded
   // panel anchored to the bottom sits on the bottom rather than where its
   // open height would have put its top.
-  P.place = (s, W, H, foldedH) => {
+  // top0 is the height of whatever sits along the top of the canvas (the
+  // toolbar); offsets from the top count from below it, so a panel homed
+  // just under a one-row toolbar is still just under it when the toolbar
+  // wraps to two rows on a narrow window.
+  P.place = (s, W, H, foldedH, top0) => {
+    top0 = top0 || 0;
     // wfill: the panel runs from its left offset to this many pixels short
     // of the right edge (room for a panel docked there), until resized.
     let w = s.wfill > 0 && s.ax !== 'r' ? Math.max(MIN_W, W - s.x - s.wfill) : Math.min(s.w, Math.max(MIN_W, W - 2 * MARGIN));
     let h = s.fill ? Math.max(MIN_H, H - s.y - MARGIN - (s.gap || 0)) : Math.min(s.h, Math.max(MIN_H, H - 2 * MARGIN));
     if (s.folded && foldedH > 0) h = foldedH;
+    if (s.fill) h = Math.max(MIN_H, h - top0);
     let left = s.ax === 'r' ? W - s.x - w : s.x;
-    let top = s.ay === 'b' ? H - s.y - h : s.y;
+    let top = s.ay === 'b' ? H - s.y - h : s.y + top0;
     left = Math.max(0, Math.min(left, W - w));
     top = Math.max(0, Math.min(top, H - Math.min(h, H)));
     return { left, top, width: w, height: h };
@@ -55,15 +61,16 @@
   // After a drag: a panel within SNAP of an edge is anchored to it at the
   // margin; otherwise it keeps a top-left offset. Anchors are decided per
   // axis, so a corner takes both.
-  P.snap = (s, left, top, W, H, w, h) => {
+  P.snap = (s, left, top, W, H, w, h, top0) => {
+    top0 = top0 || 0;
     const n = Object.assign({}, s);
     const rightGap = W - (left + w), bottomGap = H - (top + h);
     if (left <= SNAP) { n.ax = 'l'; n.x = MARGIN; }
     else if (rightGap <= SNAP) { n.ax = 'r'; n.x = MARGIN; }
     else { n.ax = 'l'; n.x = Math.round(left); }
-    if (top <= SNAP) { n.ay = 't'; n.y = MARGIN; }
+    if (top - top0 <= SNAP) { n.ay = 't'; n.y = MARGIN; }
     else if (bottomGap <= SNAP) { n.ay = 'b'; n.y = MARGIN; }
-    else { n.ay = 't'; n.y = Math.round(top); }
+    else { n.ay = 't'; n.y = Math.round(top - top0); }
     return n;
   };
 
@@ -89,6 +96,7 @@
       return [Math.max(320, r.width || 1200), Math.max(240, r.height || 800)];
     };
     const save = () => store('fs.panels.' + key, state);
+    const top0 = () => (typeof opts.insetTop === 'function' ? (opts.insetTop() || 0) : (opts.insetTop || 0));
     const layout = (id) => {
       const s = state[id], el = els[id]; if (!el) return;
       el.hidden = !!s.hidden;
@@ -97,7 +105,7 @@
       if (fb) fb.setAttribute('aria-expanded', s.folded ? 'false' : 'true');
       const [W, H] = size();
       const head = el.querySelector && el.querySelector('.fsph');
-      const p = P.place(s, W, H, s.folded ? ((head && head.offsetHeight) || 30) : 0);
+      const p = P.place(s, W, H, s.folded ? ((head && head.offsetHeight) || 30) : 0, top0());
       el.style.left = p.left + 'px'; el.style.top = p.top + 'px';
       el.style.width = s.folded ? '' : p.width + 'px';
       el.style.height = s.folded ? '' : p.height + 'px';
@@ -148,7 +156,7 @@
           if (e.button !== 0 || (e.target.closest && e.target.closest('button'))) return;
           e.preventDefault();
           const [W, H] = size();
-          const start = P.place(s, W, H);
+          const start = P.place(s, W, H, 0, top0());
           const ox = e.clientX - start.left, oy = e.clientY - start.top;
           const w = start.width, h = s.folded ? (el.offsetHeight || MIN_H) : start.height;
           el.classList.add('dragging'); raise(el);
@@ -160,7 +168,7 @@
           const up = () => {
             head.removeEventListener('pointermove', move); head.removeEventListener('pointerup', up); head.removeEventListener('pointercancel', up);
             el.classList.remove('dragging'); el.classList.add('snapping');
-            Object.assign(s, P.snap(s, last.left, last.top, W, H, w, h));
+            Object.assign(s, P.snap(s, last.left, last.top, W, H, w, h, top0()));
             layout(p.id); save();
             setTimeout(() => el.classList.remove('snapping'), 160);
           };
@@ -174,7 +182,7 @@
         if (e.button !== 0) return;
         e.preventDefault(); e.stopPropagation();
         const [W, H] = size();
-        const start = P.place(s, W, H);
+        const start = P.place(s, W, H, 0, top0());
         const sx = e.clientX, sy = e.clientY;
         const move = (ev) => {
           s.w = Math.max(MIN_W, Math.min(start.width + (ev.clientX - sx), W - start.left));
@@ -193,7 +201,7 @@
         if (e.target !== el) return;
         const step = e.shiftKey ? 40 : 10;
         const [W, H] = size();
-        const p0 = P.place(s, W, H);
+        const p0 = P.place(s, W, H, 0, top0());
         let left = p0.left, top = p0.top, handled = true;
         if (e.key === 'ArrowLeft') left -= step; else if (e.key === 'ArrowRight') left += step;
         else if (e.key === 'ArrowUp') top -= step; else if (e.key === 'ArrowDown') top += step;
@@ -202,7 +210,7 @@
         else handled = false;
         if (!handled) return;
         e.preventDefault();
-        Object.assign(s, P.snap(s, left, top, W, H, p0.width, p0.height)); layout(p.id); save();
+        Object.assign(s, P.snap(s, left, top, W, H, p0.width, p0.height, top0())); layout(p.id); save();
       });
     });
     layoutAll();

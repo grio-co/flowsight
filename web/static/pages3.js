@@ -1612,9 +1612,10 @@
       // right and as tall as the map; the route sits top-left under the
       // toolbar; the key and the data drawer wait folded along the bottom.
       const canvas = FS.$('#mapcanvas', el);
-      const panels = FS.panels && canvas ? FS.panels.mount(canvas, { key: 'paths', panels: [
-        { id: 'route', title: 'Route', home: { ax: 'l', ay: 't', x: 10, y: 52, w: 320, h: 380 } },
-        { id: 'hop', title: 'Hop detail', home: { ax: 'r', ay: 't', x: 10, y: 52, w: 360, fill: true, gap: 104 } },
+      const toolbarEl = FS.$('.maptoolbar', el);
+      const panels = FS.panels && canvas ? FS.panels.mount(canvas, { key: 'paths', insetTop: () => (toolbarEl && toolbarEl.offsetHeight ? toolbarEl.offsetHeight + 10 : 44), panels: [
+        { id: 'route', title: 'Route', home: { ax: 'l', ay: 't', x: 10, y: 8, w: 320, h: 380 } },
+        { id: 'hop', title: 'Hop detail', home: { ax: 'r', ay: 't', x: 10, y: 8, w: 360, fill: true, gap: 104 } },
         { id: 'key', title: 'Key', home: { ax: 'l', ay: 'b', x: 10, y: 10, w: 290, h: 340, folded: true } },
         { id: 'data', title: 'Data', home: { ax: 'l', ay: 'b', x: 310, y: 10, w: 760, wfill: 390, h: 400, folded: true } }] }) : null;
       const pm = FS.$('#panels-menu', el);
