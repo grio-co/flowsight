@@ -12,7 +12,7 @@ name, and every release's assets carry that string in their file names.
 
 The newest entry is first.
 
-## 0.9.8r202609262119
+## 0.9.8r202609262120
 
 **Captive zones can reach their gateway.** A zone marked captive blocked
 everything before it allowed its gateway, and in pf the first matching rule
@@ -20,6 +20,15 @@ wins, so a device in a captive zone could reach nothing at all, not even the
 gateway serving its captive page or its DNS. The gateway is now allowed
 first, and so is DNS (port 53 only) to any other server the zone lists; the
 rest stays blocked. Zones apply again on the next *Apply placement*.
+
+**Packet Inspection's SYN-flood and scan findings work.** pf reports a TCP
+state as a pair (`SYN_SENT:CLOSED`), and the checks compared it with a
+single word, so SYN floods were never reported, the half-open count on the
+state summary was always 0, and every UDP or unfinished state counted
+towards "port scan", which a busy client could trip on its own. The checks
+now read the opener's half of the pair, count only TCP handshakes that were
+never answered, and name the address that opened the connections: a flood
+arriving through a port forward used to be blamed on the server it hit.
 
 ## 0.9.8r202609262112
 
