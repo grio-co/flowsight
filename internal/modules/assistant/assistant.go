@@ -200,6 +200,11 @@ func (m *Module) loadConfig() {
 		RedactAddresses:    core.Bool(s, "redact_addresses", false),
 	}
 
+	// One key serves both: with no key of its own, the assistant uses the
+	// one the map's hop lookup (paths, setting ai_key) already has.
+	if m.config.APIKey == "" && m.ctx != nil && m.ctx.Core != nil {
+		m.config.APIKey = strings.TrimSpace(core.Str(m.ctx.Core.Config.Module("paths"), "ai_key", ""))
+	}
 	if m.config.MaxTurns < 1 {
 		m.config.MaxTurns = 1
 	}

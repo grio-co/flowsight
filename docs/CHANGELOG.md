@@ -12,6 +12,13 @@ name, and every release's assets carry that string in their file names.
 
 The newest entry is first.
 
+## 0.9.8r202609261844
+
+**One key for the map's lookup and the assistant.** With no `api_key` of
+its own, the assistant uses the key already set for the map's AI hop lookup
+(`ai_key` under Settings › paths), so turning the assistant on needs only
+the provider choice.
+
 ## 0.9.8r202609261837
 
 **Tool names are unique.** A collection route and its item route (for
