@@ -106,6 +106,23 @@ Inspection decrypts selected devices' HTTPS so policy can see full URLs and cert
 curl -fsSL https://github.com/grioghar/flowsight/releases/latest/download/install.sh | sh
 ```
 
+**Verified install.** To check the installer against the release checksums
+before running it, fetch `install.sh` and `SHA256SUMS` from the same release
+and let `sha256sum` compare them (`--ignore-missing` skips the other assets
+listed in `SHA256SUMS` that you did not download):
+
+```sh
+BASE=https://github.com/grioghar/flowsight/releases/latest/download
+curl -fsSLO "$BASE/install.sh" && curl -fsSLO "$BASE/SHA256SUMS"
+sha256sum -c --ignore-missing SHA256SUMS   # must print "install.sh: OK"
+sh install.sh
+```
+
+For a specific version replace `latest/download` with `download/v<version>`.
+`SHA256SUMS` is written by `packaging/release/release.sh manifest` and also
+lists the raw `flowsightd-<os>-<arch>` binaries, the packages and the manual,
+so the same check works for any of them.
+
 or install the `.deb` from the release page. The installer writes `/etc/flowsight/flowsight.json` with a generated API token (printed once) and starts the `flowsight` unit. The UI is at `http://127.0.0.1:8080`; sign in with the token.
 
 **RHEL, Rocky, Alma, Fedora**
