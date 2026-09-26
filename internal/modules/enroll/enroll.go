@@ -1567,9 +1567,17 @@ func (m *Module) applyFirewall() error {
 	// Zone isolation rules
 	for _, zone := range m.zones.Zones {
 		if zone.Captive {
-			// Captive zone: block everything except gateway and DNS
-			buf.WriteString(fmt.Sprintf("block return quick from <fs_%s> to any\n", zone.ID))
+			// Captive zone: only its gateway and its DNS servers. The passes
+			// come first: in pf the first matching quick rule wins, and with
+			// the block first a captive client could not reach even the
+			// gateway serving its captive page.
 			buf.WriteString(fmt.Sprintf("pass quick from <fs_%s> to %s\n", zone.ID, zone.Gateway))
+			for _, dns := range zone.DNS {
+				if dns != "" && dns != zone.Gateway {
+					buf.WriteString(fmt.Sprintf("pass quick proto { tcp, udp } from <fs_%s> to %s port 53\n", zone.ID, dns))
+				}
+			}
+			buf.WriteString(fmt.Sprintf("block return quick from <fs_%s> to any\n", zone.ID))
 			continue
 		}
 
