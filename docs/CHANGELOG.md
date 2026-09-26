@@ -12,6 +12,22 @@ name, and every release's assets carry that string in their file names.
 
 The newest entry is first.
 
+## 0.9.8r202609262045
+
+**Upgrading from an older build starts again.** 0.9.8r202609262017 created
+an index on the flows table's `anycast` column before the migration that
+adds that column, so a gateway whose database predates the column (anything
+upgrading from before 25 September) stopped at startup with "no such column:
+anycast" and restarted in a loop. The index is now created after the column.
+Gateways already running 0.9.8r202609262017 were not affected.
+
+**Rule hygiene reads the ruleset through the firewall module.** Nothing
+changes in its findings, which keep their fingerprints. The firewall module
+must be enabled for Firewall Analysis (and for the connection-state view)
+to have data; with it disabled they stay empty instead of calling pfctl
+themselves. A failed read now says "reading the pf ruleset failed" instead
+of "pfctl failed".
+
 ## 0.9.8r202609262017
 
 **Survive a restore.** Found when the gateway moved hosts from a backup taken
