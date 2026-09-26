@@ -17,6 +17,7 @@ package paths
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -90,6 +91,7 @@ var defaultEndpoint = map[string]string{
 	"azure":     "", // https://<resource>.openai.azure.com/openai/deployments/<deployment>/chat/completions?api-version=2024-10-21
 	"ollama":    "http://127.0.0.1:11434/api/chat",
 	"custom":    "",
+	"assistant": "", // internal; no endpoint
 }
 
 var defaultModel = map[string]string{
@@ -192,6 +194,14 @@ func parseGuess(text string) (*Guess, error) {
 
 // callModel speaks each provider's dialect and returns the text answer.
 func (m *Module) callModel(cfg assistConfig, prompt string) (string, error) {
+	// Special case: "assistant" provider delegates to the assistant module
+	if cfg.Provider == "assistant" {
+		if assistMod, ok := m.ctx.Service("assistant").(interface{ Complete(context.Context, string) (string, error) }); ok {
+			return assistMod.Complete(context.Background(), prompt)
+		}
+		return "", fmt.Errorf("assistant module not available")
+	}
+
 	var body any
 	hdr := map[string]string{"Content-Type": "application/json"}
 	endpoint := strings.ReplaceAll(cfg.Endpoint, "{model}", cfg.Model)

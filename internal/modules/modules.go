@@ -5,6 +5,7 @@ package modules
 import (
 	_ "github.com/grioghar/flowsight/internal/modules/alerting"
 	_ "github.com/grioghar/flowsight/internal/modules/appcontrol"
+	_ "github.com/grioghar/flowsight/internal/modules/assistant"
 	_ "github.com/grioghar/flowsight/internal/modules/baseline"
 	_ "github.com/grioghar/flowsight/internal/modules/categories"
 	_ "github.com/grioghar/flowsight/internal/modules/dns"

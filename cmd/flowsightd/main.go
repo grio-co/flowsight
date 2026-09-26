@@ -3,6 +3,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -16,6 +17,7 @@ import (
 	"syscall"
 
 	"github.com/grioghar/flowsight/internal/core"
+	"github.com/grioghar/flowsight/internal/modules/assistant"
 	_ "github.com/grioghar/flowsight/internal/modules"
 	"github.com/grioghar/flowsight/web"
 )
@@ -38,6 +40,15 @@ func run() int {
 	if *version {
 		fmt.Println("flowsightd", Version)
 		return 0
+	}
+
+	// Handle subcommands
+	args := flag.Args()
+	if len(args) > 0 {
+		switch args[0] {
+		case "mcp":
+			return runMCP(*cfgPath, *dataDir, *level)
+		}
 	}
 
 	var static fs.FS
@@ -154,4 +165,29 @@ func (t *teeWriter) Write(p []byte) (int, error) {
 		}
 	}
 	return len(p), nil
+}
+
+// runMCP runs the MCP stdio server for Claude Code integration.
+func runMCP(cfgPath, dataDir, level string) int {
+	var static fs.FS
+	if sub, err := fs.Sub(web.Files, "static"); err == nil {
+		static = sub
+	}
+	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelWarn}))
+	c, err := core.New(Version, cfgPath, dataDir, static, logger)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "flowsightd mcp: %v\n", err)
+		return 1
+	}
+
+	// Load modules
+	c.LoadModules()
+
+	// Create and run the MCP server
+	server := assistant.NewMCPServer(context.Background(), c)
+	if err := server.Run(); err != nil {
+		fmt.Fprintf(os.Stderr, "flowsightd mcp: %v\n", err)
+		return 1
+	}
+	return 0
 }

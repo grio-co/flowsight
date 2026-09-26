@@ -12,6 +12,20 @@ name, and every release's assets carry that string in their file names.
 
 The newest entry is first.
 
+## 0.9.8r202609261816
+
+**Claude as FlowSight's analyst via Claude Code Agent SDK:** Two new features expand FlowSight's AI capabilities and integrate with Claude Code.
+
+**Ask FlowSight in plain English:** A new "Ask" page under Monitor lets operators ask questions about their network in English. The assistant uses FlowSight's own routes as tools to answer by looking at flows, hosts, policies, and other data. Powered by Anthropic's Messages API or Claude Code's headless mode (controlled by settings `provider` and `api_key`). A system prompt ensures the assistant cites which tools it looked at, prefers FlowSight's data over guessing, and keeps answers brief. Earlier questions are kept in a searchable history. When the provider is on, a banner warns that questions and the data the model asks for leave the gateway.
+
+**MCP server for Claude Code agents:** `flowsightd mcp` is a new subcommand that runs a Model Context Protocol (MCP) server over stdio, exposing all of FlowSight's GET routes (and write routes if allowed by setting `mcp_allow_writes`) as tools. Tools are named from their paths (e.g., `visibility_flows`, `policy_matches`) with input schemas built from their documented parameters. This lets Claude Code and other tools built on the Agent SDK call FlowSight directly. The HTTP `/api/mcp` endpoint serves the same tools over MCP's Streamable HTTP transport, guarded by the normal API auth. Claude Code setup: `claude mcp add flowsight -- flowsightd mcp` to use stdio, or add the HTTP form with the token header for remote agents.
+
+**Paths AI now supports three providers:** The paths module's hop-location assistant now accepts `ai_provider` settings for anthropic, openai, google, azure, ollama, custom, and the new internal provider **assistant**, which delegates to the main assistant module. This means one key serves both: ask FlowSight via the Monitor page, and let the paths AI use the same model to place unroutable hops.
+
+**New assistant module settings:** `provider` (off, anthropic, claude-code), `api_key` (Anthropic secret), `model` (default claude-sonnet-5), `claude_path` (default "claude"), `max_turns`, `max_tool_result_bytes`, `allow_writes`, `mcp_allow_writes`, `timeout_seconds`, `retention_days` (for conversation history), and `redact_addresses` (replace RFC1918 and local IPs with placeholders before sending to the provider).
+
+**API documentation:** `/api/assistant/status` (provider state and tool count), `/api/assistant/ask` (question + streaming answer), `/api/assistant/conversations` (list and search), `/api/assistant/tools` (tool list with schemas), `/api/mcp` (MCP protocol endpoint). All routes are documented to contract with descriptions, parameters, and response schemas.
+
 ## 0.9.8r202609260011
 
 One release for the branches that landed together after the visibility

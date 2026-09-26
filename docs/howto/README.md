@@ -23,6 +23,7 @@ Understand what is on your network: devices, zones, and how to identify unknowns
 
 Watch traffic and understand where it goes.
 
+- [Ask FlowSight in plain English](ask.md) — use the Monitor > Ask page to query your network in English; backed by Claude or your own Claude Code setup
 - [Trace a destination on the Map](trace-map.md) — find a host or application, follow the route to its server, check hop latency and anycast status
 - [See where a policy's traffic goes](policy-matches.md) — create a policy, then open the Matches page to see real sessions and firewall logs
 - [See what your IoT devices send abroad, and block it](iot-abroad.md) — watch for outbound traffic to other countries, understand anycast, and write a country-blocking policy
@@ -49,6 +50,7 @@ Proactive monitoring and proof.
 
 Read data and automate through the API.
 
+- [Use FlowSight from Claude Code and the Agent SDK](claude-code.md) — expose FlowSight as an MCP server, call routes from Claude Code agents and Python/TypeScript scripts
 - [Automate through the API](api-automation.md) — use the API explorer, create tokens, examine the audit log, run curl examples
 - [Add a switch or another router as a flow source](flow-sources.md)
 - [Know when a device does something new](anomalies.md)
