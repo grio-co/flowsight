@@ -50,11 +50,17 @@ var youtubeHosts = []string{"www.youtube.com", "m.youtube.com", "youtubei.google
 
 func slug(name string) string { return slugRe.ReplaceAllString(strings.ToLower(name), "-") }
 
-func (p *provider) dir() string {
-	if p.m.ctx.Platform.IsOPNsense() {
-		return "/var/unbound/etc"
+// dir is the live include directory the resolver reads.
+func (p *provider) dir() string { return filepath.Dir(p.m.ctx.Platform.UnboundInclude) }
+
+// zoneDir is where the RPZ zone files go. It must survive a resolver
+// restart: an include that outlives the zone file it names stops Unbound
+// from starting, and on a gateway that is DNS for the whole network.
+func (p *provider) zoneDir() string {
+	if d := p.m.ctx.Platform.UnboundZoneDir; d != "" {
+		return d
 	}
-	return filepath.Dir(p.m.ctx.Platform.UnboundInclude)
+	return p.dir()
 }
 
 func (p *provider) confPath() string { return filepath.Join(p.dir(), "flowsight-policy.conf") }
@@ -165,7 +171,7 @@ func (p *provider) Compile(doc *core.PolicyDoc) (core.Artifact, error) {
 			var z strings.Builder
 			fmt.Fprintf(&z, "$TTL 300\n@ SOA localhost. flowsight.localhost. %d 3600 900 604800 300\n@ NS localhost.\n", serial)
 			z.WriteString(body.String())
-			zonePath := filepath.Join(p.dir(), "flowsight-"+id+".rpz")
+			zonePath := filepath.Join(p.zoneDir(), "flowsight-"+id+".rpz")
 			files[zonePath] = z.String()
 			rpzs = append(rpzs, fmt.Sprintf("rpz:\n    name: \"flowsight-%s.rpz\"\n    zonefile: \"%s\"\n"+
 				"    rpz-action-override: %s\n    rpz-log: yes\n    rpz-log-name: \"%s\"\n    tags: \"%s\"\n",
@@ -278,16 +284,19 @@ func sortedStrKeys(m map[string]string) []string {
 	return out
 }
 
-// Current reads whatever FlowSight files are in place now.
+// Current reads whatever FlowSight files are in place now: the include, and
+// zone files both where they belong and where older versions left them.
 func (p *provider) Current() (core.Artifact, error) {
 	files := map[string]string{}
-	entries, _ := os.ReadDir(p.dir())
-	for _, e := range entries {
-		n := e.Name()
-		if strings.HasPrefix(n, "flowsight-") && (strings.HasSuffix(n, ".rpz") || n == "flowsight-policy.conf") {
-			b, err := os.ReadFile(filepath.Join(p.dir(), n))
-			if err == nil {
-				files[filepath.Join(p.dir(), n)] = string(b)
+	for _, dir := range uniq(p.dir(), p.zoneDir()) {
+		entries, _ := os.ReadDir(dir)
+		for _, e := range entries {
+			n := e.Name()
+			if strings.HasPrefix(n, "flowsight-") && (strings.HasSuffix(n, ".rpz") || n == "flowsight-policy.conf") {
+				b, err := os.ReadFile(filepath.Join(dir, n))
+				if err == nil {
+					files[filepath.Join(dir, n)] = string(b)
+				}
 			}
 		}
 	}
@@ -299,11 +308,18 @@ func (p *provider) Current() (core.Artifact, error) {
 
 // persistentDir is where OPNsense keeps includes it copies into the chroot on
 // every reconfigure; a copy there survives the GUI regenerating the resolver.
-func (p *provider) persistentDir() string {
-	if p.m.ctx.Platform.IsOPNsense() {
-		return "/usr/local/etc/unbound.opnsense.d"
+func (p *provider) persistentDir() string { return p.m.ctx.Platform.UnboundPersistDir }
+
+func uniq(dirs ...string) []string {
+	var out []string
+	seen := map[string]bool{}
+	for _, d := range dirs {
+		if d != "" && !seen[d] {
+			seen[d] = true
+			out = append(out, d)
+		}
 	}
-	return ""
+	return out
 }
 
 // Apply writes every file atomically, removes stale ones, validates the whole
@@ -318,16 +334,28 @@ func (p *provider) Apply(a core.Artifact) (string, error) {
 	if d := p.persistentDir(); d != "" {
 		dirs = append(dirs, d)
 	}
-	write := func(files map[string]string) error {
+	// A file keyed in the include directory (the include itself) goes to
+	// every include directory, live and persistent; any other file (a zone)
+	// goes exactly where its key says.
+	targets := func(path string) []string {
+		if filepath.Dir(path) != p.dir() {
+			return []string{path}
+		}
+		var out []string
 		for _, dir := range dirs {
-			if err := os.MkdirAll(dir, 0o755); err != nil {
-				return err
-			}
-			for path, text := range files {
-				target := filepath.Join(dir, filepath.Base(path))
+			out = append(out, filepath.Join(dir, filepath.Base(path)))
+		}
+		return out
+	}
+	write := func(files map[string]string) error {
+		for path, text := range files {
+			for _, target := range targets(path) {
 				if strings.TrimSpace(text) == "" || strings.TrimSpace(text) == strings.TrimSpace(header) {
 					_ = os.Remove(target)
 					continue
+				}
+				if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+					return err
 				}
 				if err := os.WriteFile(target+".tmp", []byte(text), 0o644); err != nil {
 					return err
@@ -336,13 +364,21 @@ func (p *provider) Apply(a core.Artifact) (string, error) {
 					return err
 				}
 			}
+		}
+		// Remove FlowSight files nothing asks for any more, including zone
+		// files older versions put in the include directories.
+		for _, dir := range uniq(append(dirs, p.zoneDir())...) {
 			entries, _ := os.ReadDir(dir)
 			for _, e := range entries {
 				n := e.Name()
 				if !strings.HasPrefix(n, "flowsight-") || n == "flowsight-logging.conf" {
 					continue
 				}
-				if text, keep := files[filepath.Join(p.dir(), n)]; !keep || strings.TrimSpace(text) == "" {
+				key := filepath.Join(dir, n)
+				if dir != p.zoneDir() || strings.HasSuffix(n, ".conf") {
+					key = filepath.Join(p.dir(), n)
+				}
+				if text, keep := files[key]; !keep || strings.TrimSpace(text) == "" {
 					_ = os.Remove(filepath.Join(dir, n))
 				}
 			}
@@ -357,17 +393,28 @@ func (p *provider) Apply(a core.Artifact) (string, error) {
 		_ = write(backup)
 		return "", fmt.Errorf("unbound-checkconf rejected the generated config, reverted: %s", firstLines(out, 5))
 	}
-	if out, err := pl.Service("unbound", "reload"); err != nil {
+	// Reload a running resolver; start a stopped one only if the operator
+	// has it enabled. Reloading a stopped resolver can only fail, and
+	// reverting on that failure left DNS down for good.
+	action := "reload"
+	if !pl.UnboundRunning() {
+		if !pl.UnboundEnabled() {
+			return "unbound is not running and not enabled; the policy is written and applies when it starts", nil
+		}
+		action = "start"
+	}
+	if out, err := pl.Service("unbound", action); err != nil {
 		_ = write(backup)
-		_, _ = pl.Service("unbound", "reload")
-		return "", fmt.Errorf("unbound reload failed, reverted: %s", firstLines(out, 5))
+		_, _ = pl.Service("unbound", action)
+		return "", fmt.Errorf("unbound %s failed, reverted: %s", action, firstLines(out, 5))
 	}
 	var all strings.Builder
 	for _, k := range sortedFileKeys(a.Files) {
 		all.WriteString(a.Files[k])
 	}
 	sum := sha256.Sum256([]byte(all.String()))
-	return "unbound reloaded (" + hex.EncodeToString(sum[:6]) + ")", nil
+	verb := map[string]string{"reload": "reloaded", "start": "started"}[action]
+	return "unbound " + verb + " (" + hex.EncodeToString(sum[:6]) + ")", nil
 }
 
 func sortedFileKeys(m map[string]string) []string {

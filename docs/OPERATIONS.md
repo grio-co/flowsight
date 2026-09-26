@@ -223,6 +223,17 @@ result and the Events page carry the checker's message. A hand-written
 include with a syntax error under `unbound.opnsense.d` will fail the same
 check; fix or remove it.
 
+**Unbound will not start: "cannot open zonefile ... flowsight-...rpz".**
+Versions before 0.9.8r202609262130 kept a DNS-block policy's zone file in
+`/var/unbound/etc`, which OPNsense empties every time it starts Unbound,
+while the include naming it survived; after a reboot or a resolver restart
+Unbound refused to start and DNS was down for every client. Current
+versions keep zone files in `/var/unbound/flowsight` and start an enabled
+Unbound they find stopped. On an older version, remove
+`/usr/local/etc/unbound.opnsense.d/flowsight-policy.conf` and start Unbound
+from Services › Unbound DNS, then upgrade. FlowSight never starts an Unbound
+the operator has disabled.
+
 **The daemon uses more memory than expected.** Lower `memory_limit_mb` (it
 is a soft target the Go runtime works towards), reduce category feeds in
 Settings › categories, or shorten retention. The System page shows the
