@@ -713,8 +713,12 @@ func (m *Module) doPoll() error {
 	for _, hostURL := range hosts {
 		if err := m.pollHost(hostURL, inventory, excludeVMIDs, identity); err != nil {
 			inventory.Errors = append(inventory.Errors, fmt.Sprintf("%s: %v", hostURL, err))
+			m.ctx.Log.Warn("proxmox: node poll failed", "host", hostURL, "err", err.Error())
 		}
 	}
+	m.mu.Lock()
+	m.lastPollError = strings.Join(inventory.Errors, "; ")
+	m.mu.Unlock()
 
 	// Enrichment: UpsertHosts and notes write
 	m.enrichment(inventory, excludeVMIDs, identity)
@@ -1048,7 +1052,7 @@ func (m *Module) apiInventory(r *core.Req) (any, error) {
 	if m.inventory == nil {
 		return map[string]interface{}{"nodes": []Node{}, "guests": []Guest{}}, nil
 	}
-	return map[string]interface{}{"nodes": m.inventory.Nodes, "guests": m.inventory.Guests}, nil
+	return map[string]interface{}{"nodes": m.inventory.Nodes, "guests": m.inventory.Guests, "last_at": m.inventory.LastAt, "errors": m.inventory.Errors}, nil
 }
 
 func (m *Module) apiStatus(r *core.Req) (any, error) {
@@ -1065,6 +1069,9 @@ func (m *Module) apiStatus(r *core.Req) (any, error) {
 	if m.inventory != nil {
 		status["node_count"] = len(m.inventory.Nodes)
 		status["guest_count"] = len(m.inventory.Guests)
+		// A node that could not be polled is the first thing to know.
+		status["errors"] = m.inventory.Errors
+		status["hosts"] = core.Strs(m.ctx.Settings(), "hosts")
 	}
 	status["write_notes"] = core.Bool(m.ctx.Settings(), "write_notes", false)
 	status["notes"] = map[string]any{"written": m.notesWritten, "skipped": m.notesSkippedN, "failed": m.notesFailed, "last_error": m.notesLastErr, "at": m.notesAt}

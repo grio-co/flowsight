@@ -12,6 +12,12 @@ name, and every release's assets carry that string in their file names.
 
 The newest entry is first.
 
+## 0.9.8r202609261940
+
+**Proxmox poll errors are visible.** A node that could not be polled now
+appears in `/api/proxmox/status` (`errors`, `hosts`) and in the inventory,
+and is logged, instead of vanishing.
+
 ## 0.9.8r202609261937
 
 **Proxmox: a token and certificate per node.** Standalone nodes share
