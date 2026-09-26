@@ -639,13 +639,17 @@ func (m *Module) mcpToolsCall(ctx context.Context, params json.RawMessage, id an
 }
 
 func (m *Module) callTool(ctx context.Context, tool *Tool, args json.RawMessage) string {
-	// Build request with query parameters and path params
+	// Parse arguments
 	var argMap map[string]any
 	if err := json.Unmarshal(args, &argMap); err != nil {
 		return fmt.Sprintf("error: invalid arguments: %v", err)
 	}
 
-	// For now, return a placeholder. Full implementation in tools.go
-	return fmt.Sprintf("Tool %q would be called with %v", tool.Name, argMap)
+	// Call the tool via HTTP
+	result, err := m.callToolHTTP(ctx, tool.Name, argMap)
+	if err != nil {
+		return fmt.Sprintf("error: %v", err)
+	}
+	return result
 }
 

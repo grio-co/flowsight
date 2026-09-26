@@ -7,8 +7,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"sort"
-	"strings"
 	"sync"
 
 	"github.com/grioghar/flowsight/internal/core"
@@ -189,8 +187,16 @@ func (s *MCPServer) mcpToolsCall(ctx context.Context, params json.RawMessage, id
 		}
 	}
 
-	// Call the tool through the HTTP API
-	result := s.callToolByName(ctx, req.Name, req.Arguments)
+	// Parse arguments and call the tool
+	var argMap map[string]any
+	if err := json.Unmarshal(req.Arguments, &argMap); err != nil {
+		argMap = map[string]any{}
+	}
+
+	result, err := s.module.callToolHTTP(ctx, req.Name, argMap)
+	if err != nil {
+		result = fmt.Sprintf("error: %v", err)
+	}
 
 	return map[string]any{
 		"jsonrpc": "2.0",
@@ -204,58 +210,4 @@ func (s *MCPServer) mcpToolsCall(ctx context.Context, params json.RawMessage, id
 		},
 		"id": id,
 	}
-}
-
-func (s *MCPServer) callToolByName(ctx context.Context, name string, args json.RawMessage) string {
-	// Find the matching route
-	var matchedPath string
-
-	s.core.API.IterateRoutes(func(method, path string, route *core.Route) {
-		if matchedPath == "" && routeToToolName(path) == name && method == "GET" {
-			matchedPath = path
-		}
-	})
-
-	if matchedPath == "" {
-		return fmt.Sprintf("error: tool %q not found in routes", name)
-	}
-
-	// Parse arguments
-	var argMap map[string]any
-	if err := json.Unmarshal(args, &argMap); err != nil {
-		return fmt.Sprintf("error: invalid arguments: %v", err)
-	}
-
-	// Make HTTP request to this daemon's API
-	result, err := s.callRoute(ctx, matchedPath, argMap)
-	if err != nil {
-		return fmt.Sprintf("error: %v", err)
-	}
-
-	// Truncate result if necessary
-	if len(result) > s.module.config.MaxToolResultBytes {
-		result = result[:s.module.config.MaxToolResultBytes] + "\n[truncated]"
-	}
-
-	return result
-}
-
-func (s *MCPServer) callRoute(ctx context.Context, path string, args map[string]any) (string, error) {
-	// Convert tool name to HTTP request (build query string from args)
-	// This is a placeholder; full implementation would make actual HTTP calls
-	// For now, we'll return a summary
-
-	var params []string
-	keys := make([]string, 0, len(args))
-	for k := range args {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-
-	for _, k := range keys {
-		v := args[k]
-		params = append(params, fmt.Sprintf("%s=%v", k, v))
-	}
-
-	return fmt.Sprintf("Called %s with: %s", path, strings.Join(params, "&")), nil
 }
