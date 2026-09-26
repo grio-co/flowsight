@@ -383,6 +383,9 @@ func (s *Store) KVCount(prefix string) int64 {
 	return n
 }
 
+// KVDelete removes one key; a missing key is not an error.
+func (s *Store) KVDelete(key string) error { return s.Exec(`DELETE FROM kv WHERE key=?`, key) }
+
 func (s *Store) KVSet(key string, v any) error {
 	b, err := json.Marshal(v)
 	if err != nil {

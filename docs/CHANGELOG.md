@@ -12,7 +12,7 @@ name, and every release's assets carry that string in their file names.
 
 The newest entry is first.
 
-## 0.9.8r202609261816
+## 0.9.8r202609261834
 
 **Claude as FlowSight's analyst via Claude Code Agent SDK:** Two new features expand FlowSight's AI capabilities and integrate with Claude Code.
 
@@ -25,6 +25,21 @@ The newest entry is first.
 **New assistant module settings:** `provider` (off, anthropic, claude-code), `api_key` (Anthropic secret), `model` (default claude-sonnet-5), `claude_path` (default "claude"), `max_turns`, `max_tool_result_bytes`, `allow_writes`, `mcp_allow_writes`, `timeout_seconds`, `retention_days` (for conversation history), and `redact_addresses` (replace RFC1918 and local IPs with placeholders before sending to the provider).
 
 **API documentation:** `/api/assistant/status` (provider state and tool count), `/api/assistant/ask` (question + streaming answer), `/api/assistant/conversations` (list and search), `/api/assistant/tools` (tool list with schemas), `/api/mcp` (MCP protocol endpoint). All routes are documented to contract with descriptions, parameters, and response schemas.
+
+How it is built: the anthropic provider is a streaming tool-use loop over
+the Messages API (text as it arrives, each tool call and its result, then
+done); the claude-code provider runs `claude -p … --output-format
+stream-json --append-system-prompt … --mcp-config … --allowedTools
+mcp__flowsight__* --permission-mode default` in its own process group with
+FlowSight attached as an MCP server, relays its transcript, and kills the
+group at the deadline; `flowsightd mcp` is a stdio bridge to `POST
+/api/mcp` and never opens the store; conversations live in the store; the
+Ask page under Monitor streams the answer with the tool trail and says when
+data leaves. Tests cover tool calls reaching the daemon, the Anthropic loop
+against a fake API, the CLI against a fake transcript and a sleeping one,
+the bridge, redaction and the store. Also restored: the enroll routes'
+documentation (lost in an earlier merge) and the all-modules import of the
+documentation gate, which had been checking seven routes instead of 230.
 
 ## 0.9.8r202609260011
 

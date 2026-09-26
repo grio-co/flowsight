@@ -515,6 +515,65 @@
   // ------------------------------------------------------------- Users
   FS.registerPage('users', { title: 'Users', refresh: 15, async render(el, ctx) { const u = await get('/api/users' + (ctx.params.user ? '?user=' + encodeURIComponent(ctx.params.user) : '')); if (u.error) { el.innerHTML = FS.err(u.error); return; } const users = u.users || []; el.innerHTML = `<div class="grid cols-4">${kpi('Active users', num(u.count || 0), 'tracked from RADIUS or manual API')}${card('User sessions', users.length ? table(users, [{ t: 'User', f: x => '<b>' + esc(x.user) + '</b>' + (x.source ? '<div class="muted small">' + esc(x.source) + '</div>' : ''), sort: 'user' }, { t: 'Device', f: x => x.device_name ? '<a href="#host/' + (x.ipv4 || x.ipv6) + '">' + esc(x.device_name) + '</a>' : '<span class="muted">-</span>' }, { t: 'Addresses', f: x => (x.ipv4 ? '<span class="mono">' + esc(x.ipv4) + '</span>' : '') + (x.ipv6 ? '<div class="muted small mono">' + esc(x.ipv6) + '</div>' : '') }, { t: 'NAS', f: x => esc(x.nas_ip || x.nas_id || ''), sort: 'nas_ip' }, { t: 'Active', f: x => x.active ? pill('yes', 'ok') : pill('no', '') }, { t: 'Since', f: x => ago(x.start_ts), sort: 'start_ts' }], users.length <= 20 ? '' : '<a href="#users?show=all">show all</a>') : '<span class="muted">no active sessions</span>')}</div><div style="margin-top:14px">${card('Add session manually', '<form class="f" id="addform"><input name="user" placeholder="username" required /><input name="ipv4" placeholder="IPv4 (optional)" /><input name="mac" placeholder="MAC (optional)" /><div class="actions"><button class="btn primary">Add</button></div></form>')}</div>`; FS.$('#addform', el).onsubmit = async (e) => { e.preventDefault(); const r = await post('/api/users/session', new URLSearchParams(new FormData(e.target))); FS.toast(r.error || 'Session recorded', !!r.error); if (!r.error) { e.target.reset(); FS.render(); } }; } });
 
+
+  // ------------------------------------------------------------- Ask
+  // A question in plain English, answered by the model calling FlowSight's
+  // own API. The answer streams; every tool call is shown so the reader can
+  // see what the answer rests on; the page says plainly when data leaves.
+  FS.registerPage('ask', {
+    title: 'Ask', refresh: 0,
+    async render(el, ctx) {
+      const [st, hist] = await Promise.all([get('/api/assistant/status'), get('/api/assistant/conversations?limit=20')]);
+      if (st.error) { el.innerHTML = FS.err(st.error); return; }
+      const on = !!st.enabled, ready = !!st.ready;
+      const provider = st.provider === 'claude-code' ? 'Claude Code (Agent SDK)' : st.provider === 'anthropic' ? 'Anthropic' : 'nobody';
+      const suggestions = ['Which devices talked to a country other than mine today?', 'What is 192.168.1.115 and what does it talk to?', 'Which device sent the most data in the last hour, and where did it go?', 'Are any IoT devices reaching new countries or ports this week?'];
+      const convs = hist.conversations || [];
+      const trail = (calls) => (calls || []).length ? `<details class="small" style="margin-top:6px"><summary>Looked at ${num(calls.length)} thing${calls.length === 1 ? '' : 's'}</summary><ul class="small">${calls.map(c => `<li><span class="mono">${esc(c.tool_name)}</span> · <span class="muted">${esc(c.route || '')}</span>${c.summary ? ` → ${esc(c.summary)}` : ''}</li>`).join('')}</ul></details>` : '';
+      el.innerHTML = `${on ? `<div class="card" style="border-color:var(--warn)"><b>Questions and the data the model asks for leave this gateway for ${esc(provider)}.</b> <span class="small muted">Only the tools' results for your question are sent; the API token never is. Turn it off under <a href="#modules/assistant">Settings › assistant</a>.</span>${!ready ? `<div class="sev-high small" style="margin-top:6px">Not ready: ${esc(st.reason || st.last_error || 'see settings')}</div>` : ''}</div>`
+        : `<div class="card"><b>The assistant is off.</b> <span class="small">Choose a provider under <a href="#modules/assistant">Settings › assistant</a>: <b>Anthropic</b> (an API key; the daemon runs the agent loop itself) or <b>Claude Code</b> (the Claude Code CLI on the gateway, driven headless with FlowSight attached as an MCP server). When it is on, your questions and the data the model asks for leave this gateway for that provider; nothing leaves while it is off. Claude Code and anything built on the Agent SDK can also use FlowSight directly: <span class="mono">claude mcp add flowsight -- flowsightd mcp</span>.</span></div>`}
+        <div style="margin-top:14px">${card('Ask FlowSight', `<form class="f" id="askf"><textarea name="q" rows="3" placeholder="Ask about a device, a country, a domain, a policy…"${ready ? '' : ' disabled'}>${esc(ctx.params.q || '')}</textarea>
+          <div class="actions" style="margin-top:8px"><button class="btn primary"${ready ? '' : ' disabled'}>Ask</button><span class="small muted" id="askstate"></span></div></form>
+          <div class="small muted" style="margin-top:6px">Try: ${suggestions.map(q => `<a href="#ask?q=${encodeURIComponent(q)}" data-suggest="${esc(q)}">${esc(q)}</a>`).join(' · ')}</div>
+          <div id="answer" hidden style="margin-top:12px"><div id="atext" style="white-space:pre-wrap"></div><ul class="small" id="atrail"></ul></div>`)}</div>
+        <div style="margin-top:14px">${card('Recent questions', convs.length ? convs.map(c => `<details style="margin-bottom:8px"><summary><b>${esc(c.question)}</b> <span class="muted small">${ago(c.created_at)}${c.error ? ' · ' + pill('failed', 'bad') : ''}</span></summary><div style="white-space:pre-wrap;margin-top:6px">${esc(c.answer || c.error || '')}</div>${trail(c.tool_calls)}<div class="actions" style="margin-top:6px"><button class="btn small danger" data-forget="${esc(c.id)}">Forget</button></div></details>`).join('') : '<div class="empty">Nothing asked yet.</div>', `${num(st.questions || 0)} kept · ${num(st.tools || 0)} tools available`)}</div>`;
+      FS.$$('[data-suggest]', el).forEach(a => a.onclick = (e) => { e.preventDefault(); const f = FS.$('#askf', el); if (f && f.q) { f.q.value = a.dataset.suggest; if (ready && f.onsubmit) f.onsubmit({ preventDefault() {} }); } });
+      FS.$$('[data-forget]', el).forEach(b => b.onclick = async () => { await FS.api(`/api/assistant/conversations/${encodeURIComponent(b.dataset.forget)}`, { method: 'DELETE', body: {} }); FS.render(); });
+      const f = FS.$('#askf', el);
+      if (!f) return;
+      f.onsubmit = async (e) => {
+        e.preventDefault();
+        const q = (f.q.value || '').trim(); if (!q) return;
+        const box = FS.$('#answer', el), text = FS.$('#atext', el), trailEl = FS.$('#atrail', el), state = FS.$('#askstate', el);
+        box.hidden = false; text.textContent = ''; trailEl.innerHTML = ''; state.textContent = 'asking…';
+        FS.askInFlight = true;
+        try {
+          const url = FS.base ? FS.base + encodeURIComponent('/api/assistant/ask') : '/api/assistant/ask';
+          const headers = { 'Content-Type': 'application/json', 'Accept': 'text/event-stream', 'X-Requested-With': 'Flowsight' };
+          if (window.FS_CSRF) headers['X-CSRFToken'] = window.FS_CSRF;
+          const r = await fetch(url, { method: 'POST', headers, credentials: 'same-origin', body: JSON.stringify({ question: q }) });
+          if (!r.ok || !r.body) { const t = await r.text(); state.textContent = ''; text.textContent = 'Failed: ' + t.slice(0, 300); return; }
+          const reader = r.body.getReader(); const dec = new TextDecoder(); let buf = '';
+          const handle = (ev) => {
+            if (ev.type === 'text') text.textContent += ev.text;
+            else if (ev.type === 'tool_call') { const li = document.createElement('li'); li.innerHTML = `<span class="mono">${esc(ev.tool)}</span> <span class="muted">${esc(ev.route || '')}</span> <span class="muted">…</span>`; trailEl.appendChild(li); }
+            else if (ev.type === 'tool_result') { const lis = trailEl.querySelectorAll('li'); const li = lis[lis.length - 1]; if (li) li.innerHTML = `<span class="mono">${esc(ev.tool)}</span> <span class="muted">${esc(ev.route || '')}</span> → ${esc(ev.summary || (ev.bytes + ' bytes'))}`; }
+            else if (ev.type === 'error') { text.textContent += (text.textContent ? '\n' : '') + 'Error: ' + ev.error; }
+            else if (ev.type === 'done') { state.textContent = `done · ${num(ev.turns || 0)} turn${ev.turns === 1 ? '' : 's'}`; }
+          };
+          for (;;) {
+            const { value, done } = await reader.read(); if (done) break;
+            buf += dec.decode(value, { stream: true });
+            let i; while ((i = buf.indexOf('\n\n')) >= 0) { const chunk = buf.slice(0, i); buf = buf.slice(i + 2); chunk.split('\n').forEach(l => { if (l.startsWith('data:')) { try { handle(JSON.parse(l.slice(5).trim())); } catch (err) { } } }); }
+          }
+          if (!state.textContent || state.textContent === 'asking…') state.textContent = 'done';
+        } catch (err) { state.textContent = ''; text.textContent += '\nFailed: ' + err.message; }
+        finally { FS.askInFlight = false; }
+      };
+      if (ctx.params.q && ready) setTimeout(() => f.onsubmit({ preventDefault() {} }), 50);
+    }
+  });
+
   // ------------------------------------------------------------- Stateful Packet Inspection
   FS.registerPage('deep', {
     title: 'Stateful Packet Inspection', refresh: 15,

@@ -1,213 +1,138 @@
 package assistant
 
+// `flowsightd mcp`: the stdio face of the MCP server for clients that speak
+// JSON-RPC over a pipe (Claude Code, the Agent SDK, Claude Desktop). It is
+// deliberately thin: every request is forwarded to the running daemon's
+// POST /api/mcp and the answer written back, so there is one implementation
+// of the tools and this process never opens the daemon's store.
+
 import (
 	"bufio"
-	"context"
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
+	"net/http"
 	"os"
-	"sync"
-
-	"github.com/grioghar/flowsight/internal/core"
+	"strings"
+	"time"
 )
 
-// MCPServer is a Model Context Protocol server that speaks JSON-RPC 2.0 over stdio.
-type MCPServer struct {
-	ctx    context.Context
-	core   *core.Core
-	module *Module
-
-	in  *bufio.Reader
-	out io.Writer
-	mu  sync.Mutex
-
-	nextID     uint64
-	idMu       sync.Mutex
-	initialized bool
+// Bridge forwards JSON-RPC lines between a stdio client and the daemon.
+type Bridge struct {
+	Base   string // e.g. http://127.0.0.1:8080
+	Token  string
+	In     io.Reader
+	Out    io.Writer
+	Client *http.Client
 }
 
-// NewMCPServer creates an MCP server bound to a FlowSight core.
-func NewMCPServer(ctx context.Context, c *core.Core) *MCPServer {
-	m := &MCPServer{
-		ctx:  ctx,
-		core: c,
-		in:   bufio.NewReader(os.Stdin),
-		out:  os.Stdout,
+// Target resolves where the daemon is: FLOWSIGHT_URL / FLOWSIGHT_TOKEN, else
+// the daemon's own config file (bind, port, api_token at the top level).
+func Target(configPath string) (base, token string) {
+	base, token = os.Getenv("FLOWSIGHT_URL"), os.Getenv("FLOWSIGHT_TOKEN")
+	if base != "" {
+		return strings.TrimRight(base, "/"), token
 	}
-
-	// Find the assistant module
-	if am, ok := c.Modules["assistant"].(*Module); ok {
-		m.module = am
-	}
-
-	return m
-}
-
-// Run starts the server loop, reading and responding to JSON-RPC requests.
-func (s *MCPServer) Run() error {
-	if s.module == nil {
-		return fmt.Errorf("assistant module not found")
-	}
-
-	for {
-		select {
-		case <-s.ctx.Done():
-			return nil
-		default:
-		}
-
-		line, err := s.in.ReadBytes('\n')
-		if err != nil {
-			if err == io.EOF {
-				return nil
+	host, port := "127.0.0.1", 8080
+	if configPath != "" {
+		if b, err := os.ReadFile(configPath); err == nil {
+			var cfg struct {
+				Bind     string `json:"bind"`
+				Port     int    `json:"port"`
+				APIToken string `json:"api_token"`
 			}
-			return err
-		}
-
-		response := s.handleRawRequest(line)
-		if response != nil {
-			b, _ := json.Marshal(response)
-			fmt.Fprintln(s.out, string(b))
+			if json.Unmarshal(b, &cfg) == nil {
+				if cfg.Port > 0 {
+					port = cfg.Port
+				}
+				if cfg.Bind != "" && cfg.Bind != "0.0.0.0" && cfg.Bind != "::" && cfg.Bind != "[::]" {
+					host = cfg.Bind
+					if strings.Contains(host, ":") && !strings.HasPrefix(host, "[") {
+						host = "[" + host + "]"
+					}
+				}
+				if token == "" {
+					token = cfg.APIToken
+				}
+			}
 		}
 	}
+	return fmt.Sprintf("http://%s:%d", host, port), token
 }
 
-// handleRawRequest parses and handles a JSON-RPC 2.0 request.
-func (s *MCPServer) handleRawRequest(raw []byte) any {
-	var jsonRPC struct {
-		JSONRPC string          `json:"jsonrpc"`
-		Method  string          `json:"method"`
-		Params  json.RawMessage `json:"params"`
-		ID      any             `json:"id"`
+// Run reads one JSON-RPC message per line until EOF.
+func (b *Bridge) Run() error {
+	if b.Client == nil {
+		b.Client = &http.Client{Timeout: 120 * time.Second}
 	}
-
-	if err := json.Unmarshal(raw, &jsonRPC); err != nil {
-		return map[string]any{
-			"jsonrpc": "2.0",
-			"error":   map[string]any{"code": -32700, "message": "Parse error"},
-			"id":      nil,
+	sc := bufio.NewScanner(b.In)
+	sc.Buffer(make([]byte, 1<<20), 32<<20)
+	for sc.Scan() {
+		line := bytes.TrimSpace(sc.Bytes())
+		if len(line) == 0 {
+			continue
 		}
+		var probe struct {
+			ID     json.RawMessage `json:"id"`
+			Method string          `json:"method"`
+		}
+		if err := json.Unmarshal(line, &probe); err != nil {
+			b.write(map[string]any{"jsonrpc": "2.0", "id": nil, "error": map[string]any{"code": -32700, "message": "parse error: " + err.Error()}})
+			continue
+		}
+		resp, err := b.forward(line)
+		if err != nil {
+			if len(probe.ID) == 0 || string(probe.ID) == "null" {
+				continue // a notification: nothing to answer
+			}
+			b.write(map[string]any{"jsonrpc": "2.0", "id": json.RawMessage(probe.ID), "error": map[string]any{"code": -32000, "message": err.Error()}})
+			continue
+		}
+		if len(bytes.TrimSpace(resp)) == 0 || string(bytes.TrimSpace(resp)) == "null" {
+			continue // notification acknowledged silently
+		}
+		fmt.Fprintf(b.Out, "%s\n", bytes.TrimSpace(resp))
 	}
-
-	if jsonRPC.JSONRPC != "2.0" {
-		return map[string]any{
-			"jsonrpc": "2.0",
-			"error":   map[string]any{"code": -32600, "message": "Invalid Request"},
-			"id":      jsonRPC.ID,
-		}
-	}
-
-	// Handle MCP methods
-	switch jsonRPC.Method {
-	case "initialize":
-		s.initialized = true
-		return s.mcpInitialize(jsonRPC.ID)
-	case "notifications/initialized":
-		return nil // Notification, no response
-	case "tools/list":
-		return s.mcpToolsList(jsonRPC.ID)
-	case "tools/call":
-		return s.mcpToolsCall(s.ctx, jsonRPC.Params, jsonRPC.ID)
-	case "ping":
-		return map[string]any{
-			"jsonrpc": "2.0",
-			"result":  map[string]any{},
-			"id":      jsonRPC.ID,
-		}
-	default:
-		return map[string]any{
-			"jsonrpc": "2.0",
-			"error":   map[string]any{"code": -32601, "message": "Method not found"},
-			"id":      jsonRPC.ID,
-		}
-	}
+	return sc.Err()
 }
 
-func (s *MCPServer) mcpInitialize(id any) map[string]any {
-	return map[string]any{
-		"jsonrpc": "2.0",
-		"result": map[string]any{
-			"protocolVersion": "2025-06-18",
-			"serverInfo": map[string]any{
-				"name":    "flowsight",
-				"version": s.core.Version,
-			},
-			"capabilities": map[string]any{
-				"tools": map[string]any{},
-			},
-		},
-		"id": id,
-	}
+func (b *Bridge) write(v any) {
+	j, _ := json.Marshal(v)
+	fmt.Fprintf(b.Out, "%s\n", j)
 }
 
-func (s *MCPServer) mcpToolsList(id any) map[string]any {
-	s.module.toolsMu.RLock()
-	tools := make([]map[string]any, len(s.module.tools))
-	for i, t := range s.module.tools {
-		tools[i] = map[string]any{
-			"name":        t.Name,
-			"description": t.Description,
-			"inputSchema": t.InputSchema,
-		}
-	}
-	s.module.toolsMu.RUnlock()
-
-	return map[string]any{
-		"jsonrpc": "2.0",
-		"result": map[string]any{
-			"tools": tools,
-		},
-		"id": id,
-	}
-}
-
-func (s *MCPServer) mcpToolsCall(ctx context.Context, params json.RawMessage, id any) map[string]any {
-	var req struct {
-		Name      string          `json:"name"`
-		Arguments json.RawMessage `json:"arguments"`
-	}
-	if err := json.Unmarshal(params, &req); err != nil {
-		return map[string]any{
-			"jsonrpc": "2.0",
-			"error":   map[string]any{"code": -32602, "message": "Invalid params"},
-			"id":      id,
-		}
-	}
-
-	s.module.toolsMu.RLock()
-	_, ok := s.module.toolMap[req.Name]
-	s.module.toolsMu.RUnlock()
-
-	if !ok {
-		return map[string]any{
-			"jsonrpc": "2.0",
-			"error":   map[string]any{"code": -32602, "message": fmt.Sprintf("Tool not found: %s", req.Name)},
-			"id":      id,
-		}
-	}
-
-	// Parse arguments and call the tool
-	var argMap map[string]any
-	if err := json.Unmarshal(req.Arguments, &argMap); err != nil {
-		argMap = map[string]any{}
-	}
-
-	result, err := s.module.callToolHTTP(ctx, req.Name, argMap)
+func (b *Bridge) forward(line []byte) ([]byte, error) {
+	req, err := http.NewRequest("POST", b.Base+"/api/mcp", bytes.NewReader(line))
 	if err != nil {
-		result = fmt.Sprintf("error: %v", err)
+		return nil, err
 	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Requested-With", "Flowsight")
+	if b.Token != "" {
+		req.Header.Set("X-Flowsight-Token", b.Token)
+	}
+	resp, err := b.Client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("flowsightd unreachable at %s: %v", b.Base, err)
+	}
+	defer resp.Body.Close()
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 64<<20))
+	if err != nil {
+		return nil, err
+	}
+	if resp.StatusCode == 401 || resp.StatusCode == 403 {
+		return nil, fmt.Errorf("flowsightd refused the token (HTTP %d); set FLOWSIGHT_TOKEN", resp.StatusCode)
+	}
+	if resp.StatusCode >= 500 {
+		return nil, fmt.Errorf("flowsightd: HTTP %d", resp.StatusCode)
+	}
+	return body, nil
+}
 
-	return map[string]any{
-		"jsonrpc": "2.0",
-		"result": map[string]any{
-			"content": []map[string]any{
-				{
-					"type": "text",
-					"text": result,
-				},
-			},
-		},
-		"id": id,
-	}
+// RunStdio is what `flowsightd mcp` calls.
+func RunStdio(configPath string) error {
+	base, token := Target(configPath)
+	b := &Bridge{Base: base, Token: token, In: os.Stdin, Out: os.Stdout}
+	return b.Run()
 }

@@ -7,8 +7,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"os/exec"
-	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -26,9 +26,10 @@ type Module struct {
 	config  assistConfig
 	lastErr string
 
-	// Conversation store
-	convMu        sync.RWMutex
-	conversations map[string]*Conversation
+	convMu sync.Mutex // serialises writes to the conversation index
+
+	redactMu  sync.Mutex
+	redactMap map[string]string
 
 	// Tool generation
 	toolsMu sync.RWMutex
@@ -38,14 +39,15 @@ type Module struct {
 
 // Conversation stores a question, answer, and tool calls.
 type Conversation struct {
-	ID          string                 `json:"id"`
-	Question    string                 `json:"question"`
-	Answer      string                 `json:"answer"`
-	ToolCalls   []ToolCallRecord       `json:"tool_calls"`
-	CreatedAt   int64                  `json:"created_at"`
-	UpdatedAt   int64                  `json:"updated_at"`
-	InputTokens int                    `json:"input_tokens,omitempty"`
-	OutputTokens int                  `json:"output_tokens,omitempty"`
+	ID           string           `json:"id"`
+	Question     string           `json:"question"`
+	Answer       string           `json:"answer"`
+	ToolCalls    []ToolCallRecord `json:"tool_calls"`
+	CreatedAt    int64            `json:"created_at"`
+	UpdatedAt    int64            `json:"updated_at"`
+	InputTokens  int              `json:"input_tokens,omitempty"`
+	OutputTokens int              `json:"output_tokens,omitempty"`
+	Error        string           `json:"error,omitempty"`
 }
 
 // ToolCallRecord is a summary of a tool call in a conversation.
@@ -65,18 +67,20 @@ type Tool struct {
 
 // assistConfig is what the settings say.
 type assistConfig struct {
-	Provider             string
-	APIKey               string
-	Model                string
-	ClaudePath           string
-	MaxTurns             int
-	MaxToolResultBytes   int
-	AllowWrites          bool
-	MCPAllowWrites       bool
-	TimeoutSeconds       int
-	RetentionDays        int
-	RedactAddresses      bool
+	Provider           string
+	APIKey             string
+	Model              string
+	ClaudePath         string
+	MaxTurns           int
+	MaxToolResultBytes int
+	AllowWrites        bool
+	MCPAllowWrites     bool
+	TimeoutSeconds     int
+	RetentionDays      int
+	RedactAddresses    bool
 }
+
+func (c assistConfig) on() bool { return c.Provider == "anthropic" || c.Provider == "claude-code" }
 
 func (m *Module) Info() core.ModuleInfo {
 	return core.ModuleInfo{
@@ -85,18 +89,17 @@ func (m *Module) Info() core.ModuleInfo {
 		Description: "Claude as an analyst: ask questions in English and get answers by tool use; expose FlowSight to Claude Code via MCP.",
 		After:       []string{"web"},
 		Defaults: map[string]any{
-			"enabled":                false,
-			"provider":               "off",
-			"api_key":                "",
-			"model":                  "claude-sonnet-5",
-			"claude_path":            "claude",
-			"max_turns":              8,
-			"max_tool_result_bytes":  65536,
-			"allow_writes":           false,
-			"mcp_allow_writes":       false,
-			"timeout_seconds":        120,
-			"retention_days":         7,
-			"redact_addresses":       false,
+			"provider":              "off",
+			"api_key":               "",
+			"model":                 "claude-sonnet-5",
+			"claude_path":           "claude",
+			"max_turns":             8,
+			"max_tool_result_bytes": 65536,
+			"allow_writes":          false,
+			"mcp_allow_writes":      false,
+			"timeout_seconds":       120,
+			"retention_days":        7,
+			"redact_addresses":      false,
 		},
 		Schema: []core.SettingField{
 			{Section: "Provider", Key: "provider", Label: "AI Provider", Type: "choice", Help: "off: assistant disabled. anthropic: Anthropic's Messages API. claude-code: Claude Code CLI / Agent SDK.",
@@ -117,41 +120,54 @@ func (m *Module) Info() core.ModuleInfo {
 
 func (m *Module) Setup(ctx *core.Context) error {
 	m.ctx = ctx
-	m.conversations = map[string]*Conversation{}
 	m.toolMap = map[string]*Tool{}
 
 	// Register this module as a service so other modules can use it
 	ctx.Publish("assistant", m)
+	ctx.Panel(core.Panel{ID: "ask", Title: "Ask", Group: "Monitor", Order: 80, Icon: "ask"})
 
 	// Register routes
 	ctx.Route("GET", "/api/assistant/status", m.apiStatus,
-		core.Doc("Get assistant status: provider, ready state, tool count"))
+		core.Doc("The assistant's state: which provider is configured, whether it is ready to answer and if not why, the model, how many FlowSight tools it can call"),
+		core.Returns("Assistant status", map[string]any{"provider": "anthropic", "enabled": true, "ready": true, "model": "claude-sonnet-5", "tools": 190, "questions": 12}))
 	ctx.Route("POST", "/api/assistant/ask", m.apiAsk,
-		core.Doc("Ask the assistant a question; stream answer as JSON-RPC 2.0 or SSE"),
+		core.Doc("Ask a question in plain English; the model answers by calling FlowSight's own API. With Accept: text/event-stream the answer streams as events (text, tool_call, tool_result, done, error); otherwise the whole answer is returned as JSON"),
 		core.Body(
-			core.Fld("question", "string", true, "The question to ask", "Which devices talked to a country other than mine today?"),
-			core.Fld("conversation_id", "string", false, "Optional conversation to append to", nil),
-		))
+			core.Fld("question", "string", true, "The question", "Which devices talked to a country other than mine today?"),
+			core.Fld("conversation_id", "string", false, "Reserved: a conversation to continue", nil),
+		),
+		core.Returns("The answer, the tools it looked at, and the conversation id", map[string]any{"id": "c-1790376243-1", "answer": "Three devices reached Canada today: roku-stick-4k (71 sessions, Plex) …",
+			"tool_calls": []map[string]any{{"tool_name": "visibility_abroad", "route": "GET /api/visibility/abroad?hours=24", "summary": "5 devices"}}, "turns": 2}))
 	ctx.Route("GET", "/api/assistant/conversations", m.apiConversationsList,
-		core.Doc("List saved conversations"),
-		core.Query("limit", "integer", "Max conversations to return", false, 50),
-		core.Query("offset", "integer", "Offset for pagination", false, 0))
+		core.Doc("Recent questions and answers kept in the store, newest first, with the tools each answer used"),
+		core.Query("limit", "integer", "How many to return (default 50)", false, 50),
+		core.Query("offset", "integer", "Skip this many, for paging", false, 0),
+		core.Returns("Conversations", map[string]any{"conversations": []map[string]any{{"id": "c-1790376243-1", "question": "What is 192.168.1.115?", "answer": "An Amazon Echo …", "created_at": 1790376243}}, "total": 12}))
 	ctx.Route("GET", "/api/assistant/conversations/{id}", m.apiConversationsGet,
-		core.Doc("Get a conversation by ID"),
-		core.PathParam("id", "string", "Conversation ID", "conv-123"))
+		core.Doc("One saved conversation: the question, the full answer and every tool call with its route"),
+		core.PathParam("id", "string", "Conversation id", "c-1790376243-1"),
+		core.Returns("Conversation", map[string]any{"conversation": map[string]any{"id": "c-1790376243-1", "question": "What is 192.168.1.115?", "answer": "An Amazon Echo …", "tool_calls": []map[string]any{{"tool_name": "identity_hosts", "route": "GET /api/identity/hosts?hours=24", "summary": "262 rows"}}}}))
 	ctx.Route("DELETE", "/api/assistant/conversations/{id}", m.apiConversationsDelete,
-		core.Doc("Delete a conversation"),
-		core.PathParam("id", "string", "Conversation ID", "conv-123"),
-		core.Write())
+		core.Doc("Forget one saved conversation; the answer and its tool trail are removed from the store"),
+		core.PathParam("id", "string", "Conversation id", "c-1790376243-1"),
+		core.Write(), core.Returns("Acknowledgement", map[string]any{"ok": true}))
 	ctx.Route("GET", "/api/assistant/tools", m.apiTools,
-		core.Doc("List available tools the assistant can use"))
+		core.Doc("The FlowSight tools the model and MCP clients can call: one per documented API route, with its input schema"),
+		core.Returns("Tools", map[string]any{"tools": []map[string]any{{"name": "visibility_flows", "description": "Recent sessions …", "inputSchema": map[string]any{"type": "object", "properties": map[string]any{"minutes": map[string]any{"type": "integer"}}}}}, "count": 190}))
 	ctx.Route("POST", "/api/mcp", m.apiMCP,
-		core.Doc("MCP server: Model Context Protocol over HTTP (Streamable transport)"))
+		core.Doc("Model Context Protocol over HTTP (JSON-RPC 2.0, streamable-HTTP style single responses): initialize, tools/list, tools/call, ping. What `flowsightd mcp` bridges to for stdio clients such as Claude Code"),
+		core.Body(
+			core.Fld("jsonrpc", "string", true, "Always \"2.0\"", "2.0"),
+			core.Fld("id", "string", false, "Request id; absent for notifications", "1"),
+			core.Fld("method", "string", true, "initialize | tools/list | tools/call | ping | notifications/initialized", "tools/call"),
+			core.Fld("params", "object", false, "Method parameters; for tools/call: name and arguments", map[string]any{"name": "visibility_flows", "arguments": map[string]any{"minutes": 60}}),
+		),
+		core.Returns("JSON-RPC response", map[string]any{"jsonrpc": "2.0", "id": "1", "result": map[string]any{"content": []map[string]any{{"type": "text", "text": "{\"flows\": []}"}}}}))
 
-	// Generate tools from route registry
-	if err := m.generateTools(); err != nil {
-		return fmt.Errorf("generate tools: %w", err)
-	}
+	// Tools are generated on first use, not here: modules that set up after
+	// this one have not registered their routes yet. They are regenerated
+	// every few minutes so a settings change (allow_writes) is picked up.
+	ctx.Every("tools", 5*time.Minute, m.generateTools, core.Delayed())
 
 	// Load config
 	m.loadConfig()
@@ -201,6 +217,24 @@ func (m *Module) loadConfig() {
 	}
 	if m.config.TimeoutSeconds > 600 {
 		m.config.TimeoutSeconds = 600
+	}
+}
+
+// ToolCount is how many FlowSight tools the model and MCP clients can call.
+func (m *Module) ToolCount() int {
+	m.ensureTools()
+	m.toolsMu.RLock()
+	defer m.toolsMu.RUnlock()
+	return len(m.tools)
+}
+
+// ensureTools builds the tool list the first time anything asks for it.
+func (m *Module) ensureTools() {
+	m.toolsMu.RLock()
+	n := len(m.tools)
+	m.toolsMu.RUnlock()
+	if n == 0 {
+		_ = m.generateTools()
 	}
 }
 
@@ -342,24 +376,6 @@ func fieldToJSONSchema(f *core.Field) map[string]any {
 	return schema
 }
 
-func (m *Module) cleanConversations() error {
-	if m.config.RetentionDays <= 0 {
-		return nil // keep forever
-	}
-
-	cutoff := time.Now().Add(-time.Duration(m.config.RetentionDays) * 24 * time.Hour).Unix()
-
-	m.convMu.Lock()
-	defer m.convMu.Unlock()
-
-	for id, conv := range m.conversations {
-		if conv.CreatedAt < cutoff {
-			delete(m.conversations, id)
-		}
-	}
-	return nil
-}
-
 // apiStatus returns the current status.
 func (m *Module) apiStatus(r *core.Req) (any, error) {
 	m.mu.Lock()
@@ -367,15 +383,17 @@ func (m *Module) apiStatus(r *core.Req) (any, error) {
 	lastErr := m.lastErr
 	m.mu.Unlock()
 
+	m.ensureTools()
 	m.toolsMu.RLock()
 	toolCount := len(m.tools)
 	m.toolsMu.RUnlock()
 
 	status := map[string]any{
-		"provider": cfg.Provider,
-		"enabled":  cfg.Provider != "" && cfg.Provider != "off",
-		"model":    cfg.Model,
-		"tools":    toolCount,
+		"provider":  cfg.Provider,
+		"enabled":   cfg.Provider != "" && cfg.Provider != "off",
+		"model":     cfg.Model,
+		"tools":     toolCount,
+		"questions": len(m.convIndex()),
 	}
 
 	if cfg.Provider == "off" || cfg.Provider == "" {
@@ -406,7 +424,9 @@ func (m *Module) apiStatus(r *core.Req) (any, error) {
 	return status, nil
 }
 
-// apiAsk handles the /api/assistant/ask endpoint.
+// apiAsk answers one question. With Accept: text/event-stream the answer
+// streams as it is produced (text deltas, tool calls and their results,
+// then done); otherwise the handler waits and returns everything at once.
 func (m *Module) apiAsk(r *core.Req) (any, error) {
 	var req struct {
 		Question       string `json:"question"`
@@ -415,97 +435,200 @@ func (m *Module) apiAsk(r *core.Req) (any, error) {
 	if err := r.Decode(&req); err != nil {
 		return nil, err
 	}
-
-	if strings.TrimSpace(req.Question) == "" {
+	q := strings.TrimSpace(req.Question)
+	if q == "" {
 		return nil, core.BadRequest("question is required")
 	}
-
+	if len(q) > 4000 {
+		return nil, core.BadRequest("question is too long (4000 characters at most)")
+	}
 	m.mu.Lock()
 	cfg := m.config
 	m.mu.Unlock()
-
-	if cfg.Provider == "off" || cfg.Provider == "" {
-		return nil, core.Errorf(400, "assistant is disabled")
+	if !cfg.on() {
+		return nil, core.Errorf(400, "the assistant is off: choose a provider under Settings › assistant")
 	}
-
-	// Check if client wants SSE stream
-	if r.Header.Get("Accept") == "text/event-stream" {
-		return m.streamAnswer(r.Context(), req.Question, req.ConversationID, cfg)
+	if strings.Contains(r.Header.Get("Accept"), "text/event-stream") {
+		return core.Stream(func(w http.ResponseWriter) {
+			h := w.Header()
+			h.Set("Content-Type", "text/event-stream")
+			h.Set("Cache-Control", "no-store")
+			h.Set("X-Accel-Buffering", "no")
+			w.WriteHeader(200)
+			fl, _ := w.(http.Flusher)
+			send := func(ev Event) {
+				b, _ := json.Marshal(ev)
+				fmt.Fprintf(w, "data: %s\n\n", b)
+				if fl != nil {
+					fl.Flush()
+				}
+			}
+			ctx, cancel := context.WithTimeout(r.Context(), time.Duration(cfg.TimeoutSeconds)*time.Second)
+			defer cancel()
+			conv := &Conversation{ID: newConvID(), Question: q, CreatedAt: time.Now().Unix()}
+			res, err := m.run(ctx, q, cfg, send)
+			conv.Answer, conv.ToolCalls, conv.InputTokens, conv.OutputTokens = res.Answer, res.Calls, res.InputTokens, res.OutputTokens
+			conv.UpdatedAt = time.Now().Unix()
+			if err != nil {
+				conv.Error = err.Error()
+				m.setLastErr(err.Error())
+				send(Event{Type: "error", Error: err.Error()})
+			}
+			m.saveConversation(conv)
+			send(Event{Type: "done", ID: conv.ID, Turns: res.Turns, InputTokens: res.InputTokens, OutputTokens: res.OutputTokens})
+		}), nil
 	}
+	ctx, cancel := context.WithTimeout(r.Context(), time.Duration(cfg.TimeoutSeconds)*time.Second)
+	defer cancel()
+	conv := &Conversation{ID: newConvID(), Question: q, CreatedAt: time.Now().Unix()}
+	var events []Event
+	res, err := m.run(ctx, q, cfg, func(ev Event) {
+		if ev.Type != "text" {
+			events = append(events, ev)
+		}
+	})
+	conv.Answer, conv.ToolCalls, conv.InputTokens, conv.OutputTokens = res.Answer, res.Calls, res.InputTokens, res.OutputTokens
+	conv.UpdatedAt = time.Now().Unix()
+	if err != nil {
+		conv.Error = err.Error()
+		m.setLastErr(err.Error())
+	}
+	m.saveConversation(conv)
+	out := map[string]any{"id": conv.ID, "answer": res.Answer, "tool_calls": res.Calls, "turns": res.Turns, "events": events}
+	if err != nil {
+		out["error"] = err.Error()
+	}
+	return out, nil
+}
 
-	// Otherwise, wait for full answer and return JSON
-	return m.jsonAnswer(r.Context(), req.Question, req.ConversationID, cfg)
+func (m *Module) setLastErr(s string) {
+	m.mu.Lock()
+	m.lastErr = s
+	m.mu.Unlock()
+}
+
+// ---------------------------------------------------------------- conversations (store)
+
+const convIndexKey = "assistant.conversations"
+const convKeyPrefix = "assistant.conv:"
+const convKeep = 500
+
+var convSeq uint64
+
+func newConvID() string {
+	convSeq++
+	return fmt.Sprintf("c-%d-%d", time.Now().Unix(), convSeq)
+}
+
+func (m *Module) convIndex() []string {
+	var ids []string
+	m.ctx.Store.KVGet(convIndexKey, &ids)
+	return ids
+}
+
+func (m *Module) saveConversation(c *Conversation) {
+	m.convMu.Lock()
+	defer m.convMu.Unlock()
+	_ = m.ctx.Store.KVSet(convKeyPrefix+c.ID, c)
+	ids := append([]string{c.ID}, m.convIndex()...)
+	if len(ids) > convKeep {
+		for _, old := range ids[convKeep:] {
+			_ = m.ctx.Store.KVDelete(convKeyPrefix + old)
+		}
+		ids = ids[:convKeep]
+	}
+	_ = m.ctx.Store.KVSet(convIndexKey, ids)
+}
+
+func (m *Module) getConversation(id string) *Conversation {
+	var c Conversation
+	if !m.ctx.Store.KVGet(convKeyPrefix+id, &c) || c.ID == "" {
+		return nil
+	}
+	return &c
+}
+
+func (m *Module) deleteConversation(id string) bool {
+	m.convMu.Lock()
+	defer m.convMu.Unlock()
+	ids := m.convIndex()
+	kept := ids[:0]
+	found := false
+	for _, x := range ids {
+		if x == id {
+			found = true
+			continue
+		}
+		kept = append(kept, x)
+	}
+	if found {
+		_ = m.ctx.Store.KVDelete(convKeyPrefix + id)
+		_ = m.ctx.Store.KVSet(convIndexKey, kept)
+	}
+	return found
+}
+
+// cleanConversations forgets conversations older than the retention.
+func (m *Module) cleanConversations() error {
+	m.mu.Lock()
+	days := m.config.RetentionDays
+	m.mu.Unlock()
+	if days <= 0 {
+		return nil
+	}
+	cut := time.Now().Add(-time.Duration(days) * 24 * time.Hour).Unix()
+	for _, id := range m.convIndex() {
+		if c := m.getConversation(id); c != nil && c.CreatedAt < cut {
+			m.deleteConversation(id)
+		}
+	}
+	return nil
 }
 
 func (m *Module) apiConversationsList(r *core.Req) (any, error) {
-	limit := r.QInt("limit", 50, 1, 1000)
-	offset := r.QInt("offset", 0, 0, 1000000)
-
-	m.convMu.RLock()
-	defer m.convMu.RUnlock()
-
-	convs := make([]*Conversation, 0, len(m.conversations))
-	for _, c := range m.conversations {
-		convs = append(convs, c)
+	limit := r.QInt("limit", 50, 1, 500)
+	offset := r.QInt("offset", 0, 0, 1<<20)
+	ids := m.convIndex()
+	total := len(ids)
+	if offset > len(ids) {
+		offset = len(ids)
 	}
-
-	// Sort by created_at descending
-	sort.Slice(convs, func(i, j int) bool {
-		return convs[i].CreatedAt > convs[j].CreatedAt
-	})
-
-	if offset >= len(convs) {
-		return map[string]any{"conversations": []any{}, "total": len(convs)}, nil
+	ids = ids[offset:]
+	if len(ids) > limit {
+		ids = ids[:limit]
 	}
-
-	if offset+limit > len(convs) {
-		limit = len(convs) - offset
+	out := make([]*Conversation, 0, len(ids))
+	for _, id := range ids {
+		if c := m.getConversation(id); c != nil {
+			out = append(out, c)
+		}
 	}
-
-	return map[string]any{
-		"conversations": convs[offset : offset+limit],
-		"total":         len(convs),
-	}, nil
+	return map[string]any{"conversations": out, "total": total, "limit": limit, "offset": offset}, nil
 }
 
 func (m *Module) apiConversationsGet(r *core.Req) (any, error) {
-	id := r.Params["id"]
-	if id == "" {
-		return nil, core.BadRequest("id is required")
+	c := m.getConversation(r.Params["id"])
+	if c == nil {
+		return nil, core.NotFound("no such conversation")
 	}
-
-	m.convMu.RLock()
-	conv, ok := m.conversations[id]
-	m.convMu.RUnlock()
-
-	if !ok {
-		return nil, core.NotFound("conversation not found")
-	}
-
-	return conv, nil
+	return map[string]any{"conversation": c}, nil
 }
 
 func (m *Module) apiConversationsDelete(r *core.Req) (any, error) {
-	id := r.Params["id"]
-	if id == "" {
-		return nil, core.BadRequest("id is required")
+	if !m.deleteConversation(r.Params["id"]) {
+		return nil, core.NotFound("no such conversation")
 	}
-
-	m.convMu.Lock()
-	delete(m.conversations, id)
-	m.convMu.Unlock()
-
-	return map[string]any{"deleted": id}, nil
+	return nil, nil
 }
 
 func (m *Module) apiTools(r *core.Req) (any, error) {
+	m.ensureTools()
 	m.toolsMu.RLock()
 	tools := append([]*Tool{}, m.tools...)
 	m.toolsMu.RUnlock()
 
 	return map[string]any{"tools": tools}, nil
 }
-
 
 // apiMCP handles the /api/mcp endpoint for HTTP-based MCP transport.
 func (m *Module) apiMCP(r *core.Req) (any, error) {
@@ -535,6 +658,9 @@ func (m *Module) handleMCPRequest(ctx context.Context, req json.RawMessage) map[
 		}
 	}
 
+	if strings.HasPrefix(jsonRPC.Method, "notifications/") {
+		return nil // a notification is not answered
+	}
 	// Handle MCP methods
 	switch jsonRPC.Method {
 	case "initialize":
@@ -576,6 +702,7 @@ func (m *Module) mcpInitialize(id any) map[string]any {
 }
 
 func (m *Module) mcpToolsList(id any) map[string]any {
+	m.ensureTools()
 	m.toolsMu.RLock()
 	tools := make([]map[string]any, len(m.tools))
 	for i, t := range m.tools {
@@ -609,6 +736,7 @@ func (m *Module) mcpToolsCall(ctx context.Context, params json.RawMessage, id an
 		}
 	}
 
+	m.ensureTools()
 	m.toolsMu.RLock()
 	tool, ok := m.toolMap[req.Name]
 	m.toolsMu.RUnlock()
@@ -652,4 +780,3 @@ func (m *Module) callTool(ctx context.Context, tool *Tool, args json.RawMessage)
 	}
 	return result
 }
-

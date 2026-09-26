@@ -72,7 +72,22 @@ throughput over time, one line each for inbound and outbound; the top hosts by t
 categories; the busiest DNS names; recent alerts and findings. Every item
 links to its detail page.
 
-### Sessions
+#### Ask
+
+A question in plain English, answered by a model that calls FlowSight's own
+API as tools. The answer streams; under it a trail lists every tool call
+("looked at Sessions for 192.168.1.115, last 60 minutes → 214 rows"), so
+what the answer rests on is visible. Recent questions are kept in the store
+with their trails and can be forgotten one by one. The page is disabled
+until a provider is chosen under *Settings › assistant*; when one is on, a
+banner says plainly that questions and the data the model asks for leave
+the gateway for that provider. Two providers: **Anthropic** (the daemon runs
+the agent loop against the Messages API) and **Claude Code** (the CLI on
+the gateway, run headless with FlowSight attached as an MCP server; the
+same harness the Agent SDK drives). Claude Code and the Agent SDK can also
+use FlowSight directly, without this page: see the how-to.
+
+## Sessions
 
 Countries appear as two-letter codes throughout; hover one for the full
 name.

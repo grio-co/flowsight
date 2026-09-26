@@ -231,31 +231,132 @@ func (m *Module) Setup(ctx *core.Context) error {
 	}
 
 	// API routes
-	ctx.Route("GET", "/api/enroll", m.apiSummary, core.Doc("Enrollment status, zones and device counts"))
-	ctx.Route("GET", "/api/enroll/services", m.apiServices, core.Doc("What each device uses (applications) and offers (ports other local hosts connect to), by MAC"),
-		core.Params("hours", "window, 1-168, default 24"))
-	ctx.Route("GET", "/api/enroll/devices", m.apiDevices, core.Doc("All devices with filtering"),
-		core.Params("zone", "filter by zone", "q", "search query"))
-	ctx.Route("GET", "/api/enroll/zones", m.apiGetZones, core.Doc("Current zones configuration"))
-	ctx.Route("GET", "/api/enroll/zones/{id}", m.apiGetZoneByID, core.Doc("Get a zone by ID"))
-	ctx.Route("POST", "/api/enroll/zones", m.apiSetZones, core.Write(), core.Doc("Update zones"))
-	ctx.Route("PUT", "/api/enroll/zones/{id}", m.apiUpdateZoneByID, core.Write(), core.Doc("Update a zone"))
-	ctx.Route("DELETE", "/api/enroll/zones/{id}", m.apiDeleteZoneByID, core.Write(), core.Doc("Delete a zone"))
-	ctx.Route("GET", "/api/enroll/rules", m.apiGetRules, core.Doc("Current rules configuration"))
-	ctx.Route("POST", "/api/enroll/rules", m.apiSetRules, core.Write(), core.Doc("Update rules"))
-	ctx.Route("GET", "/api/enroll/devices/{mac}", m.apiGetDeviceByMAC, core.Doc("Get a device by MAC"))
-	ctx.Route("DELETE", "/api/enroll/devices/{mac}", m.apiDeleteDeviceByMAC, core.Write(), core.Doc("Delete a device"))
-	ctx.Route("POST", "/api/enroll/assign", m.apiAssign, core.Write(), core.Doc("Assign a device to a zone and pin it there; an empty zone unpins it so the rules place it ({mac, zone})"))
-	ctx.Route("POST", "/api/enroll/reconcile", m.apiReconcile, core.Write(), core.Doc("Re-classify devices"))
-	ctx.Route("POST", "/api/enroll/apply", m.apiApply, core.Write(), core.Needs("device.enroll"), core.Doc("Apply enforcement"))
-	ctx.Route("GET", "/api/enroll/plan", m.apiPlan, core.Doc("Plan of what apply would do"))
-	ctx.Route("POST", "/api/enroll/mode", m.apiSetMode, core.Write(), core.Doc("Set monitor/enforce mode"))
-
+	ctx.Route("GET", "/api/enroll", m.apiSummary,
+		core.Doc("Retrieve current enrollment status including device counts by zone and unidentified devices"),
+		core.Returns("Enrollment summary with zone device counts", map[string]any{
+			"unidentified": 3,
+			"office":       12,
+			"guest":        5,
+		}))
+	ctx.Route("GET", "/api/enroll/services", m.apiServices,
+		core.Query("hours", "integer", "Time window in hours for service analysis (1-168, default 24)", false, 24),
+		core.Doc("List applications used and ports offered by each device, keyed by MAC address"),
+		core.Returns("Device services grouped by MAC", map[string]any{
+			"aa:bb:cc:dd:ee:ff": map[string]any{
+				"uses":   []string{"youtube", "netflix"},
+				"offers": []int{22, 80},
+			},
+		}))
+	ctx.Route("GET", "/api/enroll/devices", m.apiDevices,
+		core.Query("zone", "string", "Filter results by enrollment zone name", false, "office"),
+		core.Query("q", "string", "Search query for device name or MAC address", false, "macbook"),
+		core.Doc("List all enrolled devices with optional filtering by zone or name search"),
+		core.Returns("Device list with enrollment details", map[string]any{
+			"devices": []map[string]any{
+				{"mac": "aa:bb:cc:dd:ee:ff", "name": "MacBookPro", "zone": "office", "ip": "192.168.1.10"},
+			},
+		}))
+	ctx.Route("GET", "/api/enroll/zones", m.apiGetZones,
+		core.Doc("Retrieve all enrollment zones with their rules and captive portal settings"),
+		core.Returns("Zone configuration list", map[string]any{
+			"zones": []map[string]any{
+				{"id": "zone-1", "name": "office", "rules": []map[string]any{}},
+			},
+		}))
+	ctx.Route("GET", "/api/enroll/zones/{id}", m.apiGetZoneByID,
+		core.PathParam("id", "string", "Zone identifier", "zone-1"),
+		core.Doc("Retrieve a specific enrollment zone by its ID with detailed configuration"),
+		core.Returns("Single zone configuration", map[string]any{
+			"id":    "zone-1",
+			"name":  "office",
+			"rules": []map[string]any{},
+		}))
+	ctx.Route("POST", "/api/enroll/zones", m.apiSetZones, core.Write(),
+		core.Doc("Create or replace all enrollment zones with new rules and classification"),
+		core.Body(
+			core.Fld("zones", "array", true, "List of zone definitions", []map[string]any{}),
+		),
+		core.Returns("Updated zones confirmation", map[string]any{"ok": true}))
+	ctx.Route("PUT", "/api/enroll/zones/{id}", m.apiUpdateZoneByID, core.Write(),
+		core.PathParam("id", "string", "Zone identifier", "zone-1"),
+		core.Doc("Update a specific enrollment zone by its ID with new rules or settings"),
+		core.Body(
+			core.Fld("name", "string", false, "Zone display name", "office"),
+			core.Fld("rules", "array", false, "Classification rules for this zone", []map[string]any{}),
+		),
+		core.Returns("Update confirmation", map[string]any{"ok": true}))
+	ctx.Route("DELETE", "/api/enroll/zones/{id}", m.apiDeleteZoneByID, core.Write(),
+		core.PathParam("id", "string", "Zone identifier", "zone-1"),
+		core.Doc("Delete an enrollment zone by its ID and reassign devices to unclassified"),
+		core.Returns("Deletion confirmation", map[string]any{"ok": true}))
+	ctx.Route("GET", "/api/enroll/rules", m.apiGetRules,
+		core.Doc("Retrieve all device classification rules used in zone assignment"),
+		core.Returns("Classification rules list", map[string]any{
+			"rules": []map[string]any{
+				{"name": "by-hostname", "pattern": ".*-office.*"},
+			},
+		}))
+	ctx.Route("POST", "/api/enroll/rules", m.apiSetRules, core.Write(),
+		core.Doc("Replace all device classification rules used for zone assignment"),
+		core.Body(
+			core.Fld("rules", "array", true, "List of classification rules", []map[string]any{}),
+		),
+		core.Returns("Rules update confirmation", map[string]any{"ok": true}))
+	ctx.Route("GET", "/api/enroll/devices/{mac}", m.apiGetDeviceByMAC,
+		core.PathParam("mac", "string", "Device MAC address", "aa:bb:cc:dd:ee:ff"),
+		core.Doc("Retrieve detailed information about a specific device by its MAC address"),
+		core.Returns("Device details", map[string]any{
+			"mac":  "aa:bb:cc:dd:ee:ff",
+			"name": "MacBookPro",
+			"zone": "office",
+			"ip":   "192.168.1.10",
+		}))
+	ctx.Route("DELETE", "/api/enroll/devices/{mac}", m.apiDeleteDeviceByMAC, core.Write(),
+		core.PathParam("mac", "string", "Device MAC address", "aa:bb:cc:dd:ee:ff"),
+		core.Doc("Remove a device from the enrollment list and forget its identification"),
+		core.Returns("Deletion confirmation", map[string]any{"ok": true}))
+	ctx.Route("POST", "/api/enroll/assign", m.apiAssign, core.Write(),
+		core.Doc("Assign a device to a specific zone or unpin it for automatic rule-based classification"),
+		core.Body(
+			core.Fld("mac", "string", true, "Device MAC address", "aa:bb:cc:dd:ee:ff"),
+			core.Fld("zone", "string", true, "Target zone ID (empty to unpin)", "zone-1"),
+		),
+		core.Returns("Assignment confirmation", map[string]any{"ok": true}))
+	ctx.Route("POST", "/api/enroll/reconcile", m.apiReconcile, core.Write(),
+		core.Doc("Trigger re-evaluation of device classification against current rules"),
+		core.Body(),
+		core.Returns("Reconciliation confirmation", map[string]any{"ok": true}))
+	ctx.Route("POST", "/api/enroll/apply", m.apiApply, core.Write(), core.Needs("device.enroll"),
+		core.Doc("Apply the enrollment plan to enforce zone assignments on all devices"),
+		core.Body(),
+		core.Returns("Apply result", map[string]any{"ok": true}))
+	ctx.Route("GET", "/api/enroll/plan", m.apiPlan,
+		core.Doc("Preview what changes apply would make to device enrollment assignments"),
+		core.Returns("Enrollment plan changes", map[string]any{
+			"changes": []map[string]any{
+				{"mac": "aa:bb:cc:dd:ee:ff", "action": "assign", "zone": "office"},
+			},
+		}))
+	ctx.Route("POST", "/api/enroll/mode", m.apiSetMode, core.Write(),
+		core.Doc("Set enrollment mode between monitor and enforce for device assignment"),
+		core.Body(
+			core.Fld("enforce", "boolean", true, "Enable enforcement", true),
+		),
+		core.Returns("Mode change confirmation", map[string]any{"ok": true}))
 	// Captive portal page
 	if enabled {
 		captivePort := core.Int(ctx.Settings(), "captive_port", 8083)
-		ctx.Route("GET", "/captive", m.captiveGet)
-		ctx.Route("POST", "/captive", m.captivePost, core.Write())
+		ctx.Route("GET", "/captive", m.captiveGet,
+			core.Doc("Serve the captive portal page for device enrollment and policy acceptance"),
+			core.Returns("HTML captive portal page", map[string]any{
+				"content_type": "text/html",
+			}))
+		ctx.Route("POST", "/captive", m.captivePost, core.Write(),
+			core.Doc("Handle captive portal form submission for device enrollment or policy acceptance"),
+			core.Body(
+				core.Fld("action", "string", true, "Action to perform", "enroll"),
+			),
+			core.Returns("Portal action result", map[string]any{"ok": true}))
 		// Start captive portal HTTP server
 		go m.serveCaptive(int(captivePort))
 	}

@@ -915,6 +915,11 @@ func (a *API) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	switch v := result.(type) {
 	case nil:
 		a.writeJSON(w, 200, map[string]any{"ok": true})
+	case Stream:
+		// The handler writes the response itself: server-sent events, a
+		// long download. Headers and flushing are its business.
+		a.securityHeaders(w.Header())
+		v(w)
 	case Raw:
 		h := w.Header()
 		h.Set("Content-Type", v.ContentType)
@@ -929,6 +934,10 @@ func (a *API) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		a.writeJSON(w, 200, v)
 	}
 }
+
+// Stream lets a handler take over the response writer, for server-sent
+// events and other responses that are written as they happen.
+type Stream func(w http.ResponseWriter)
 
 // Raw lets a handler return non-JSON (CSV export, a PEM file, a report).
 type Raw struct {

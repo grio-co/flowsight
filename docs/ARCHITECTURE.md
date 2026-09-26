@@ -107,6 +107,18 @@ ACL, and one legacy page that serves the embedded UI and proxies its API
 with the session's CSRF token and a same-origin check. Everything else is
 the daemon.
 
+## Tools for models
+
+The assistant module turns the route registry into tools: one tool per
+documented route (`/api/visibility/flows` → `visibility_flows`), its input
+schema built from the same parameter and body metadata the OpenAPI
+generator uses, so a route documented to the contract is a usable tool
+without further work. The same list serves three callers: the daemon's own
+agent loop (Anthropic Messages API, tool use, streamed), `POST /api/mcp`
+(Model Context Protocol over HTTP), and `flowsightd mcp`, a stdio bridge
+that forwards JSON-RPC lines to the daemon and never opens the store.
+Write routes are excluded unless a setting allows them.
+
 ## Testing
 
 Three tools measure and validate the daemon:

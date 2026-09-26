@@ -101,6 +101,23 @@ Nothing leaves the gateway except:
 
 There is no usage analytics, no crash reporting, no account.
 
+## What leaves the gateway when the assistant is on
+
+Nothing, while the assistant's provider is `off` (the default). With a
+provider chosen, each question and the results of the tools the model asks
+for (sessions, hosts, names, domains, countries for the window it chose)
+go to that provider: Anthropic's API for the anthropic provider, or to
+wherever the local Claude Code CLI is logged in for the claude-code
+provider. The API token never leaves: the daemon calls its own API
+itself, and Claude Code reaches FlowSight through a stdio bridge
+(`flowsightd mcp`) that carries the token in its environment on the
+gateway only. `redact_addresses` replaces internal addresses with stable
+placeholders first; names and domains still leave. Write routes are not
+offered to the model or to MCP clients unless `allow_writes` /
+`mcp_allow_writes` are on. The MCP endpoint `POST /api/mcp` is behind the
+same authentication as the rest of the API. Conversations are kept in the
+store for `retention_days` and can be forgotten from the Ask page.
+
 ## Reports: Data Privacy and Access Control
 
 Reports generated from the store contain network traffic, DNS, application,

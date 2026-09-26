@@ -89,6 +89,24 @@ Stored at `alerting.maintenance` in KV store. When enabled, all alerts are suppr
 - Delivery credentials never appear in logs or delivery logs
 - HMAC-SHA256 signatures for webhooks; AWS SigV4 for AWS services
 
+### assistant
+
+Claude as FlowSight's analyst, and FlowSight as tools for Claude (MCP). Off by default; nothing leaves the gateway until a provider is chosen. See the how-tos [Ask FlowSight in plain English](howto/ask.md) and [Use FlowSight from Claude Code and the Agent SDK](howto/claude-code.md).
+
+| Key | Setting | Type | Default | Notes |
+|---|---|---|---|---|
+| `provider` | AI provider | choice | `off` | off: nothing leaves. anthropic: the daemon runs the agent loop against the Messages API. claude-code: Claude Code / the Agent SDK, run headless on the gateway with FlowSight attached as an MCP server. |
+| `api_key` | API key | secret |  | Anthropic key for the anthropic provider. Never shown again once saved; a masked value on save means keep. |
+| `model` | Model | string | `claude-sonnet-5` | anthropic provider: claude-fable-5-1, claude-opus-5-5, claude-sonnet-5, claude-haiku-4-5-20251001. Claude Code uses its own model setting. |
+| `claude_path` | Claude CLI path | string | `claude` | claude-code provider: the binary, on PATH or absolute. |
+| `max_turns` | Max turns | int | `8` | Request/answer cycles (tool rounds) per question, 1–20. |
+| `max_tool_result_bytes` | Max tool result bytes | int | `65536` | A tool result larger than this is cut with a note before it goes to the model. |
+| `allow_writes` | Allow write operations | bool | `false` | When on, the model may call POST/PUT/DELETE routes. Keep off unless you mean it. |
+| `mcp_allow_writes` | MCP: allow write operations | bool | `false` | When on, MCP clients (Claude Code, the Agent SDK) may call write routes. |
+| `timeout_seconds` | Question timeout | int | `120` | Per question; the Claude Code process is killed at the deadline. |
+| `retention_days` | Conversation retention | int | `7` | Questions and answers kept in the store; 0 keeps them until the 500 newest. |
+| `redact_addresses` | Redact internal addresses | bool | `false` | Replace RFC1918, ULA and MAC addresses in tool results with stable placeholders before they leave. Names and domains still leave. |
+
 ### baseline
 
 Anomaly detection: learns each device's normal behavior (countries, ports, destinations) over a configurable learning period, then flags deviations. Every finding includes the baseline ("21 days of history had US, CA") and observation ("first time talked to IE"). Findings are dedup'd with cooldown and integrated with alerting rules.

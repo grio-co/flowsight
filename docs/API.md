@@ -86,6 +86,18 @@ Download the full OpenAPI 3.0 specification at `GET /api/openapi.json` for use w
 |---|---|---|---|
 | GET | `/api/appcontrol/status` | Retrieve active application control rules with current block counts and enforcement status | none |
 
+### assistant
+
+**Other operations**
+| Method | Path | What | Parameters |
+|---|---|---|---|
+| POST | `/api/assistant/ask` | Ask a question in plain English; the model answers by calling FlowSight's own API. With Accept: text/event-stream the answer streams as events (text, tool_call, tool_result, done, error); otherwise the whole answer is returned as JSON | none |
+| GET | `/api/assistant/conversations` | Recent questions and answers kept in the store, newest first, with the tools each answer used | limit, offset |
+| DELETE | `/api/assistant/conversations/{id}` | Forget one saved conversation; the answer and its tool trail are removed from the store | id |
+| GET | `/api/assistant/conversations/{id}` | One saved conversation: the question, the full answer and every tool call with its route | id |
+| GET | `/api/assistant/status` | The assistant's state: which provider is configured, whether it is ready to answer and if not why, the model, how many FlowSight tools it can call | none |
+| GET | `/api/assistant/tools` | The FlowSight tools the model and MCP clients can call: one per documented API route, with its input schema | none |
+
 ### baseline
 
 **List operations**
@@ -276,6 +288,13 @@ Download the full OpenAPI 3.0 specification at `GET /api/openapi.json` for use w
 | POST | `/api/license/install` | Install a signed offline license file for air-gapped deployments | none |
 | POST | `/api/license/refresh` | Refresh online license lease status with the license server immediately | none |
 | POST | `/api/license/remove` | Remove current license and revert to Community tier after notifying server | none |
+
+### mcp
+
+**Other operations**
+| Method | Path | What | Parameters |
+|---|---|---|---|
+| POST | `/api/mcp` | Model Context Protocol over HTTP (JSON-RPC 2.0, streamable-HTTP style single responses): initialize, tools/list, tools/call, ping. What `flowsightd mcp` bridges to for stdio clients such as Claude Code | none |
 
 ### mitm
 

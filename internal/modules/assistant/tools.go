@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"regexp"
 	"strings"
 	"time"
 
@@ -96,10 +97,10 @@ func (m *Module) callToolHTTP(ctx context.Context, toolName string, args map[str
 	}
 
 	// Add API token
-	token := m.ctx.Core.Config.Core().APIToken
-	if token != "" {
-		req.Header.Set("Authorization", "Bearer "+token)
+	if token := m.getFlowSightToken(); token != "" {
+		req.Header.Set("X-Flowsight-Token", token)
 	}
+	req.Header.Set("X-Requested-With", "Flowsight")
 
 	// Execute the request
 	client := &http.Client{Timeout: 30 * time.Second}
@@ -171,4 +172,36 @@ func (m *Module) getFlowSightToken() string {
 	}
 	// Fall back to config
 	return m.ctx.Core.Config.Core().APIToken
+}
+
+var (
+	rfc1918Re = regexp.MustCompile(`\b(10\.\d{1,3}\.\d{1,3}\.\d{1,3}|192\.168\.\d{1,3}\.\d{1,3}|172\.(1[6-9]|2\d|3[01])\.\d{1,3}\.\d{1,3})\b`)
+	ulaRe     = regexp.MustCompile(`\b(f[cd][0-9a-f]{2}|fe80)(:[0-9a-f]{0,4}){2,7}\b`)
+	macRe     = regexp.MustCompile(`\b([0-9a-f]{2}:){5}[0-9a-f]{2}\b`)
+)
+
+// redact replaces the network's own addresses with stable placeholders
+// before a tool result leaves for the provider: the same address always
+// becomes the same placeholder within the daemon's lifetime, so the model
+// can still reason about "host-3" across calls. Names and domains stay.
+func (m *Module) redact(text string) string {
+	m.redactMu.Lock()
+	defer m.redactMu.Unlock()
+	if m.redactMap == nil {
+		m.redactMap = map[string]string{}
+	}
+	sub := func(prefix string) func(string) string {
+		return func(s string) string {
+			if p, ok := m.redactMap[s]; ok {
+				return p
+			}
+			p := fmt.Sprintf("%s-%d", prefix, len(m.redactMap)+1)
+			m.redactMap[s] = p
+			return p
+		}
+	}
+	text = rfc1918Re.ReplaceAllStringFunc(text, sub("host"))
+	text = ulaRe.ReplaceAllStringFunc(text, sub("host6"))
+	text = macRe.ReplaceAllStringFunc(text, sub("mac"))
+	return text
 }

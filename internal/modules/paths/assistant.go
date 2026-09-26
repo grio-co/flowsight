@@ -196,7 +196,9 @@ func parseGuess(text string) (*Guess, error) {
 func (m *Module) callModel(cfg assistConfig, prompt string) (string, error) {
 	// Special case: "assistant" provider delegates to the assistant module
 	if cfg.Provider == "assistant" {
-		if assistMod, ok := m.ctx.Service("assistant").(interface{ Complete(context.Context, string) (string, error) }); ok {
+		if assistMod, ok := m.ctx.Service("assistant").(interface {
+			Complete(context.Context, string) (string, error)
+		}); ok {
 			return assistMod.Complete(context.Background(), prompt)
 		}
 		return "", fmt.Errorf("assistant module not available")
