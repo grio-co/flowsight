@@ -122,6 +122,12 @@
     FS.tellHost();
     $('#nav').classList.remove('open');
     const view = $('#view');
+    // A page whose content is one drawing (the map) takes the whole view,
+    // with no padding round it, and tells its styles how tall the bar above
+    // it is so the drawing can fill exactly what is left.
+    view.classList.toggle('fullbleed', !!def.fullbleed);
+    const tb = $('#topbar');
+    if (tb && def.fullbleed) document.documentElement.style.setProperty('--topbar-h', tb.offsetHeight + 'px');
     const same = view.dataset.page === page + '/' + arg;
     if (!view.dataset.page || !same) { view.innerHTML = '<div class="empty">Loading…</div>'; view.dataset.page = page + '/' + arg; }
     // A refresh of the page already shown must not move anything: hold the

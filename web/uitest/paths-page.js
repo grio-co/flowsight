@@ -215,25 +215,29 @@ FS.pages.paths.render(el, { params:{} }).then(function(){
   if (h.indexOf('The database said') < 0) throw new Error('the card must say what it overruled');
   if (h.indexOf('London, England, GB') < 0) throw new Error('the overruled answer must be quoted');
   if (h.indexOf('the router\u2019s own name') < 0) throw new Error('the placement source should be named');
-  if (h.indexOf('hoppanel') < 0) throw new Error('there should be a panel for hop detail');
-  // The detail belongs beside the map, not under it: an answer must not cost
-  // a scroll away from the hop that raised the question.
-  if (h.indexOf('class="mapsplit"') < 0) throw new Error('map and detail should sit side by side');
-  var split = h.indexOf('class="mapsplit"'), svgAt = h.indexOf('class="pathmap"'), panelAt = h.indexOf('class="hoppanel"');
-  if (!(split < svgAt && svgAt < panelAt)) throw new Error('the panel should follow the map inside the split');
+  // The map is the page. Everything else is a panel on top of it, adopted by
+  // the panel manager by name, so the content is in the document at once.
+  if (h.indexOf('class="mapcanvas"') < 0) throw new Error('the map should have the whole view as its canvas');
+  if (h.indexOf('data-panel="hop"') < 0) throw new Error('there should be a panel for hop detail');
+  var canvasAt = h.indexOf('class="mapcanvas"'), svgAt = h.indexOf('class="pathmap"'), panelAt = h.indexOf('data-panel="hop"');
+  if (!(canvasAt < svgAt && svgAt < panelAt)) throw new Error('the panels should follow the map inside the canvas');
   if (h.indexOf('class="hpbody"') < 0) throw new Error('the panel needs its own scrolling body');
-  // None of the map's marks are self-evident, so there has to be a key.
-  // The key sits on the map it explains, not stranded underneath it.
-  if (h.indexOf('class="legend onmap"') < 0) throw new Error('the map needs a legend, on the map');
-  var frame = h.indexOf('class="mapframe"'), lgd = h.indexOf('class="legend onmap"'), svgEnd = h.indexOf('</svg>');
-  if (!(frame >= 0 && frame < svgEnd && svgEnd < lgd))
-    throw new Error('the legend should be inside the map frame, over the map');
-  // Always available, never stuck open: it is drawn beside the map rather
-  // than inside it, so no amount of zooming can move or clip it, and it folds
-  // when it is covering the thing being looked at.
-  if (h.indexOf('id="lgtoggle"') < 0) throw new Error('the key should fold away');
+  // Every panel is dragged by its title and folds to it.
+  if ((h.match(/class="fsph"/g) || []).length < 3) throw new Error('each panel needs a title bar to drag by');
+  if (h.indexOf('class="fspfold"') < 0 || h.indexOf('aria-expanded') < 0) throw new Error('a fold control has to say whether it is open');
+  if (h.indexOf('id="panels-menu"') < 0) throw new Error('closed panels need a way back');
+  // None of the map's marks are self-evident, so there has to be a key, on the map.
+  if (h.indexOf('data-panel="key"') < 0 || h.indexOf('class="legend"') < 0) throw new Error('the map needs a key panel');
+  var lgd = h.indexOf('data-panel="key"'), svgEnd = h.indexOf('</svg>');
+  if (!(canvasAt < svgEnd && svgEnd < lgd)) throw new Error('the key should be inside the canvas, over the map');
   if (h.indexOf('class="lgitems"') < 0) throw new Error('the key needs a body to fold');
-  if (h.indexOf('aria-expanded') < 0) throw new Error('a fold control has to say whether it is open');
+  // The tables live in the data drawer, one tab each.
+  if (h.indexOf('data-panel="data"') < 0 || h.indexOf('class="datatabs"') < 0) throw new Error('the data drawer needs tabs');
+  ['overview', 'sources', 'location', 'physics', 'unplaced', 'destinations', 'route', 'about'].forEach(function (t) {
+    if (h.indexOf('data-pane="' + t + '"') < 0) throw new Error('the drawer should have a ' + t + ' tab');
+  });
+  if (h.indexOf('id="hovercard"') < 0) throw new Error('hovering a hop should answer at the pointer');
+  if (h.indexOf('id="z-in"') < 0 || h.indexOf('id="f-reset"') < 0) throw new Error('zoom and home belong on the map');
   ['a leg several destinations share', 'a leg used by one destination', 'submarine cable',
    'the latency rules this placement out'].forEach(function (k) {
     if (h.indexOf(k) < 0) throw new Error('the legend should explain: ' + k);
@@ -386,11 +390,11 @@ FS.pages.paths.render(el, { params:{} }).then(function(){
   FS.pages.paths.render(el2, { params:{ dst:'1.1.1.1' } }).then(function(){
     var t = el2.innerHTML;
     if (t.indexOf('class="trail"') < 0) throw new Error('a chosen route should be drawn as a trail');
-    // The route belongs inside the map column, beside the detail panel, so a
-    // step and the panel it fills are on screen together.
-    var col = t.indexOf('class="mapcol"'), tb = t.indexOf('class="trailbox"'), pan = t.indexOf('class="hoppanel"');
-    if (!(col >= 0 && col < tb && tb < pan))
-      throw new Error('the route should sit in the map column, before the detail panel');
+    // The route has a panel of its own on the canvas, ahead of the hop panel,
+    // and the long trail lives in the data drawer's Route tab.
+    var rp = t.indexOf('data-panel="route"'), pan = t.indexOf('data-panel="hop"'), tb = t.indexOf('class="trailbox"');
+    if (!(rp >= 0 && rp < pan)) throw new Error('the route panel should come before the detail panel');
+    if (!(tb > 0 && t.indexOf('data-pane="route"') < tb)) throw new Error('the trail should sit in the drawer\'s Route tab');
     // It begins inside, not at the first router that answered.
     if (t.indexOf('MacBookPro') < 0) throw new Error('the trail must start with the device on this network');
     // And the map has to show where that is. The first hops are private
@@ -433,7 +437,7 @@ FS.pages.paths.render(el, { params:{} }).then(function(){
     // Direction and the whole route, on the map itself.
     if (t.indexOf('class="arrow onroute"') < 0) throw new Error('the chosen route should carry direction arrows');
     if (t.indexOf('data-layer="arrows"') < 0) throw new Error('arrows should be a switch in the key');
-    if (t.indexOf('id="routebox"') < 0) throw new Error('the route should be tabled on the map');
+    if (t.indexOf('class="rbrows"') < 0) throw new Error('the route should be tabled on the map');
     if (t.indexOf('id="mapfilter-next"') < 0) throw new Error('the chip should be able to offer the next route through a hop');
     // Who and what: the devices behind the route and their services.
     if (t.indexOf('Who and what') < 0) throw new Error('the trail should say who was talking');

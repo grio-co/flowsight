@@ -28,6 +28,23 @@ to have data; with it disabled they stay empty instead of calling pfctl
 themselves. A failed read now says "reading the pf ruleset failed" instead
 of "pfctl failed".
 
+**The Map is the page.** The world now fills the whole window under the top
+bar, at the same projection and scale as before; nothing is boxed or
+shrunk. Everything that sat beside or under it is a panel on top of it:
+**Route** (the chosen route, step by step), **Hop detail**, the **Key**
+(its layer switches unchanged) and a **Data** drawer with tabs for the
+overview numbers, data sources, your location, the physics tables, hops not
+on the map, the destinations table, the full route trail and the notes.
+Drag a panel by its title; let go near an edge or corner and it docks there
+and stays put when the window changes size; double-click a title to send a
+panel home; fold with the small button or Esc; close and bring back from
+**Panels** in the toolbar, which also puts every panel back. The arrangement
+is remembered in this browser. Panels step back while the map is being
+moved, hovering a hop shows its address, place and round trip at the
+pointer, and zoom and home buttons sit bottom right. Filters live in a
+toolbar along the top and apply on choice, as before. On narrow screens the
+panels stack under the map instead of floating.
+
 ## 0.9.8r202609262017
 
 **Survive a restore.** Found when the gateway moved hosts from a backup taken

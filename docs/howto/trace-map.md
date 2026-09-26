@@ -3,9 +3,9 @@
 Find where a server or application really lives using the Map page: see the route from your gateway to its location, understand anycast, and check latency.
 
 
-![The Map with a route chosen: the trail below the map, hop by hop, with anycast and plausibility explained.](img/map.png)
+![The Map with a route chosen: the world fills the window, the Route panel lists the hops, the Hop detail panel explains the selected one, and the Data drawer waits along the bottom.](img/map.png)
 
-*The Map with a route chosen: the trail below the map, hop by hop, with anycast and plausibility explained.*
+*The Map with a route chosen: the world fills the window, the Route panel lists the hops, the Hop detail panel explains the selected one, and the Data drawer waits along the bottom.*
 
 ## Prerequisites
 
@@ -34,12 +34,14 @@ Find where a server or application really lives using the Map page: see the rout
    - Use the search box at the top to enter a domain name or address
 
 2. **Read the Map page.**
-   The page shows:
-   - **Your gateway** (left): your public IP and the country you are in
-   - **The destination** (right): the server's address and country
-   - **The route**: hops between them (the path packets take across the internet)
-   - **Latency**: round-trip time to each hop and the destination
-   - **Anycast indicator**: if the destination is anycast (served from many locations)
+   The map fills the window; the panels on top of it are:
+   - **Route** (top left): the chosen route step by step, from the device on your network through each router to the address reached, with the round trip beside each step. Hover a step to light its dot; click it to travel there
+   - **Hop detail** (right): who runs the selected hop, where it is, how that was decided, and what Shodan, the registry and the reputation feeds say
+   - **Key** (bottom left, folded): what each mark means; each entry is a switch that hides or shows that layer
+   - **Data** (bottom, folded): tabs for the overview numbers, the data sources, your location, the physics tables, hops not on the map, every destination, the full route trail and the notes
+   - Hovering any hop shows its address, place and round trip at the pointer; the **+ − ⌂** buttons bottom right zoom and reset
+
+   Panels move: drag one by its title, and near an edge it docks. Double-click a title to send it home, fold it with the small button, close it with the cross, and use **Panels** in the toolbar to bring one back or reset them all. Your arrangement is remembered in this browser.
 
 3. **Understand the route.**
    Each hop shows:

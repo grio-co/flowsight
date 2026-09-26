@@ -336,18 +336,26 @@ answers from several addresses, which is how a carrier balances across
 parallel links, that is one point carrying several addresses rather than
 several points.
 
-The map is drawn two to one, the world's own proportion, so zoomed out it
-shows pole to pole and fills its frame exactly. The hop detail sits beside it
-and the route beneath it, so nothing you click scrolls what it fills out of
-view. On a screen wider than about 1750 pixels the tables move into a second
-column beside the map, and the whole page is one screenful. *About this map*
-under it unfolds the notes on where the land and cable data come from and what
-the map does not claim. The key sits in
-the map's bottom corner and stays there at any zoom; fold it away with *Key*
-if it is covering something.
+**The map is the page.** It fills the window under the top bar at the
+world's own two-to-one proportion, so zoomed out it shows pole to pole, and
+nothing about the projection or scale changes with the window. Everything
+else is a panel on top of it: **Route**, **Hop detail**, the **Key** and a
+**Data** drawer whose tabs hold the overview numbers, the data sources, your
+location, the physics tables, the hops not on the map, the destinations
+table, the full route trail and the notes (*About*). Drag a panel by its
+title; let go near an edge or a corner and it docks there and stays put when
+the window changes size. Double-click a title to send that panel home. The
+small button on each title folds it to the title (Esc does the same when the
+panel has focus); the cross closes it, and **Panels** in the toolbar brings
+it back or puts every panel where it started. The arrangement is kept in
+this browser. While you drag or wheel the map the panels step back so the
+world under them stays visible; hovering a hop shows its address, place and
+round trip at the pointer; the zoom and home buttons sit bottom right.
+Filters sit in the toolbar along the top and apply as soon as you choose.
+On a phone-width screen the panels stack under the map instead.
 
 **One route at a time.** Click a destination in the table and the page draws
-that route as a trail under the map, left to right, one step per link: the machine on your
+that route in the **Route** panel, and at length in the Data drawer's *Route* tab, left to right, one step per link: the machine on your
 network that made the connection, your gateway, each carrier router in turn,
 and the address reached, marked as the endpoint. Hovering a step lights up its
 dot on the map and opens its detail; the route's legs are lifted out of the

@@ -648,3 +648,115 @@ tr.flagged td:first-child { box-shadow: inset 3px 0 0 var(--warn); }
   padding-bottom: 1px;
   vertical-align: super;
 }
+
+/* ------------------------------------------------------------ Map canvas
+   The map is the page. The view loses its padding, the canvas takes every
+   pixel under the top bar, and everything that used to sit beside or under
+   the map is a panel on top of it: dragged by its title, docked when let go
+   near an edge, folded to its title, closed and brought back from Panels.
+   The projection is untouched; the map is simply given the room. */
+#view.fullbleed { padding: 0; }
+.mapcanvas { position: relative; height: calc(100vh - var(--topbar-h, 61px)); min-height: 420px;
+  overflow: hidden; background: var(--panel); }
+.embedded .mapcanvas { height: 820px; }
+.mapcanvas .mapstage { position: absolute; inset: 0; }
+.mapcanvas .pathmap { width: 100%; height: 100%; display: block; border-radius: 0; background: var(--panel); }
+/* While the map itself is being moved the panels step back, so the world
+   under them is never lost while you are looking for something. */
+.mapcanvas.moving .fspanel { opacity: .28; pointer-events: none; }
+.fspanel { transition: opacity .18s ease; }
+
+/* Top toolbar: filters, the narrowing chip, and the Panels menu. A row of
+   small floating controls rather than a card, so it reads as furniture on
+   the map and not a page header above it. */
+.maptoolbar { position: absolute; left: 10px; right: 10px; top: 10px; z-index: 20;
+  display: flex; flex-wrap: wrap; gap: 6px; align-items: center; pointer-events: none; }
+.maptoolbar > * { pointer-events: auto; }
+.maptoolbar .tool { display: inline-flex; align-items: center; gap: 5px; padding: 4px 8px; font-size: 12px;
+  background: var(--panel); border: 1px solid var(--line); border-radius: 7px; box-shadow: var(--shadow); color: var(--ink); }
+.maptoolbar .tool select, .maptoolbar .tool input { border: 0; background: transparent; color: var(--ink); font: inherit; font-size: 12px; padding: 0; max-width: 220px; }
+.maptoolbar .tool input[type=number] { width: 56px; }
+.maptoolbar .tool .lbl { color: var(--muted); }
+.maptoolbar .sp { flex: 1; pointer-events: none; }
+.maptoolbar .btn { box-shadow: var(--shadow); }
+
+/* Zoom and home, bottom right, where every map keeps them. */
+.mapzoom { position: absolute; right: 10px; bottom: 10px; z-index: 20; display: flex; flex-direction: column;
+  background: var(--panel); border: 1px solid var(--line); border-radius: 7px; overflow: hidden; box-shadow: var(--shadow); }
+.mapzoom button { border: 0; border-top: 1px solid var(--line); background: transparent; color: var(--ink); width: 30px; height: 28px;
+  font: inherit; font-size: 15px; cursor: pointer; }
+.mapzoom button:first-child { border-top: 0; }
+.mapzoom button:hover { background: var(--chip); }
+
+/* A hop under the pointer answers at once with the little that fits on two
+   lines; the full card is in the Hop panel. */
+.hovercard { position: absolute; z-index: 30; pointer-events: none; max-width: 260px; padding: 5px 8px; font-size: 11.5px; line-height: 1.35;
+  background: var(--panel); border: 1px solid var(--line); border-radius: 6px; box-shadow: 0 4px 14px rgba(0,0,0,.16); color: var(--ink); }
+.hovercard b { font-family: var(--mono); font-size: 11px; }
+.hovercard .mu { color: var(--muted); }
+
+/* The panels. */
+.fspanel { position: absolute; z-index: 10; display: flex; flex-direction: column; min-width: 180px; min-height: 0;
+  background: var(--panel); border: 1px solid var(--line); border-radius: 9px;
+  box-shadow: 0 6px 22px rgba(0,0,0,.14); overflow: hidden; outline: none; }
+.fspanel:focus-visible { box-shadow: 0 0 0 2px var(--accent), 0 6px 22px rgba(0,0,0,.14); }
+.fspanel.snapping { transition: left .12s ease, top .12s ease, opacity .18s ease; }
+.fspanel.dragging { box-shadow: 0 14px 34px rgba(0,0,0,.24); opacity: .96; }
+.fspanel .fsph { display: flex; align-items: center; gap: 6px; padding: 6px 8px 6px 7px; flex: none; cursor: grab; user-select: none;
+  border-bottom: 1px solid var(--line); background: color-mix(in srgb, var(--chip) 55%, var(--panel)); touch-action: none; }
+.fspanel.dragging .fsph { cursor: grabbing; }
+.fspanel .fsph .grip { color: var(--muted); font-size: 13px; line-height: 1; opacity: .7; }
+.fspanel .fsph .fspt { flex: 1; min-width: 0; font-size: 11px; letter-spacing: .07em; text-transform: uppercase; color: var(--muted); font-weight: 600;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.fspanel .fsph .fspa { display: flex; gap: 2px; }
+.fspanel .fsph button { border: 0; background: transparent; color: var(--muted); width: 20px; height: 18px; border-radius: 4px; cursor: pointer; font: inherit; font-size: 12px; line-height: 1; }
+.fspanel .fsph button:hover { background: var(--chip); color: var(--ink); }
+.fspanel .fspb { flex: 1 1 auto; min-height: 0; overflow: auto; padding: 8px 10px; font-size: 12px; }
+.fspanel.folded { height: auto !important; width: auto !important; max-width: min(70%, 640px); }
+.fspanel.folded .fspt { white-space: nowrap; }
+/* The hop panel keeps its card styling (.hoppanel rules) inside the panel frame. */
+.fspanel.hoppanel { background: var(--panel); border-radius: 9px; display: flex; }
+.fspanel.hoppanel .fspb { padding: 10px 12px; }
+.fspanel.folded .fspb, .fspanel.folded .fspr { display: none; }
+.fspanel.folded .fsph { border-bottom: 0; }
+.fspanel .fspr { position: absolute; right: 0; bottom: 0; width: 14px; height: 14px; cursor: nwse-resize; touch-action: none;
+  background: linear-gradient(135deg, transparent 50%, var(--line) 50%, var(--line) 62%, transparent 62%, transparent 75%, var(--line) 75%, var(--line) 87%, transparent 87%); }
+/* Panel contents that were designed for cards keep their look without a
+   second border round them. */
+.fspanel .card { border: 0; box-shadow: none; padding: 0; background: transparent; }
+.fspanel .card > h3 { display: none; }
+.fspanel .legend { position: static; width: auto; max-width: none; margin: 0; padding: 0; border: 0; box-shadow: none; background: transparent; font-size: 11px; }
+.fspanel .legend .lgitems { display: flex; flex-direction: column; gap: 3px; }
+.fspanel .legend .lgi { white-space: normal; align-items: flex-start; }
+.fspanel .legend .lgi .lg { margin-top: 3px; }
+.fspanel .rbrows { font-size: 11.5px; }
+.fspanel .hpbody { padding: 0; }
+.fspanel .hphint { margin-top: 8px; padding-top: 6px; border-top: 1px solid var(--line); }
+.fspanel .endnote { font-size: 12px; color: var(--muted); margin: -2px 0 8px; padding: 6px 8px; border-radius: 6px; background: color-mix(in srgb, var(--accent) 10%, transparent); }
+.fspanel .trailbox { margin-top: 0; padding-top: 0; border-top: 0; max-height: none; }
+/* The data drawer: one line of numbers folded, tabs open. */
+.fspanel[data-panel="data"] .fsph .fspt { text-transform: none; letter-spacing: 0; font-size: 12px; color: var(--ink); font-weight: 500; }
+.datatabs { display: flex; gap: 2px; flex-wrap: wrap; border-bottom: 1px solid var(--line); margin: -4px -10px 8px; padding: 0 8px; }
+.datatabs button { border: 0; background: transparent; color: var(--muted); font: inherit; font-size: 12px; padding: 6px 8px; cursor: pointer; border-bottom: 2px solid transparent; }
+.datatabs button.on { color: var(--ink); border-color: var(--accent); font-weight: 600; }
+.datatabs button:hover { color: var(--ink); }
+.datapane[hidden] { display: none; }
+.datapane .grid.cols-4 { grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); }
+.datapane > div { margin-top: 0 !important; }
+.datapane .tablewrap { max-height: none; }
+.fspmenu { display: flex; flex-direction: column; gap: 6px; }
+.fspm { display: flex; align-items: center; gap: 8px; font-size: 13.5px; }
+@media (prefers-reduced-motion: reduce) { .fspanel, .fspanel.snapping { transition: none; } }
+/* Narrow screens: the map keeps a good share of the height and the panels
+   stack under it in the page's flow. Dragging is off; Panels still opens
+   and closes them. */
+@media (max-width: 760px) {
+  .mapcanvas { height: auto; min-height: 0; overflow: visible; }
+  .mapcanvas .mapstage { position: relative; height: 58vh; }
+  .maptoolbar { position: static; padding: 8px 10px; }
+  .mapzoom { bottom: auto; top: 8px; }
+  .fspanel { position: static !important; width: auto !important; height: auto !important; margin: 8px 10px; box-shadow: var(--shadow); }
+  .fspanel .fsph { cursor: default; }
+  .fspanel .fsph .grip, .fspanel .fspr { display: none; }
+  .fspanel .fspb { max-height: 60vh; }
+}

@@ -755,7 +755,7 @@
   // underneath, counted and named.
   const MAPW = 720, MAPH = 360;
   FS.registerPage('paths', {
-    title: 'Paths', refresh: 120,
+    title: 'Map', refresh: 120, fullbleed: true,
     async render(el, ctx) {
       const q = [];
       if (ctx.params.device) q.push('device=' + encodeURIComponent(ctx.params.device));
@@ -1178,14 +1178,13 @@
           + `</div>`;
       }
 
-      // The whole route, on the map. The trail below the map tells the same
-      // story at length; this is the compact version that stays in view
-      // while the reader is zoomed in on one corner of it -- every step from
-      // the machine inside the network to the endpoint, with the place and
-      // the round trip, each row lighting its dot like a crumb does.
-      const routeBox = () => {
+      // The whole route, in the Route panel. The trail in the data drawer
+      // tells the same story at length; this is the compact version that
+      // stays in view while the reader is zoomed in on one corner of it --
+      // every step from the machine inside the network to the endpoint,
+      // with the place and the round trip, each row lighting its dot.
+      const routeRows = () => {
         if (!picked || !routeHops.length) return '';
-        const dest = (dests.destinations || []).find(d => d.dst === picked) || {};
         const row = (o) => `<li class="rb${o.cls ? ' ' + o.cls : ''}" data-crumb="${esc(o.id)}">
             <span class="rbn">${esc(o.n)}</span><span class="rbm">${o.main}</span><span class="rbt">${esc(o.t || '')}</span>
             ${o.sub ? `<span class="rbs">${esc(o.sub)}</span>` : ''}</li>`;
@@ -1201,9 +1200,7 @@
             t: n.rtt_ms ? n.rtt_ms.toFixed(n.rtt_ms < 10 ? 1 : 0) + ' ms' : '',
             sub: [name ? n.ips[0] : '', [n.city, n.country].filter(Boolean).join(', ') || (n.located ? '' : 'not placed')].filter(Boolean).join(' \u00b7 ') }));
         });
-        return `<div class="routebox onmap" id="routebox">
-          <button type="button" class="lgtoggle" id="rbtoggle" aria-expanded="true">Route to ${esc(dest.name || picked)}</button>
-          <ol class="rbrows">${rows.join('')}</ol></div>`;
+        return `<ol class="rbrows">${rows.join('')}</ol>`;
       };
 
       // The route as a trail, beginning inside the network.
@@ -1324,197 +1321,86 @@
       const countries = {};
       nodes.forEach(n => { if (n.country) countries[n.country] = (countries[n.country] || 0) + 1; });
 
-      el.innerHTML = `
-      ${/* On a wide screen the map does not need the whole width and the
-             tables underneath do not need a scroll. Two columns: the map and
-             its route on the left, everything that describes them on the
-             right. Below the breakpoint this collapses and the page reads top
-             to bottom as before. */''}
-      <div class="pagewide"><div class="mapside">
-      <div style="margin-top:14px">${card('Where the traffic goes', `
-        <div class="actions" style="margin-bottom:8px">
-          <label class="small">Country
-            <select id="f-country"><option value="">any</option>${Object.keys(countries).sort().map(c => `<option value="${esc(c)}" ${ctx.params.country === c ? 'selected' : ''}>${esc(c)} · ${esc(FS.countryName(c))} (${countries[c]})</option>`).join('')}</select></label>
-          <label class="small">Slower than (ms) <input id="f-lat" type="number" min="0" style="width:80px" value="${esc(ctx.params.max_latency || '')}" placeholder="any"></label>
-          <label class="small">Within hops <input id="f-hops" type="number" min="1" max="64" style="width:70px" value="${esc(ctx.params.max_hops || '')}" placeholder="any"></label>
-          <label class="small">Device
-            <select id="f-dev"><option value="">every device</option>${(ctx.params.device || '').includes(',') ? `<option value="${esc(ctx.params.device)}" selected>${ctx.params.device.split(',').length} devices through the clicked hop</option>` : ''}${(devs.devices || []).map(d => {
-              const sel = (d.addresses || []).includes(ctx.params.device) ? 'selected' : '';
-              const n = (d.addresses || []).length;
-              return `<option value="${esc(d.key)}" ${sel}>${esc(d.name || d.key)} &middot; ${d.destinations} dest${n > 1 ? ` (${n} addresses)` : ''}</option>`;
-            }).join('')}</select></label>
-          ${/* No Apply. A filter you have chosen and not applied is a filter
-                that is not doing anything while looking as though it is, and
-                the button existed only to make the page wait for permission
-                it did not need. Selects act on choice; the typed boxes act on
-                Enter or when they lose focus, which is what change gives. */''}
-          <button class="btn small" id="f-clear">Clear</button>
-          ${/* Shown once a hop has narrowed the map. Anything that hides most
-                of what was on screen has to say so and be undoable in one
-                click, or a reader who has forgotten they clicked is looking
-                at a map that is quietly lying about how much traffic there
-                is. */''}
-          <span class="mapfilter" id="mapfilter" hidden><span id="mapfilter-text"></span><button type="button" id="mapfilter-next" class="linkish" hidden title="Load the next route through this hop">next &rsaquo;</button><button type="button" id="mapfilter-off" aria-label="Show every route">&times;</button></span>
-          <button class="btn small" id="f-reset">Reset zoom</button>
-        </div>
-        ${/* Map and detail side by side. The detail used to sit under the map,
-              which meant every answer cost a scroll away from the thing that
-              raised the question -- and by the time you were reading it the
-              hop you had clicked was off screen. */''}
-        <div class="mapsplit">
-        <div class="mapcol">
-        <div class="mapframe">
-        <svg class="pathmap" id="pathmap" viewBox="0 0 ${MAPW} ${MAPH}" preserveAspectRatio="xMidYMid meet">
-          ${/* Land and cables are the heavy part -- one long outline and up to a
-                couple of thousand cable runs -- so the copies either side
-                reference them rather than repeat them.
+      // One panel's frame. The panel manager adopts these by their data-panel
+      // name, so the content is in the document from the first paint and a
+      // reader (or a test) can find it without waiting for anything to run.
+      const panelHTML = (id, title, html, cls) => `<section class="fspanel${cls ? ' ' + cls : ''}" data-panel="${id}" tabindex="0" aria-label="${esc(title)}">
+          <header class="fsph"><span class="grip" aria-hidden="true">⠿</span><span class="fspt">${esc(title)}</span>
+          <span class="fspa"><button type="button" class="fspfold" title="Fold to the title (Esc)" aria-expanded="true">▁</button><button type="button" class="fspclose" title="Close; bring it back from Panels" aria-label="Close ${esc(title)}">×</button></span></header>
+          <div class="fspb">${html}</div><i class="fspr" aria-hidden="true"></i></section>`;
+      const destName = picked ? ((dests.destinations || []).find(d => d.dst === picked) || {}).name || picked : '';
 
-                Their styling is written inline rather than left to the
-                stylesheet. A <use> renders a shadow copy that a descendant
-                selector like `.pathmap .land` does not reach, so the clone
-                falls back to the SVG default and the continents come out
-                solid black. Inline style travels with the clone, and var()
-                still resolves, so the theme is not lost. */''}
-          <defs>
-            ${/* The world's own bounds. Zoomed out past one world the view is
-                  wider than the map, and the copies drawn either side would
-                  fill that margin with a second Earth -- so the drawing is
-                  clipped to the world instead of the copies being hidden.
-                  Hiding them was the easy answer and the wrong one: they are
-                  what carries a leg across the antimeridian, and without them
-                  a route that wraps trailed off the edge into blank space
-                  rather than coming back on the other side. */''}
-            <clipPath id="fs-world-clip"><rect x="0" y="0" width="${MAPW}" height="${MAPH}"/></clipPath>
-            <g id="fs-world">
-            ${FS.landPath ? `<path class="land" style="fill:color-mix(in srgb, var(--ink) 13%, transparent);stroke:var(--line);stroke-width:.4;vector-effect:non-scaling-stroke" d="${FS.landPath}"/>` : ''}
-            <g class="cablegroup" style="fill:none;stroke:var(--line);stroke-width:.6;opacity:.9;vector-effect:non-scaling-stroke">${cables}</g>
-          </g></defs>
-          <g class="stage">
-          <use class="worldcopy" href="#fs-world" x="${-MAPW}"/><use href="#fs-world"/><use class="worldcopy" href="#fs-world" x="${MAPW}"/>
-          ${/* The graticule is drawn rather than referenced because its labels
-                need a fill of their own, which they would not inherit inside
-                the group above. It is a few dozen elements; the saving was
-                never there. Routes and markers are drawn for real too: a <use>
-                copy cannot be clicked, and a reader who pans past the edge
-                would find a map whose hops no longer answer. */''}
-          ${[-MAPW, 0, MAPW].map(dx => `<g class="${dx ? 'worldcopy' : ''}" transform="translate(${dx},0)">${FS.graticule(MAPW, MAPH, 30)}${lines}${arrows}${labels}${dots}${originArt}</g>`).join('')}
-          </g>
-        </svg>
-        ${(() => {
-          // Nothing on this map is self-evident: a thick grey line and a thin
-          // coloured one are opposite claims, and a red ring is a statement
-          // about physics. A key costs a few lines and saves the reader
-          // guessing at any of it.
-          const sw = (cls, style) => `<svg class="lg" viewBox="0 0 22 10" aria-hidden="true"><line class="${cls}" style="${style || ''}" x1="1" y1="5" x2="21" y2="5"/></svg>`;
-          const dot = (fill, cls) => `<svg class="lg" viewBox="0 0 12 12" aria-hidden="true"><circle class="${cls || ''}" cx="6" cy="6" r="3.4" fill="${fill || 'none'}"/></svg>`;
-          // Each entry is a switch for the thing it describes. A key that only
-          // names the marks leaves a reader to pick one kind of line out of
-          // twelve hundred by eye; a key that turns them off does the picking.
-          const it = (mark, text, layer) => layer
-            ? `<button type="button" class="lgi" data-layer="${layer}" aria-pressed="true">${mark}<span>${esc(text)}</span></button>`
-            : `<span class="lgi">${mark}${esc(text)}</span>`;
-          // Always there, never in the way. It stays put through any zoom --
-          // it is drawn beside the map rather than inside it, so the viewBox
-          // cannot move it -- but at ten times in it was covering the thing
-          // being looked at, so it folds down to its title and remembers
-          // which the reader preferred.
-          return routeBox() + `<div class="legend onmap" id="maplegend">
-            <button type="button" class="lgtoggle" id="lgtoggle" aria-expanded="true">Key</button>
-            <div class="lgitems">
-            ${it(sw('leg shared', 'stroke:var(--muted)'), 'a leg several destinations share', 'shared')}
-            ${it(sw('leg', 'stroke:' + FS.palette[0]), 'a leg used by one destination', 'single')}
-            ${it(`<svg class="lg" viewBox="0 0 22 10" aria-hidden="true"><line class="leg" style="stroke:var(--ink)" x1="1" y1="5" x2="14" y2="5"/><polygon points="13,1.8 20,5 13,8.2" fill="var(--ink)"/></svg>`, 'direction of travel, hop to hop', 'arrows')}
-            ${(cab.cables || []).length ? it(sw('cable'), 'submarine cable', 'cable') : ''}
-            ${it(`<svg class="lg" viewBox="0 0 12 12" aria-hidden="true"><circle class="homering" cx="6" cy="6" r="4.5"/><circle class="home" cx="6" cy="6" r="2"/></svg>`, 'you', 'you')}
-            ${it(`<svg class="lg" viewBox="0 0 12 12" aria-hidden="true"><circle class="endpoint" cx="6" cy="6" r="4.6"/><circle cx="6" cy="6" r="2.2" fill="${FS.palette[2]}"/></svg>`, 'an endpoint: traffic was going here', 'endpoint')}
-            <button type="button" class="lgi lgmode" data-mode="traffic" aria-pressed="false">${`<svg class="lg" viewBox="0 0 12 12" aria-hidden="true"><circle class="endpoint" cx="6" cy="6" r="5.4"/><circle class="endpoint" cx="6" cy="6" r="2.4"/></svg>`}<span>size endpoints by traffic</span></button>
-            ${it(dot(FS.palette[2]), 'a hop it crossed on the way', 'hop')}
-            ${it(dot(FS.palette[1], 'measured'), 'position measured, not registered', 'measured')}
-            ${it(dot(FS.palette[5], 'provider'), 'position from the provider\u2019s own range list', 'provider')}
-            ${it(dot('', 'guessed'), 'answered but unplaceable: put between its neighbours by timing', 'guessed')}
-            ${it(dot(FS.palette[2], 'rich'), 'operator known', 'rich')}
-            ${it(dot('', 'ruledout'), 'the latency rules this placement out', 'ruledout')}
-            ${it(dot('', 'doubtful'), 'too fast for any built route', 'doubtful')}
-            ${it(sw('leg gapleg', 'stroke:var(--muted)'), 'the route continues through hops with no known position', 'gap')}
-            ${it(sw('leg sea', 'stroke:' + FS.palette[4]), 'a sea crossing, drawn along its likeliest cable', 'sea')}
-            ${it(sw('corrected'), 'correction: database \u2192 the site in the router\u2019s name', 'corrected')}
-            ${picked ? it(sw('leg onroute', 'stroke:' + FS.palette[0]), 'the route you picked; the rest is dimmed', 'onroute') : ''}
-            </div>
-          </div>`;
-        })()}
-        </div>
-        ${trail}
-        </div>
-        <aside class="hoppanel" id="hoppanel">
-          <div class="hphead">Hop detail</div>
-          <div class="hpbody">${hopCards || '<div class="muted small">No hop has coordinates yet.</div>'}</div>
-          <div class="muted small hphint">Hover or click any hop on the map, or any step in the route, for who runs it, where it is, and how that was decided.</div>
-        </aside>
-        </div>
-        ${/* Folded by default. It is worth having -- it says where the land
-              and the cables come from, and what the map does not claim -- but
-              it is four dense lines that a reader needs once and then never
-              again, and unfolded it pushed the map itself off the bottom of
-              the window. */''}
-        <details class="maphelp" id="maphelp">
-          <summary>About this map</summary>
-          <div class="help" style="margin-top:6px">Land outlines are Natural Earth 1:110m, public domain. ${(cab.cables || []).length ? `${num(cab.cables.length)} submarine cables drawn behind the routes. ${esc(cab.attribution || '')} A traceroute never names a cable, so hovering a long leg shows which ones <em>could</em> have carried it, after discarding any too long to have produced the latency measured. ` : ''}Wheel to zoom, drag to pan. A thick grey line is a leg several destinations share. Coloured lines belong to one destination each. Coordinates come from an address database: dependable for end-user addresses and rough for carrier equipment, which is why placements the measured latency rules out are circled rather than trusted. Where a router's hostname carries a site code, that is used instead of the database, and an amber line shows where the two disagreed.</div>
-        </details>`)}</div>
+      // The key. Nothing on this map is self-evident: a thick grey line and a
+      // thin coloured one are opposite claims, and a red ring is a statement
+      // about physics. Each entry is also a switch for the thing it
+      // describes; a key that only names the marks leaves a reader to pick
+      // one kind of line out of twelve hundred by eye.
+      const legendHTML = (() => {
+        const sw = (cls, style) => `<svg class="lg" viewBox="0 0 22 10" aria-hidden="true"><line class="${cls}" style="${style || ''}" x1="1" y1="5" x2="21" y2="5"/></svg>`;
+        const dot = (fill, cls) => `<svg class="lg" viewBox="0 0 12 12" aria-hidden="true"><circle class="${cls || ''}" cx="6" cy="6" r="3.4" fill="${fill || 'none'}"/></svg>`;
+        const it = (mark, text, layer) => layer
+          ? `<button type="button" class="lgi" data-layer="${layer}" aria-pressed="true">${mark}<span>${esc(text)}</span></button>`
+          : `<span class="lgi">${mark}${esc(text)}</span>`;
+        return `<div class="legend" id="maplegend"><div class="lgitems">
+          ${it(sw('leg shared', 'stroke:var(--muted)'), 'a leg several destinations share', 'shared')}
+          ${it(sw('leg', 'stroke:' + FS.palette[0]), 'a leg used by one destination', 'single')}
+          ${it(`<svg class="lg" viewBox="0 0 22 10" aria-hidden="true"><line class="leg" style="stroke:var(--ink)" x1="1" y1="5" x2="14" y2="5"/><polygon points="13,1.8 20,5 13,8.2" fill="var(--ink)"/></svg>`, 'direction of travel, hop to hop', 'arrows')}
+          ${(cab.cables || []).length ? it(sw('cable'), 'submarine cable', 'cable') : ''}
+          ${it(`<svg class="lg" viewBox="0 0 12 12" aria-hidden="true"><circle class="homering" cx="6" cy="6" r="4.5"/><circle class="home" cx="6" cy="6" r="2"/></svg>`, 'you', 'you')}
+          ${it(`<svg class="lg" viewBox="0 0 12 12" aria-hidden="true"><circle class="endpoint" cx="6" cy="6" r="4.6"/><circle cx="6" cy="6" r="2.2" fill="${FS.palette[2]}"/></svg>`, 'an endpoint: traffic was going here', 'endpoint')}
+          <button type="button" class="lgi lgmode" data-mode="traffic" aria-pressed="false">${`<svg class="lg" viewBox="0 0 12 12" aria-hidden="true"><circle class="endpoint" cx="6" cy="6" r="5.4"/><circle class="endpoint" cx="6" cy="6" r="2.4"/></svg>`}<span>size endpoints by traffic</span></button>
+          ${it(dot(FS.palette[2]), 'a hop it crossed on the way', 'hop')}
+          ${it(dot(FS.palette[1], 'measured'), 'position measured, not registered', 'measured')}
+          ${it(dot(FS.palette[5], 'provider'), 'position from the provider’s own range list', 'provider')}
+          ${it(dot('', 'guessed'), 'answered but unplaceable: put between its neighbours by timing', 'guessed')}
+          ${it(dot(FS.palette[2], 'rich'), 'operator known', 'rich')}
+          ${it(dot('', 'ruledout'), 'the latency rules this placement out', 'ruledout')}
+          ${it(dot('', 'doubtful'), 'too fast for any built route', 'doubtful')}
+          ${it(sw('leg gapleg', 'stroke:var(--muted)'), 'the route continues through hops with no known position', 'gap')}
+          ${it(sw('leg sea', 'stroke:' + FS.palette[4]), 'a sea crossing, drawn along its likeliest cable', 'sea')}
+          ${it(sw('corrected'), 'correction: database → the site in the router’s name', 'corrected')}
+          ${picked ? it(sw('leg onroute', 'stroke:' + FS.palette[0]), 'the route you picked; the rest is dimmed', 'onroute') : ''}
+          </div></div>`;
+      })();
 
-      </div><div class="dataside">
-      <div class="grid cols-4">
-        ${kpi('Destinations with a route', num((dests.destinations || []).length), `${num(st.hops)} hops measured`)}
-        ${kpi('Placed on the map', num(located.length), `${num(unlocated.length)} have no coordinates`, unlocated.length > located.length ? 'warn' : '')}
-        ${kpi('Ruled out by latency', num(impossible.length), impossible.length ? 'too far away to have answered that fast' : 'every placement is possible', impossible.length ? 'bad' : '')}
-        ${card('Tracing', st.active ? `<div>${pill('on', 'ok')}</div><div class="small muted" style="margin-top:6px">Last run ${st.last_run > 0 ? ago(st.last_run) : 'not yet'}.</div>`
-          : `<div>${pill('off', '')}</div><div class="small muted" style="margin-top:6px">Switch it on in <a href="#modules?m=paths">Settings &rsaquo; paths</a>. Nothing is probed that this network has not already contacted.</div>`)}</div>
-
-      ${(() => {
-        // What the map is being fed by, and how each source is getting on.
-        // Settings say what is switched on; this says what it has produced.
-        const S = st.sources || {};
+      // The data drawer: everything that used to sit under and beside the
+      // map, one tab each, folded to a line of numbers until it is wanted.
+      const S = st.sources || {};
+      const sourcesHTML = (() => {
         const row = (name, on, detail, err) => `<tr><td>${esc(name)}</td><td>${on ? pill('on', 'ok') : pill('off', '')}</td><td class="small">${detail}</td><td class="small sev-high">${esc(err || '')}</td></tr>`;
-        const ipm = S.ipmap || {}, cab = S.cables || {}, land = S.land_routes || {}, reg = S.registry || {}, nm = S.router_names || {}, fx = S.corrections || {}, osm = S.osm_telecom || {}, pv = S.providers || {};
+        const ipm = S.ipmap || {}, cabS = S.cables || {}, land = S.land_routes || {}, reg = S.registry || {}, nm = S.router_names || {}, fx = S.corrections || {}, osm = S.osm_telecom || {}, pv = S.providers || {};
         const rep = S.reputation || {}, gf = S.geofeeds || {}, ai = S.assistant || {}, idn = S.identify || {}, shd = S.shodan || {}, fcc = S.fcc || {};
         const pvFeeds = Object.values(pv.feeds || {});
-        const pvText = pvFeeds.length ? pvFeeds.map(f => `${f.name} ${num(f.prefixes || 0)}${f.error ? ' (failed)' : ''}`).join(' \u00b7 ') : 'nothing fetched yet';
+        const pvText = pvFeeds.length ? pvFeeds.map(f => `${f.name} ${num(f.prefixes || 0)}${f.error ? ' (failed)' : ''}`).join(' · ') : 'nothing fetched yet';
         const pvErr = pvFeeds.filter(f => f.error).map(f => `${f.name}: ${f.error}`).join('; ');
         const backoff = ipm.backing_off_until && ipm.backing_off_until * 1000 > Date.now() ? ` — backing off until ${FS.when(ipm.backing_off_until)}` : '';
-        return `<div style="margin-top:14px">${card('Data sources', `<table>
+        return card('Data sources', `<table>
           <tr><th>Source</th><th></th><th>State</th><th></th></tr>
           ${row('Router names', nm.on, `${num(nm.codes || 0)} site codes known, plus spelled-out and shortened forms`)}
           ${row('RIPE IPmap', ipm.on, `${num(ipm.answered || 0)} positions known (${num(ipm.this_session || 0)} this session), ${num(ipm.queued || 0)} waiting, ${num(ipm.per_minute || 0)} a minute${backoff}`)}
           ${row('Routing table &amp; registry', reg.on, `${num(reg.queued || 0)} addresses waiting for their operator`)}
-          ${row('Submarine cables', cab.on, cab.on ? `${num(cab.loaded || 0)} cables loaded` : 'not loaded', cab.error)}
+          ${row('Submarine cables', cabS.on, cabS.on ? `${num(cabS.loaded || 0)} cables loaded` : 'not loaded', cabS.error)}
           ${row('Land routes', land.on, land.on ? `${num(land.loaded || 0)} routes loaded` : 'not loaded', land.error)}
-          ${row('FCC broadband map', fcc.on, fcc.on ? (fcc.as_of ? `release ${esc(fcc.as_of)}, ${num(fcc.files || 0)} files listed${fcc.providers ? `; kept ${num(fcc.providers)} providers${fcc.state ? `, ${num(fcc.places || 0)} places in ${esc(fcc.state)}` : ''}` : ''}; checked ${FS.when(fcc.checked_at)}` : 'credentials entered, not yet checked') + ` <button type="button" class="btn small" id="fcc-check">Check FCC access</button> <button type="button" class="btn small" id="fcc-pull">Pull FCC data</button>` : 'no account \u2014 enter the username and API token under Settings \u203a paths \u203a FCC broadband map', fcc.error)}
+          ${row('FCC broadband map', fcc.on, fcc.on ? (fcc.as_of ? `release ${esc(fcc.as_of)}, ${num(fcc.files || 0)} files listed${fcc.providers ? `; kept ${num(fcc.providers)} providers${fcc.state ? `, ${num(fcc.places || 0)} places in ${esc(fcc.state)}` : ''}` : ''}; checked ${FS.when(fcc.checked_at)}` : 'credentials entered, not yet checked') + ` <button type="button" class="btn small" id="fcc-check">Check FCC access</button> <button type="button" class="btn small" id="fcc-pull">Pull FCC data</button>` : 'no account — enter the username and API token under Settings › paths › FCC broadband map', fcc.error)}
           ${row('Shodan', shd.mode && shd.mode !== 'off', shd.mode === 'off' ? 'off' : `${shd.mode === 'all' ? 'every hop' : 'on click'}, ${shd.keyed ? 'with a key (full records)' : 'no key (InternetDB only)'}: ${num(shd.known || 0)} addresses on record`, shd.error)}
           ${row('Servers identifying themselves', idn.on, idn.on ? `${num(idn.known || 0)} anycast servers asked, ${num(idn.placed_this_session || 0)} placed this session, ${num(idn.queued || 0)} waiting; ${num(idn.root_sites || 0)} root-server sites on file` : 'off')}
-          ${row('AI lookup', ai.on, ai.on ? `${esc(ai.provider)} / ${esc(ai.model)}: ${num(ai.known || 0)} hops answered, ${num(ai.queued || 0)} waiting, ${num(ai.per_hour || 0)} an hour` : 'off \u2014 choose a provider under Settings \u203a paths \u203a AI lookup', ai.error)}
-          ${row('AbuseIPDB reputation', rep.on, rep.on ? `${num(rep.known || 0)} addresses known (${num(rep.asked_this_session || 0)} asked this session)` : 'no key \u2014 set one under Settings \u203a paths \u203a Reputation', rep.error)}
+          ${row('AI lookup', ai.on, ai.on ? `${esc(ai.provider)} / ${esc(ai.model)}: ${num(ai.known || 0)} hops answered, ${num(ai.queued || 0)} waiting, ${num(ai.per_hour || 0)} an hour` : 'off — choose a provider under Settings › paths › AI lookup', ai.error)}
+          ${row('AbuseIPDB reputation', rep.on, rep.on ? `${num(rep.known || 0)} addresses known (${num(rep.asked_this_session || 0)} asked this session)` : 'no key — set one under Settings › paths › Reputation', rep.error)}
           ${row('Cloud provider ranges', pv.on, pv.on ? `${num(pv.prefixes || 0)} prefixes: ${pvText}` : 'off', pvErr)}
           ${row('Registry geofeeds', gf.on, gf.on ? `${num(gf.urls || 0)} feeds named in registry objects, ${num(gf.fetched || 0)} fetched, ${num(gf.rows || 0)} placed prefixes${gf.failed ? `, ${num(gf.failed)} failing` : ''}` : 'off')}
           ${row('OpenStreetMap telecom lines', osm.on, osm.on ? `${num(osm.ways || 0)} lines from ${num(osm.regions_loaded || 0)} of ${num(osm.regions_total || 0)} regions, counted at ${Math.round((osm.weight || 0) * 100)}%${osm.next_region ? ` — next: ${esc(osm.next_region)}` : ''}${osm.backing_off_until && osm.backing_off_until * 1000 > Date.now() ? ` — backing off until ${FS.when(osm.backing_off_until)}` : ''}` : 'off', osm.error)}
           ${row('Learned corrections', fx.on, `${num(fx.prefixes || 0)} prefixes placed by their own routers, ${num(fx.set_aside || 0)} registrant addresses set aside`)}
-        </table>`, `each is a setting under <a href="#modules/paths">Settings › paths</a>, grouped under <em>Where things are</em>`)}</div>`;
-      })()}
-
-      <div style="margin-top:14px">${card('Your location', `
+        </table>`, `each is a setting under <a href="#modules/paths">Settings › paths</a>, grouped under <em>Where things are</em>`);
+      })();
+      const locationHTML = card('Your location', `
         <div class="small">${home.ok
           ? `Drawing from <b>${home.lat.toFixed(4)}, ${home.lon.toFixed(4)}</b> <span class="muted">(${esc(home.source)})</span>`
           : `<span class="sev-high">Not known yet.</span> Without it the map has no origin and nothing can be checked against the speed of light.`}</div>
         ${(() => {
-          // The address the world sees this network as, beside the coordinates
-          // the map is drawn from. Shown whether or not the coordinates came
-          // from it: a reader checking where the map thinks they are wants the
-          // address in front of them either way.
           const v4 = home.public_v4 || [], v6 = home.public_v6 || [];
-          if (!v4.length && !v6.length) {
-            return `<div class="muted small" style="margin-top:4px">No public address found on this gateway&rsquo;s own interfaces.</div>`;
-          }
+          if (!v4.length && !v6.length) return `<div class="muted small" style="margin-top:4px">No public address found on this gateway&rsquo;s own interfaces.</div>`;
           const one = (ip) => `<span class="mono">${esc(ip)}</span>${ip === home.public_address && (v4.length + v6.length) > 1 ? ' <span class="muted">(used for the origin)</span>' : ''}`;
-          const line = (label, ips) => ips.length
-            ? `<div class="small" style="margin-top:3px"><span class="muted" style="display:inline-block;min-width:46px">${label}</span>${ips.map(one).join(', ')}</div>` : '';
+          const line = (label, ips) => ips.length ? `<div class="small" style="margin-top:3px"><span class="muted" style="display:inline-block;min-width:46px">${label}</span>${ips.map(one).join(', ')}</div>` : '';
           return line('IPv4', v4) + line('IPv6', v6);
         })()}
         ${home.detected && (home.detected.lat || home.detected.lon) ? `<div class="muted small" style="margin-top:4px">That address is registered near ${esc([home.detected.city, home.detected.region, home.detected.country].filter(Boolean).join(', '))} &mdash; usually the right town, occasionally the wrong state.</div>` : ''}
@@ -1526,12 +1412,14 @@
           ${home.detected && (home.detected.lat || home.detected.lon) ? `<button class="btn" id="h-detect">Use the public address</button>` : ''}
           ${home.configured ? `<button class="btn" id="h-clear">Go back to detecting it</button>` : ''}
         </div>
-        <div class="help" style="margin-top:6px">${esc(home.note || '')}</div>`)}</div>
-
-      ${rulesOut}
-      ${doubtOut}
-
-      ${unlocated.length || silent ? `<div class="unlocated">${card('Not on the map', table(unlocated.map(n => ({
+        <div class="help" style="margin-top:6px">${esc(home.note || '')}</div>`);
+      const overviewHTML = `<div class="grid cols-4">
+        ${kpi('Destinations with a route', num((dests.destinations || []).length), `${num(st.hops)} hops measured`)}
+        ${kpi('Placed on the map', num(located.length), `${num(unlocated.length)} have no coordinates`, unlocated.length > located.length ? 'warn' : '')}
+        ${kpi('Ruled out by latency', num(impossible.length), impossible.length ? 'too far away to have answered that fast' : 'every placement is possible', impossible.length ? 'bad' : '')}
+        ${card('Tracing', st.active ? `<div>${pill('on', 'ok')}</div><div class="small muted" style="margin-top:6px">Last run ${st.last_run > 0 ? ago(st.last_run) : 'not yet'}.</div>`
+          : `<div>${pill('off', '')}</div><div class="small muted" style="margin-top:6px">Switch it on in <a href="#modules?m=paths">Settings &rsaquo; paths</a>. Nothing is probed that this network has not already contacted.</div>`)}</div>`;
+      const unlocatedHTML = (unlocated.length || silent) ? `<div class="unlocated">${card('Not on the map', table(unlocated.map(n => ({
           index: n.index, ips: n.ips.join(', '), names: (n.names || []).join(', '), country: n.country || '',
           why: n.database_set_aside ? 'database not believed: ' + n.database_set_aside : 'no site in the name, no coordinates for the block' })), [
           { t: 'Hop', f: r => num(r.index), num: true, sort: 'index' },
@@ -1540,9 +1428,8 @@
           { t: 'Country', f: r => r.country ? FS.cc(r.country, { cls: '' }) : '<span class="muted">unknown</span>', sort: 'country' },
           { t: 'Why', f: r => `<span class="small ${r.why.indexOf('not believed') === 0 ? 'sev-med' : 'muted'}">${esc(r.why)}</span>`, sort: 'why' }],
           { empty: 'Every hop has coordinates.' }),
-          `${num(silent)} hop${silent === 1 ? '' : 's'} never answered and are not shown at all`)}</div>` : ''}
-
-      <div style="margin-top:14px">${card('Destinations', table(dests.destinations || [], [
+          `${num(silent)} hop${silent === 1 ? '' : 's'} never answered and are not shown at all`)}</div>` : '<div class="muted small">Every hop has coordinates.</div>';
+      const destinationsHTML = card('Destinations', table(dests.destinations || [], [
         { t: 'Destination', f: r => `<a href="#paths?${esc(routeQ(r.dst))}"><b>${esc(r.name || r.dst)}</b></a>${r.name ? `<div class="muted small mono">${esc(r.dst)}</div>` : ''}`, sort: 'dst' },
         { t: 'Where', f: r => (r.city || r.country) ? `${esc(r.city || '')}${r.city && r.country ? ', ' : ''}${r.country ? FS.cc(r.country, { cls: '' }) : ''}` : '<span class="muted">unknown</span>', sort: 'country' },
         { t: 'Hops', f: r => num(r.hops), num: true, sort: 'hops' },
@@ -1550,8 +1437,83 @@
         { t: 'Answered', f: r => num(r.answered), num: true, sort: 'answered' },
         { t: 'Reached', f: r => r.complete ? pill('yes', 'ok') : pill('no', ''), sort: 'complete' },
         { t: 'Traced', f: r => ago(r.ts), sort: 'ts' }],
-        { empty: 'Nothing traced yet.' }))}</div>
-      </div></div>`;
+        { empty: 'Nothing traced yet.' }));
+      const aboutHTML = `<details class="maphelp" id="maphelp">
+          <summary>About this map</summary>
+          <div class="help" style="margin-top:6px">Land outlines are Natural Earth 1:110m, public domain. ${(cab.cables || []).length ? `${num(cab.cables.length)} submarine cables drawn behind the routes. ${esc(cab.attribution || '')} A traceroute never names a cable, so hovering a long leg shows which ones <em>could</em> have carried it, after discarding any too long to have produced the latency measured. ` : ''}Wheel to zoom, drag to pan. A thick grey line is a leg several destinations share. Coloured lines belong to one destination each. Coordinates come from an address database: dependable for end-user addresses and rough for carrier equipment, which is why placements the measured latency rules out are circled rather than trusted. Where a router's hostname carries a site code, that is used instead of the database, and an amber line shows where the two disagreed.</div>
+        </details>
+        <div class="help" style="margin-top:8px">Panels: drag one by its title; near an edge it docks. Double-click a title to send it home, fold with the small button, and bring closed ones back from <b>Panels</b> in the toolbar. The arrangement is kept in this browser.</div>`;
+      const tabs = [
+        ['overview', 'Overview', overviewHTML],
+        ['sources', 'Data sources', sourcesHTML],
+        ['location', 'Location', locationHTML],
+        ['physics', `Physics${(impossible.length + rejected.length + doubtful.length) ? ' · ' + num(impossible.length + rejected.length + doubtful.length) : ''}`, (rulesOut || doubtOut) ? rulesOut + doubtOut : '<div class="muted small">Every placement is possible: nothing answered faster than the distance allows.</div>'],
+        ['unplaced', `Not on the map${unlocated.length ? ' · ' + num(unlocated.length) : ''}`, unlocatedHTML],
+        ['destinations', `Destinations · ${num((dests.destinations || []).length)}`, destinationsHTML],
+        ['route', 'Route', trail || '<div class="muted small">Pick a destination on the map, in the Destinations tab, or by clicking an endpoint, and the whole route is laid out here.</div>'],
+        ['about', 'About', aboutHTML]];
+      let dataTab = 'overview';
+      try { dataTab = localStorage.getItem('fs.mapdata.tab') || 'overview'; } catch (e) { }
+      if (!tabs.some(t => t[0] === dataTab)) dataTab = 'overview';
+      const dataHTML = `<div class="datatabs" role="tablist">${tabs.map(t => `<button type="button" role="tab" data-tab="${t[0]}" class="${t[0] === dataTab ? 'on' : ''}" aria-selected="${t[0] === dataTab}">${t[1]}</button>`).join('')}</div>`
+        + tabs.map(t => `<div class="datapane" data-pane="${t[0]}" ${t[0] === dataTab ? '' : 'hidden'}>${t[2]}</div>`).join('');
+      const dataTitle = `Data · ${num((dests.destinations || []).length)} routes · ${num(located.length)} placed · ${num(impossible.length)} ruled out`;
+
+      el.innerHTML = `
+      <div class="mapcanvas" id="mapcanvas">
+        <div class="mapstage" id="mapstage">
+        <svg class="pathmap" id="pathmap" viewBox="0 0 ${MAPW} ${MAPH}" preserveAspectRatio="xMidYMid meet">
+          ${/* Land and cables are the heavy part -- one long outline and up to a
+                couple of thousand cable runs -- so the copies either side
+                reference them rather than repeat them. Their styling is inline:
+                a <use> renders a shadow copy that a descendant selector does not
+                reach, and var() still resolves inline, so the theme is kept. */''}
+          <defs>
+            <clipPath id="fs-world-clip"><rect x="0" y="0" width="${MAPW}" height="${MAPH}"/></clipPath>
+            <g id="fs-world">
+            ${FS.landPath ? `<path class="land" style="fill:color-mix(in srgb, var(--ink) 13%, transparent);stroke:var(--line);stroke-width:.4;vector-effect:non-scaling-stroke" d="${FS.landPath}"/>` : ''}
+            <g class="cablegroup" style="fill:none;stroke:var(--line);stroke-width:.6;opacity:.9;vector-effect:non-scaling-stroke">${cables}</g>
+          </g></defs>
+          <g class="stage">
+          <use class="worldcopy" href="#fs-world" x="${-MAPW}"/><use href="#fs-world"/><use class="worldcopy" href="#fs-world" x="${MAPW}"/>
+          ${/* Routes and markers are drawn for real, a world either side: a <use>
+                copy cannot be clicked, and a reader who pans past the edge would
+                find a map whose hops no longer answer. */''}
+          ${[-MAPW, 0, MAPW].map(dx => `<g class="${dx ? 'worldcopy' : ''}" transform="translate(${dx},0)">${FS.graticule(MAPW, MAPH, 30)}${lines}${arrows}${labels}${dots}${originArt}</g>`).join('')}
+          </g>
+        </svg>
+        <div class="hovercard" id="hovercard" hidden></div>
+        </div>
+        ${/* Filters act on choice: a select applies itself, the typed boxes apply
+              on Enter or when they lose focus. No Apply button, because a
+              filter chosen and not applied is a filter that is lying. */''}
+        <div class="maptoolbar" role="toolbar" aria-label="Where the traffic goes">
+          <label class="tool"><span class="lbl">Country</span>
+            <select id="f-country"><option value="">any</option>${Object.keys(countries).sort().map(c => `<option value="${esc(c)}" ${ctx.params.country === c ? 'selected' : ''}>${esc(c)} · ${esc(FS.countryName(c))} (${countries[c]})</option>`).join('')}</select></label>
+          <label class="tool"><span class="lbl">Device</span>
+            <select id="f-dev"><option value="">every device</option>${(ctx.params.device || '').includes(',') ? `<option value="${esc(ctx.params.device)}" selected>${ctx.params.device.split(',').length} devices through the clicked hop</option>` : ''}${(devs.devices || []).map(d => {
+              const sel = (d.addresses || []).includes(ctx.params.device) ? 'selected' : '';
+              const n = (d.addresses || []).length;
+              return `<option value="${esc(d.key)}" ${sel}>${esc(d.name || d.key)} &middot; ${d.destinations} dest${n > 1 ? ` (${n} addresses)` : ''}</option>`;
+            }).join('')}</select></label>
+          <label class="tool"><span class="lbl">Slower than</span><input id="f-lat" type="number" min="0" value="${esc(ctx.params.max_latency || '')}" placeholder="any"><span class="lbl">ms</span></label>
+          <label class="tool"><span class="lbl">Within</span><input id="f-hops" type="number" min="1" max="64" value="${esc(ctx.params.max_hops || '')}" placeholder="any"><span class="lbl">hops</span></label>
+          <button class="btn small" id="f-clear">Clear</button>
+          ${/* Shown once a hop has narrowed the map. Anything that hides most of
+                what was on screen has to say so and be undoable in one click. */''}
+          <span class="mapfilter" id="mapfilter" hidden><span id="mapfilter-text"></span><button type="button" id="mapfilter-next" class="linkish" hidden title="Load the next route through this hop">next &rsaquo;</button><button type="button" id="mapfilter-off" aria-label="Show every route">&times;</button></span>
+          <span class="sp"></span>
+          <button class="btn small" id="panels-menu" title="Show, hide or reset the panels">Panels</button>
+        </div>
+        <div class="mapzoom"><button type="button" id="z-in" title="Zoom in">+</button><button type="button" id="z-out" title="Zoom out">&minus;</button><button type="button" id="f-reset" title="The whole world">&#8962;</button></div>
+        ${picked && routeHops.length ? panelHTML('route', 'Route to ' + destName, routeRows()
+          + ((route && route.talkers) ? talkersHTML(route.talkers, true) : '')
+          + `<div class="actions" style="margin-top:8px"><button class="btn small" id="r-clear">Show every route</button></div>`) : ''}
+        ${panelHTML('hop', 'Hop detail', `<div class="hpbody">${hopCards || '<div class="muted small">No hop has coordinates yet.</div>'}</div>
+          <div class="muted small hphint">Hover or click any hop on the map, or any step in the route, for who runs it, where it is, and how that was decided.</div>`, 'hoppanel')}
+        ${panelHTML('key', 'Key', legendHTML)}
+        ${panelHTML('data', dataTitle, dataHTML)}
+      </div>`;
 
 
       const saveHome = async (lat, lon) => {
@@ -1645,17 +1607,35 @@
         });
       }
 
-      const lgd = FS.$('#maplegend', el), lgb = FS.$('#lgtoggle', el);
-      if (lgd && lgb) {
-        const set = (open) => {
-          lgd.classList.toggle('folded', !open);
-          lgb.setAttribute('aria-expanded', open ? 'true' : 'false');
-          try { localStorage.setItem('fs.mapkey', open ? '1' : '0'); } catch (e) { }
+      // The panels: adopted by name, laid out from what this browser
+      // remembers, and put back by the Panels menu. The hop panel is docked
+      // right and as tall as the map; the route sits top-left under the
+      // toolbar; the key and the data drawer wait folded along the bottom.
+      const canvas = FS.$('#mapcanvas', el);
+      const panels = FS.panels && canvas ? FS.panels.mount(canvas, { key: 'paths', panels: [
+        { id: 'route', title: 'Route', home: { ax: 'l', ay: 't', x: 10, y: 52, w: 320, h: 380 } },
+        { id: 'hop', title: 'Hop detail', home: { ax: 'r', ay: 't', x: 10, y: 52, w: 360, fill: true, gap: 104 } },
+        { id: 'key', title: 'Key', home: { ax: 'l', ay: 'b', x: 10, y: 10, w: 290, h: 340, folded: true } },
+        { id: 'data', title: 'Data', home: { ax: 'l', ay: 'b', x: 310, y: 10, w: 760, wfill: 390, h: 400, folded: true } }] }) : null;
+      const pm = FS.$('#panels-menu', el);
+      if (pm && panels) pm.onclick = () => panels.menu();
+      // The drawer's tabs.
+      el.querySelectorAll('.datatabs [data-tab]').forEach(b => {
+        b.onclick = () => {
+          const t = b.getAttribute('data-tab');
+          el.querySelectorAll('.datatabs [data-tab]').forEach(x => { const on = x === b; x.classList.toggle('on', on); x.setAttribute('aria-selected', on ? 'true' : 'false'); });
+          el.querySelectorAll('.datapane').forEach(p => { p.hidden = p.getAttribute('data-pane') !== t; });
+          try { localStorage.setItem('fs.mapdata.tab', t); } catch (e) { }
         };
-        let open = true;
-        try { open = localStorage.getItem('fs.mapkey') !== '0'; } catch (e) { }
-        set(open);
-        lgb.onclick = () => set(lgd.classList.contains('folded'));
+      });
+      // While the map is being moved the panels step back.
+      const stageEl = FS.$('#mapstage', el);
+      if (canvas && stageEl) {
+        let wheelT = null;
+        stageEl.addEventListener('pointerdown', () => canvas.classList.add('moving'));
+        const done = () => canvas.classList.remove('moving');
+        stageEl.addEventListener('pointerup', done); stageEl.addEventListener('pointercancel', done); stageEl.addEventListener('pointerleave', done);
+        stageEl.addEventListener('wheel', () => { canvas.classList.add('moving'); clearTimeout(wheelT); wheelT = setTimeout(done, 260); }, { passive: true });
       }
 
       // Look up on Shodan: fetch now, then redraw the card's block in place.
@@ -1687,18 +1667,6 @@
         FS.toast(r.ok ? `FCC access works: release ${(r.state || {}).as_of || '?'}` : (r.error || (r.state || {}).error || 'FCC check failed'), !r.ok);
         FS.render();
       };
-      const rbx = FS.$('#routebox', el), rbb = FS.$('#rbtoggle', el);
-      if (rbx && rbb) {
-        const set = (open) => {
-          rbx.classList.toggle('folded', !open);
-          rbb.setAttribute('aria-expanded', open ? 'true' : 'false');
-          try { localStorage.setItem('fs.routebox', open ? '1' : '0'); } catch (e) { }
-        };
-        let open = true;
-        try { open = localStorage.getItem('fs.routebox') !== '0'; } catch (e) { }
-        set(open);
-        rbb.onclick = () => set(rbx.classList.contains('folded'));
-      }
 
       const rc = FS.$('#r-clear', el);
       if (rc) rc.onclick = () => FS.go('paths?' + routeQ(''));
@@ -1795,9 +1763,26 @@
         const w = await get('/api/paths/who?dsts=' + encodeURIComponent(dsts.slice(0, 200).join(',')) + '&' + FS.since());
         return ((w && w.devices) || []).map(d => d.key).join(',');
       };
+      // Two lines at the pointer: the address, the place, the round trip. The
+      // full card is in the Hop panel; this is for the reader sweeping across
+      // a dense cluster who wants to know which dot is which without looking
+      // away.
+      const hover = FS.$('#hovercard', el);
+      const hoverShow = (n, ev) => {
+        if (!hover || !canvas || !n) return;
+        const r = canvas.getBoundingClientRect();
+        const place = [n.city, n.country].filter(Boolean).join(', ');
+        hover.innerHTML = `<b>${esc((n.ips || [])[0] || n.id)}</b>${n.endpoint ? ' <span class="mu">endpoint</span>' : ''}<br><span class="mu">${esc([n.endpoint ? '' : 'hop ' + hopNo(n), place || (n.located ? '' : 'not placed'), hopRTT(n) ? hopRTT(n) + ' ms' : ''].filter(Boolean).join(' \u00b7 '))}</span>`;
+        hover.hidden = false;
+        const x = Math.min(ev.clientX - r.left + 14, Math.max(0, r.width - 270)), y = Math.min(ev.clientY - r.top + 14, Math.max(0, r.height - 48));
+        hover.style.left = x + 'px'; hover.style.top = y + 'px';
+      };
+      const hoverHide = () => { if (hover) hover.hidden = true; };
       el.querySelectorAll('.hop').forEach(c => {
         const id = c.getAttribute('data-hop');
-        c.addEventListener('mouseenter', () => select(id));
+        c.addEventListener('mouseenter', (ev) => { select(id); hoverShow(byId[id], ev); });
+        c.addEventListener('mousemove', (ev) => hoverShow(byId[id], ev));
+        c.addEventListener('mouseleave', hoverHide);
         c.addEventListener('click', async () => {
           const n0 = byId[id];
           // An endpoint is a destination, and what a reader wants from one is
@@ -2020,6 +2005,16 @@
         zoomedOn = null;
         if (FS.panZoomHandle) FS.panZoomHandle.reset();
       };
+      // Zoom by a step about the centre of what is in view.
+      const zoomBy = (k) => {
+        const pz = FS.panZoomHandle; if (!pz) return;
+        const v = (FS.pathsView && FS.pathsView.box) || { x: 0, y: 0, w: MAPW, h: MAPH };
+        zoomedOn = null;
+        pz.moveTo(v.x + v.w / 2, v.y + v.h / 2, v.w / k, 160);
+      };
+      const zi = FS.$('#z-in', el), zo = FS.$('#z-out', el);
+      if (zi) zi.onclick = () => zoomBy(1.7);
+      if (zo) zo.onclick = () => zoomBy(1 / 1.7);
     }
   });
 
