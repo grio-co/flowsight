@@ -137,3 +137,21 @@ func TestOffNetwork(t *testing.T) {
 		}
 	}
 }
+
+// pf prints an IPv6 endpoint as "addr[port]". The splitter this package
+// used before the parser moved to the firewall module did not know that
+// form, so IPv6 transfers never reached this view.
+func TestIPv6StatesAreSeen(t *testing.T) {
+	const v6 = `all tcp 2600:1700::9[52034] -> 2607:f8b0::200e[443]      ESTABLISHED:ESTABLISHED
+   age 00:10:00, expires in 23:50:00, 10:10 pkts, 1000:2000 bytes, rule 12
+`
+	isLocal := func(ip string) bool { return strings.HasPrefix(ip, "2600:1700:") }
+	got := parseStates(v6, isLocal)
+	if len(got) != 1 {
+		t.Fatalf("want 1 state, got %d: %+v", len(got), got)
+	}
+	s := got[0]
+	if s.Local != "2600:1700::9" || s.Peer != "2607:f8b0::200e" || s.PeerPort != 443 || s.Out != 1000 || s.In != 2000 {
+		t.Errorf("ipv6 state wrong: %+v", s)
+	}
+}

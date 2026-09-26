@@ -4,7 +4,6 @@ package inspect
 
 import (
 	"bufio"
-	"bytes"
 	"context"
 	"fmt"
 	"io"
@@ -223,7 +222,7 @@ func (m *Module) Info() core.ModuleInfo {
 			{Key: "max_capture_files", Label: "Max rotated capture files", Type: "int", Help: "tcpdump -W limit: number of files in the ring."},
 			{Key: "max_capture_bytes", Label: "Max total capture bytes (MB)", Type: "int", Help: "Hard cap on cumulative capture storage; oldest captures deleted when exceeded."},
 			{Key: "payload_allowed", Label: "Allow payload capture", Type: "bool", Help: "When off, captures are headers-only (96 bytes); when on, users can select full payload (65535 bytes). Payload captures are sensitive."},
-			{Key: "state_poll_seconds", Label: "State poll interval (seconds)", Type: "int", Help: "How often to query pfctl for state changes."},
+			{Key: "state_poll_seconds", Label: "State poll interval (seconds)", Type: "int", Help: "How often to read the firewall's connection table."},
 			{Key: "syn_flood_threshold", Label: "SYN flood alert threshold", Type: "int", Help: "Alert if SYN_SENT states from one source exceed this in the poll window."},
 			{Key: "port_scan_threshold", Label: "Port scan alert threshold", Type: "int", Help: "Alert if one source has this many non-established destinations in one poll."},
 		},
@@ -281,10 +280,14 @@ func (m *Module) Setup(ctx *core.Context) error {
 		}))
 	ctx.Route("GET", "/api/inspect/rules", m.apiRules,
 		core.Doc("Get rule evaluation counters and matches from the firewall"),
-		core.Returns("Rule counters and statistics", map[string]any{
+		core.Returns("The active ruleset with its counters, in the firewall's own syntax", map[string]any{
+			"backend": "pf", "syntax": "pf",
 			"rules": []map[string]any{
-				{"rule_id": 1, "name": "Allow SSH", "evaluations": 5000, "matches": 150, "bytes": 1024000},
+				{"text": `pass in quick on em0 inet proto tcp from any to any port = 22 flags S/SA keep state label "allow-ssh"`,
+					"label": "allow-ssh", "evaluations": 5000, "packets": 150, "bytes": 1024000, "states": 2},
 			},
+			"rule_count": 1,
+			"raw":        `pass in quick on em0 inet proto tcp from any to any port = 22 flags S/SA keep state label "allow-ssh"`,
 		}))
 	ctx.Route("POST", "/api/inspect/capture/start", m.apiCaptureStart, core.Write(),
 		core.Doc("Start a new packet capture on a network interface with optional BPF filter"),
@@ -406,14 +409,15 @@ func (m *Module) pollStates() error {
 }
 
 func (m *Module) getPFStates() ([]*PFState, error) {
-	// Run pfctl -ss -vv to get detailed state table
-	cmd := exec.Command("pfctl", "-ss", "-vv")
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		return nil, fmt.Errorf("pfctl failed: %w", err)
+	r, ok := m.ctx.Service(core.ServiceConnStates).(core.StateReader)
+	if !ok || !r.Available() {
+		return nil, nil // no connection table on this platform
 	}
-
-	states := parsePFStates(string(out), time.Now())
+	conns, err := r.States()
+	if err != nil {
+		return nil, fmt.Errorf("reading %s states: %w", r.Name(), err)
+	}
+	states := toPFStates(conns, time.Now())
 
 	// Keep only the newest maxStates
 	if len(states) > m.maxStates {
@@ -426,40 +430,33 @@ func (m *Module) getPFStates() ([]*PFState, error) {
 	return states, nil
 }
 
-func (m *Module) parsePFLine(line string) *PFState {
-	parts := strings.Fields(line)
-	if len(parts) < 5 {
-		return nil
-	}
-
-	// Very simplified parsing; real pf output is more complex
-	// This is a placeholder that extracts basic info
-	state := &PFState{
-		Timestamp: time.Now(),
-	}
-
-	// Parse protocol and addresses (simplified)
-	if len(parts) > 0 {
-		state.Proto = parts[0]
-	}
-
-	// Find state keyword
-	for i, p := range parts {
-		if p == "->" && i+1 < len(parts) {
-			if i > 0 {
-				state.Src = parts[i-1]
-			}
-			if i+1 < len(parts) {
-				state.Dst = parts[i+1]
-			}
-			break
+// toPFStates describes connections the way this page always has: source and
+// destination as the state is oriented on its interface. A state created
+// going out names its opener as the source; one created coming in names the
+// local end first, as pf prints it. The byte and packet counters are always
+// what the opener sent first (the source column going out, the destination
+// column coming in).
+func toPFStates(conns []core.ConnState, now time.Time) []*PFState {
+	states := make([]*PFState, 0, len(conns))
+	for _, c := range conns {
+		src, dst := c.Initiator, c.Responder
+		dir := c.Direction
+		if dir == "in" {
+			src, dst = c.Responder, c.Initiator
+		} else if dir == "" {
+			dir = "out"
 		}
-		if strings.Contains(p, "ESTABLISHED") || strings.Contains(p, "SYN_SENT") {
-			state.State = p
+		st := &PFState{Proto: c.Proto, Direction: dir, Interface: c.Iface, State: c.Status,
+			Src: src.Addr, SrcPort: src.Port, Dst: dst.Addr, DstPort: dst.Port,
+			Age: int(c.Age / time.Second), Expires: int(c.Expires / time.Second),
+			PktsSrc: c.PktsSent, PktsDst: c.PktsReceived, BytesSrc: c.Sent, BytesDst: c.Received,
+			Timestamp: now}
+		if n, ok := strings.CutPrefix(c.Rule, "rule "); ok {
+			st.RuleID, _ = strconv.Atoi(n)
 		}
+		states = append(states, st)
 	}
-
-	return state
+	return states
 }
 
 func (m *Module) detectAnomalies(states []*PFState) {
@@ -589,19 +586,24 @@ func (m *Module) apiStatesSummary(r *core.Req) (any, error) {
 }
 
 func (m *Module) apiRules(r *core.Req) (any, error) {
-	// Run pfctl -sr -vv to get rule counters
-	cmd := exec.Command("pfctl", "-sr", "-vv")
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		return nil, fmt.Errorf("pfctl rules failed: %w", err)
+	rr, ok := m.ctx.Service(core.ServiceRules).(core.RuleReader)
+	if !ok || !rr.Available() {
+		return nil, core.BadRequest("no firewall ruleset to read on this platform")
 	}
-
-	// Simple summary
-	lineCount := bytes.Count(out, []byte("\n"))
-
+	rules, err := rr.Rules()
+	if err != nil {
+		return nil, fmt.Errorf("reading %s rules: %w", rr.Name(), err)
+	}
+	texts := make([]string, len(rules))
+	for i, ru := range rules {
+		texts[i] = ru.Text
+	}
 	return map[string]any{
-		"rule_count": lineCount,
-		"raw":        string(out),
+		"backend":    rr.Name(),
+		"syntax":     rr.Syntax(),
+		"rules":      rules,
+		"rule_count": len(rules),
+		"raw":        strings.Join(texts, "\n"),
 	}, nil
 }
 

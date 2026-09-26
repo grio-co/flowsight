@@ -16,6 +16,7 @@ import "time"
 const (
 	ServiceEnforcer   = "enforcer"
 	ServiceConnStates = "conn_states"
+	ServiceRules      = "fw_rules"
 )
 
 // Capabilities an Enforcer or StateReader can report.
@@ -24,6 +25,7 @@ const (
 	CapSetV6      = "set.v6"      // IPv6 addresses and prefixes in sets
 	CapKillStates = "kill.states" // drop established connections
 	CapConnStates = "conn.states" // read live connections with byte counters
+	CapRules      = "rules.read"  // read the active ruleset with counters
 )
 
 // Enforcer holds L3 verdicts in named address sets that the firewall's policy
@@ -54,25 +56,30 @@ type Endpoint struct {
 // ConnState is one live connection, described by who opened it rather than
 // by how a particular firewall prints it.
 //
-// A translated connection has two addresses for one end: the address the
-// packets carried before translation and the one they carried after.
-// Initiator is the opener as it addressed its own packets; InitiatorWire is
-// that end after source translation (outbound NAT). Responder is the far end
-// as the opener addressed it; ResponderActual is where the connection was
+// A translated connection has two addresses for one end. Initiator is the
+// opener as it addressed its own packets; InitiatorTranslated is that end
+// after source translation (outbound NAT). Responder is the far end as the
+// opener addressed it; ResponderTranslated is where the connection was
 // delivered after destination translation (a redirect or a port forward).
 // Without translation each pair is equal.
 type ConnState struct {
-	Proto           string // "tcp", "udp", "icmp", ...
-	Initiator       Endpoint
-	InitiatorWire   Endpoint
-	Responder       Endpoint
-	ResponderActual Endpoint
-	// Sent counts bytes from the initiator, Received bytes to it.
-	Sent, Received int64
-	Age            time.Duration
-	// Rule names the rule that created the state, in the backend's own
-	// terms ("rule 3", "anchor 4"), for display only.
-	Rule string
+	Proto               string // "tcp", "udp", "icmp", ...
+	Initiator           Endpoint
+	InitiatorTranslated Endpoint
+	Responder           Endpoint
+	ResponderTranslated Endpoint
+	// Sent counts what the initiator sent, Received what it was sent.
+	Sent, Received         int64 // bytes
+	PktsSent, PktsReceived int64
+	Age, Expires           time.Duration
+	// Iface is the interface the state is bound to ("all" when floating),
+	// and Direction whether it was created by a packet coming in on it
+	// ("in") or going out ("out"). Either is empty when the backend does
+	// not say.
+	Iface, Direction string
+	// Status is the backend's own protocol state ("ESTABLISHED:ESTABLISHED")
+	// and Rule the rule that created it ("rule 3"), both for display.
+	Status, Rule string
 }
 
 // StateReader reads the live connection table.
@@ -80,4 +87,24 @@ type StateReader interface {
 	Name() string
 	Available() bool
 	States() ([]ConnState, error)
+}
+
+// Rule is one rule of the active ruleset, in the backend's own syntax, with
+// the counters the backend keeps for it.
+type Rule struct {
+	Text        string `json:"text"`
+	Label       string `json:"label,omitempty"`
+	Evaluations int64  `json:"evaluations"`
+	Packets     int64  `json:"packets"`
+	Bytes       int64  `json:"bytes"`
+	States      int64  `json:"states"`
+}
+
+// RuleReader reads the active ruleset. Syntax names the language Rule.Text
+// is written in ("pf", "nft"), so an analyser knows whether it can read it.
+type RuleReader interface {
+	Name() string
+	Syntax() string
+	Available() bool
+	Rules() ([]Rule, error)
 }

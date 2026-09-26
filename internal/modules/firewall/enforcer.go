@@ -5,6 +5,7 @@ package firewall
 // `pfctl -ss -v`.
 
 import (
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -24,12 +25,13 @@ type pfEnforcer struct{ m *Module }
 var (
 	_ core.Enforcer    = (*pfEnforcer)(nil)
 	_ core.StateReader = (*pfEnforcer)(nil)
+	_ core.RuleReader  = (*pfEnforcer)(nil)
 )
 
 func (e *pfEnforcer) Name() string { return "pf" }
 
 func (e *pfEnforcer) Capabilities() []string {
-	return []string{core.CapSetV4, core.CapSetV6, core.CapKillStates, core.CapConnStates}
+	return []string{core.CapSetV4, core.CapSetV6, core.CapKillStates, core.CapConnStates, core.CapRules}
 }
 
 func (e *pfEnforcer) Available() bool { return e.m.Available() }
@@ -52,19 +54,30 @@ func (e *pfEnforcer) States() ([]core.ConnState, error) {
 	return ParseStates(out), nil
 }
 
-// ParseStates reads the output of `pfctl -ss -v`, three lines per state:
+// ParseStates reads the pf state table as `pfctl -ss -v` or `-ss -vv`
+// prints it on FreeBSD 13 to 15. Each state is a header line at column zero
+// followed by indented detail lines:
 //
 //	all tcp 127.0.0.1:3129 (140.82.114.3:443) <- 10.99.0.162:59216  ESTABLISHED:ESTABLISHED
 //	   [2837096760 + 392192] wscale 7  [2817892562 + 65792] wscale 10
 //	   age 00:01:09, expires in 00:00:24, 249:432 pkts, 14863:616615 bytes, anchor 4
+//	vtnet0 tcp 2600:1700::9[52034] -> 2607:f8b0::200e[443]      ESTABLISHED:ESTABLISHED
+//	   age 45s, expires in 10s, 10:10 pkts, 1000:2000 bytes, anchor 1, rule 12
 //
 // The arrow points from the end that opened the connection: "->" means the
-// left address opened it, "<-" the right one. The address in parentheses is
-// the other side of a translation of the left address: for "->" the source
-// the opener used before outbound NAT, for "<-" the destination the opener
-// asked for before a redirect or port forward. The first of each counter
-// pair counts the direction the arrow points, so it is always what the
-// opener sent. egress/states_test.go pins this against a real capture.
+// left address opened it and the state was created going out, "<-" the right
+// one, coming in. Each address may be followed by the other side of its
+// translation in parentheses. Going out, the address printed is the one on
+// the wire and the parenthesised one the address before translation; coming
+// in it is the other way round. So for "->" the left parenthesis is the
+// opener's source before outbound NAT, and for "<-" the left parenthesis is
+// the destination the opener asked for before a redirect or port forward.
+// The first of each counter pair counts the direction the arrow points, so
+// it is always what the opener sent. egress/states_test.go and
+// inspect's tests pin this against real captures.
+//
+// Lines starting with whitespace are never headers: the -vv sequence lines
+// begin with "[".
 func ParseStates(text string) []core.ConnState {
 	var states []core.ConnState
 	var cur *core.ConnState
@@ -75,72 +88,68 @@ func ParseStates(text string) []core.ConnState {
 		cur = nil
 	}
 	for _, line := range strings.Split(text, "\n") {
-		trimmed := strings.TrimSpace(line)
-		if trimmed == "" {
+		if strings.TrimSpace(line) == "" {
 			continue
 		}
-		if !strings.HasPrefix(line, " ") && !strings.HasPrefix(line, "\t") {
-			flush()
-			cur = parseStateHeader(trimmed)
+		if line[0] == ' ' || line[0] == '\t' {
+			if cur != nil && strings.Contains(line, "bytes") {
+				parseStateDetail(line, cur)
+			}
 			continue
 		}
-		if cur != nil && strings.Contains(trimmed, "bytes") {
-			parseStateCounters(trimmed, cur)
-		}
+		flush()
+		cur = parseStateHeader(line)
 	}
 	flush()
 	return states
 }
 
+var stateHeaderRe = regexp.MustCompile(`^(\S+)\s+(\S+)\s+(\S+)(?:\s+\((\S+)\))?\s+(->|<-)\s+(\S+)(?:\s+\((\S+)\))?(?:\s+(\S+))?\s*$`)
+
 func parseStateHeader(line string) *core.ConnState {
-	f := strings.Fields(line)
-	if len(f) < 4 {
+	m := stateHeaderRe.FindStringSubmatch(strings.TrimSpace(line))
+	if m == nil {
 		return nil
 	}
-	arrow := -1
-	for i, x := range f {
-		if x == "->" || x == "<-" {
-			arrow = i
-			break
-		}
+	left, right := endpoint(m[3]), endpoint(m[6])
+	leftOther, rightOther := left, right
+	if m[4] != "" {
+		leftOther = endpoint(m[4])
 	}
-	if arrow < 0 || arrow+1 >= len(f) {
-		return nil
+	if m[7] != "" {
+		rightOther = endpoint(m[7])
 	}
-	var left, paren string
-	for i := 2; i < arrow; i++ {
-		if strings.HasPrefix(f[i], "(") {
-			paren = strings.Trim(f[i], "()")
-		} else {
-			left = f[i]
-		}
-	}
-	if left == "" {
-		return nil
-	}
-	l, r := endpoint(left), endpoint(f[arrow+1])
-	before := l // the left end before translation
-	if paren != "" {
-		before = endpoint(paren)
-	}
-	st := &core.ConnState{Proto: f[1]}
-	if f[arrow] == "->" {
-		st.Initiator, st.InitiatorWire = before, l
-		st.Responder, st.ResponderActual = r, r
+	st := &core.ConnState{Iface: m[1], Proto: strings.ToLower(m[2]), Status: m[8]}
+	if m[5] == "->" {
+		// Going out: printed addresses are on the wire, parentheses are
+		// before translation. The opener is on the left.
+		st.Direction = "out"
+		st.Initiator, st.InitiatorTranslated = leftOther, left
+		st.Responder, st.ResponderTranslated = rightOther, right
 	} else {
-		st.Initiator, st.InitiatorWire = r, r
-		st.Responder, st.ResponderActual = before, l
+		// Coming in: printed addresses are after translation, parentheses
+		// are as they were on the wire. The opener is on the right.
+		st.Direction = "in"
+		st.Initiator, st.InitiatorTranslated = rightOther, right
+		st.Responder, st.ResponderTranslated = leftOther, left
 	}
 	return st
 }
 
-// parseStateCounters reads "age 00:01:09, ... 249:432 pkts, 14863:616615 bytes, rule 3".
-func parseStateCounters(line string, st *core.ConnState) {
+// parseStateDetail reads "age 00:01:09, expires in 00:00:24, 249:432 pkts,
+// 14863:616615 bytes, anchor 1, rule 3".
+func parseStateDetail(line string, st *core.ConnState) {
 	for _, part := range strings.Split(line, ",") {
 		part = strings.TrimSpace(part)
 		switch {
 		case strings.HasPrefix(part, "age "):
-			st.Age = parseAge(strings.TrimPrefix(part, "age "))
+			st.Age = pfDuration(strings.TrimPrefix(part, "age "))
+		case strings.HasPrefix(part, "expires in "):
+			st.Expires = pfDuration(strings.TrimPrefix(part, "expires in "))
+		case strings.HasSuffix(part, " pkts"):
+			if a, b, ok := pair(strings.TrimSuffix(part, " pkts")); ok {
+				st.PktsSent, st.PktsReceived = a, b
+			}
 		case strings.HasSuffix(part, " bytes"):
 			if a, b, ok := pair(strings.TrimSuffix(part, " bytes")); ok {
 				st.Sent, st.Received = a, b
@@ -161,15 +170,27 @@ func pair(s string) (int64, int64, bool) {
 	return x, y, err1 == nil && err2 == nil
 }
 
-func parseAge(s string) time.Duration {
-	f := strings.Split(strings.TrimSpace(s), ":")
-	if len(f) != 3 {
-		return 0
+// pfDuration reads "00:01:02", "45s", "3m", "2h" and "1d".
+func pfDuration(s string) time.Duration {
+	s = strings.TrimSpace(s)
+	if strings.Contains(s, ":") {
+		total := 0
+		for _, p := range strings.Split(s, ":") {
+			n, _ := strconv.Atoi(p)
+			total = total*60 + n
+		}
+		return time.Duration(total) * time.Second
 	}
-	h, _ := strconv.Atoi(f[0])
-	m, _ := strconv.Atoi(f[1])
-	sec, _ := strconv.Atoi(f[2])
-	return time.Duration(h)*time.Hour + time.Duration(m)*time.Minute + time.Duration(sec)*time.Second
+	n, _ := strconv.Atoi(strings.TrimRight(s, "smhd"))
+	switch {
+	case strings.HasSuffix(s, "m"):
+		n *= 60
+	case strings.HasSuffix(s, "h"):
+		n *= 3600
+	case strings.HasSuffix(s, "d"):
+		n *= 86400
+	}
+	return time.Duration(n) * time.Second
 }
 
 func endpoint(s string) core.Endpoint {
@@ -177,7 +198,8 @@ func endpoint(s string) core.Endpoint {
 	return core.Endpoint{Addr: h, Port: p}
 }
 
-// SplitHostPort handles "1.2.3.4:443" and "[fd00::1]:443".
+// SplitHostPort handles "1.2.3.4:443", "[fd00::1]:443" and pf's own IPv6
+// form "fd00::1[443]". A bare address has port 0.
 func SplitHostPort(s string) (string, int) {
 	s = strings.TrimSpace(s)
 	if strings.HasPrefix(s, "[") {
@@ -189,6 +211,10 @@ func SplitHostPort(s string) (string, int) {
 			return s[1:i], p
 		}
 	}
+	if i := strings.LastIndex(s, "["); i > 0 && strings.HasSuffix(s, "]") {
+		p, _ := strconv.Atoi(s[i+1 : len(s)-1])
+		return s[:i], p
+	}
 	i := strings.LastIndexByte(s, ':')
 	if i < 0 {
 		return s, 0
@@ -199,4 +225,56 @@ func SplitHostPort(s string) (string, int) {
 	}
 	p, _ := strconv.Atoi(s[i+1:])
 	return s[:i], p
+}
+
+// ------------------------------------------------------------------ rules
+
+func (e *pfEnforcer) Syntax() string { return "pf" }
+
+func (e *pfEnforcer) Rules() ([]core.Rule, error) {
+	out, err := e.m.pfctl("-vvsr")
+	if err != nil {
+		return nil, err
+	}
+	return ParseRules(out), nil
+}
+
+var (
+	ruleCounterRe = regexp.MustCompile(`Evaluations:\s*(\d+)\s+Packets:\s*(\d+)\s+Bytes:\s*(\d+)\s+States:\s*(\d+)`)
+	ruleLabelRe   = regexp.MustCompile(`label\s+"([^"]+)"`)
+)
+
+// ParseRules reads `pfctl -vvsr`: a rule at column zero, then indented
+// lines, one of which carries its counters:
+//
+//	pass in quick on vtnet0 inet proto tcp from any to any port = 22 flags S/SA keep state label "a1b2"
+//	  [ Evaluations: 123  Packets: 456  Bytes: 789  States: 0  ]
+//	  [ Inserted: uid 0 pid 123 State Creations: 4  ]
+func ParseRules(text string) []core.Rule {
+	var rules []core.Rule
+	for _, line := range strings.Split(text, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" {
+			continue
+		}
+		if !strings.HasPrefix(line, " ") && !strings.HasPrefix(trimmed, "[") {
+			r := core.Rule{Text: trimmed}
+			if m := ruleLabelRe.FindStringSubmatch(trimmed); m != nil {
+				r.Label = m[1]
+			}
+			rules = append(rules, r)
+			continue
+		}
+		if len(rules) == 0 {
+			continue
+		}
+		if m := ruleCounterRe.FindStringSubmatch(trimmed); m != nil {
+			r := &rules[len(rules)-1]
+			r.Evaluations, _ = strconv.ParseInt(m[1], 10, 64)
+			r.Packets, _ = strconv.ParseInt(m[2], 10, 64)
+			r.Bytes, _ = strconv.ParseInt(m[3], 10, 64)
+			r.States, _ = strconv.ParseInt(m[4], 10, 64)
+		}
+	}
+	return rules
 }

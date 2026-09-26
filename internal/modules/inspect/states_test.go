@@ -3,7 +3,15 @@ package inspect
 import (
 	"testing"
 	"time"
+
+	"github.com/grioghar/flowsight/internal/modules/firewall"
 )
+
+// parsePFStates runs a pf capture through the whole path: pf's parser into
+// backend-neutral connections, then this page's view of them.
+func parsePFStates(out string, now time.Time) []*PFState {
+	return toPFStates(firewall.ParseStates(out), now)
+}
 
 const pfSample = `vtnet0 tcp 192.168.1.119:52034 -> 142.250.190.46:443       ESTABLISHED:ESTABLISHED
    [3993207633 + 62608] wscale 8  [1002905477 + 65535] wscale 7
@@ -49,5 +57,25 @@ func TestParsePFStatesRealFormat(t *testing.T) {
 		if s.Proto[0] == '[' {
 			t.Fatalf("a sequence line was taken for a state: %+v", s)
 		}
+	}
+}
+
+// A state created coming in keeps pf's orientation on this page: the local
+// end is the source, and the counters in the source column are what the
+// opener (the destination) sent.
+func TestInboundStateKeepsPFOrientation(t *testing.T) {
+	const in = `vtnet0 udp 192.168.1.53:53 <- 192.168.1.5:41523              MULTIPLE:SINGLE
+   age 00:00:05, expires in 00:00:55, 4:6 pkts, 344:512 bytes, anchor 1, rule 3
+`
+	st := parsePFStates(in, time.Unix(0, 0))
+	if len(st) != 1 {
+		t.Fatalf("want 1 state, got %d", len(st))
+	}
+	s := st[0]
+	if s.Src != "192.168.1.53" || s.SrcPort != 53 || s.Dst != "192.168.1.5" || s.DstPort != 41523 {
+		t.Fatalf("orientation changed: %+v", s)
+	}
+	if s.PktsSrc != 4 || s.PktsDst != 6 || s.BytesSrc != 344 || s.BytesDst != 512 {
+		t.Fatalf("counters moved: %+v", s)
 	}
 }

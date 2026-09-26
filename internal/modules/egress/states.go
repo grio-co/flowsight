@@ -93,7 +93,7 @@ func orient(c core.ConnState, isDevice func(string) bool) (State, bool) {
 		return State{}, false // icmp and the rest carry no payload worth watching
 	}
 	st := State{Proto: c.Proto, Age: c.Age, Rule: c.Rule}
-	iw, ra := c.InitiatorWire, c.ResponderActual
+	iw, ra := c.InitiatorTranslated, c.ResponderTranslated
 	asInitiator := func(local, peer core.Endpoint) {
 		st.Local, st.Peer, st.PeerPort = local.Addr, peer.Addr, peer.Port
 		st.Out, st.In = c.Sent, c.Received

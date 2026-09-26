@@ -75,10 +75,13 @@ defined in `internal/core/enforce.go`:
 | Service | Contract | Used by |
 |---|---|---|
 | `enforcer` | `core.Enforcer`: fill or replace a named address set, drop established connections | appcontrol, egress |
-| `conn_states` | `core.StateReader`: live connections, described by who opened them, with both sides of any translation and bytes each way | egress |
+| `conn_states` | `core.StateReader`: live connections, described by who opened them, with both sides of any translation, the interface and direction, and bytes and packets each way | egress, inspect |
+| `fw_rules` | `core.RuleReader`: the active ruleset with its counters, in the backend's own syntax (named by `Syntax()`) | inspect |
 
-The firewall module provides both over pf: sets are tables in the
-`flowsight/policy` anchor, and connections come from `pfctl -ss -v`. The
+The firewall module provides all three over pf: sets are tables in the
+`flowsight/policy` anchor, connections come from `pfctl -ss -v`, rules from
+`pfctl -vvsr`. There is one pf state parser (`firewall.ParseStates`) and one
+rule parser (`firewall.ParseRules`). The
 set names are the ones the firewall's policy provider declared from the
 policy document. Another backend (nftables, a firewall's API) provides the
 same services and these modules work unchanged.

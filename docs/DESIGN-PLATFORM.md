@@ -149,6 +149,15 @@ type StateReader interface {
 	States() ([]ConnState, error)
 }
 
+// RuleReader reads the active ruleset with its counters, in the backend's
+// own syntax. Implemented in internal/core/enforce.go.
+type RuleReader interface {
+	Name() string
+	Syntax() string // "pf", "nft", ...
+	Available() bool
+	Rules() ([]Rule, error)
+}
+
 // Classifier names flows. It never decides; policy does. Not built yet.
 type Classifier interface {
 	Name() string
@@ -167,8 +176,8 @@ behaviour. That refactor comes first, and it makes every later port cheap.
 | `core.Enforcer` and `core.StateReader` (`internal/core/enforce.go`), provided over pf by the firewall module | Done |
 | appcontrol fills sets and cuts connections through `core.Enforcer` | Done |
 | egress reads connections through `core.StateReader`; pf's format is parsed in `firewall.ParseStates`, and the existing capture test still pins the direction of every counter | Done |
-| inspect's state and rule views (`pfctl -ss -vv`, `-sr -vv`) through `StateReader` and a new `RuleReader` | Next |
-| rulehygiene's ruleset reading through `RuleReader`; its OPNsense `config.xml` labels behind the platform | Next |
+| inspect's state and rule views through `StateReader` and a new `core.RuleReader`; its pf parser merged into `firewall.ParseStates`, and its existing tests pass unchanged through the new path | Done |
+| rulehygiene's ruleset reading through `RuleReader` (dropping its own copy of the rule parser); its OPNsense `config.xml` labels behind the platform | Next |
 | Redirects as a backend-neutral spec, so web's interception rules stop being pf text (the `Declare` and `Detach` methods sketched above) | Next; touches interception, so it gets its own fail-open test first |
 | qos's shaping (dummynet) behind a `Shaper` contract | Later |
 | Classifier contract over ntopng | Later |
