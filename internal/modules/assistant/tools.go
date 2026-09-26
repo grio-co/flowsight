@@ -30,11 +30,18 @@ func (m *Module) callToolHTTP(ctx context.Context, toolName string, args map[str
 	var matchedMethod string
 
 	m.ctx.Core.API.IterateRoutes(func(method, path string, route *core.Route) {
-		if routeToToolName(path) == toolName {
-			matchedRoute = route
-			matchedPath = path
-			matchedMethod = method
+		if routeToToolName(path) != toolName {
+			return
 		}
+		// The read route wins; a write route of the same path is only
+		// reachable when writes are allowed and no read route exists.
+		if matchedRoute != nil && (matchedMethod == "GET" || (method != "GET" && !m.config.AllowWrites)) {
+			return
+		}
+		if method != "GET" && !m.config.AllowWrites && !m.config.MCPAllowWrites {
+			return
+		}
+		matchedRoute, matchedPath, matchedMethod = route, path, method
 	})
 
 	if matchedRoute == nil || matchedPath == "" {
@@ -127,7 +134,7 @@ func (m *Module) callToolHTTP(ctx context.Context, toolName string, args map[str
 		// Not JSON, return as-is
 		result := string(respBody)
 		if len(result) > m.config.MaxToolResultBytes {
-			result = result[:m.config.MaxToolResultBytes] + "\n[result truncated]"
+			result = result[:m.config.MaxToolResultBytes] + "\n[result truncated: narrow the query with ip, hours, minutes or limit]"
 		}
 		return result, nil
 	}
@@ -138,7 +145,7 @@ func (m *Module) callToolHTTP(ctx context.Context, toolName string, args map[str
 
 	// Truncate if needed
 	if len(result) > m.config.MaxToolResultBytes {
-		result = result[:m.config.MaxToolResultBytes] + "\n[result truncated]"
+		result = result[:m.config.MaxToolResultBytes] + "\n[result truncated: narrow the query with ip, hours, minutes or limit]"
 	}
 
 	return result, nil

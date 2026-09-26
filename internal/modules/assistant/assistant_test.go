@@ -48,6 +48,7 @@ func testModule(t *testing.T) *Module {
 	m.ctx.Route("GET", "/api/identity/hosts", h, core.Doc("Hosts seen recently, for testing"),
 		core.Query("hours", "integer", "window", false, 24), core.Returns("hosts", map[string]any{"hosts": []any{}}))
 	m.ctx.Route("POST", "/api/policy/apply", h, core.Write(), core.Doc("Apply the policy plan, for testing"), core.Returns("ok", map[string]any{"ok": true}))
+	m.ctx.Route("POST", "/api/visibility/abroad", h, core.Write(), core.Doc("A write route sharing a read route's path, for testing"), core.Returns("ok", map[string]any{"ok": true}))
 	m.ensureTools()
 	return m
 }
@@ -86,6 +87,16 @@ func TestToolsAreTheRealRoutesAndCallsReachTheDaemon(t *testing.T) {
 	if !strings.Contains(string(b), "8.8.8.8") || strings.Contains(string(b), "would be called") {
 		t.Fatalf("result not relayed: %s", b)
 	}
+	// A tool whose path also has a write route still calls the read route.
+	var method string
+	daemon2 := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { method = r.Method; fmt.Fprint(w, `{"devices":[]}`) }))
+	defer daemon2.Close()
+	t.Setenv("FLOWSIGHT_URL", daemon2.URL)
+	m.handleMCPRequest(context.Background(), []byte(`{"jsonrpc":"2.0","id":9,"method":"tools/call","params":{"name":"visibility_abroad","arguments":{"hours":24}}}`))
+	if method != "GET" {
+		t.Fatalf("expected the GET route, got %s", method)
+	}
+	t.Setenv("FLOWSIGHT_URL", daemon.URL)
 	// Unknown tool is a JSON-RPC error, not a crash.
 	resp = m.handleMCPRequest(context.Background(), []byte(`{"jsonrpc":"2.0","id":8,"method":"tools/call","params":{"name":"nope","arguments":{}}}`))
 	if _, ok := resp["error"]; !ok {
@@ -221,7 +232,7 @@ JSON
 		t.Fatalf("events %v", types)
 	}
 	argv, _ := os.ReadFile(filepath.Join(filepath.Dir(script), "argv"))
-	for _, want := range []string{"-p", "what is 192.168.1.115?", "--output-format", "stream-json", "--verbose", "--max-turns", "6", "--append-system-prompt", "--mcp-config", "--allowedTools", "mcp__flowsight__*", "--permission-mode", "default"} {
+	for _, want := range []string{"-p", "what is 192.168.1.115?", "--output-format", "stream-json", "--verbose", "--max-turns", "6", "--append-system-prompt", "--mcp-config", "--allowedTools", "mcp__flowsight__*", "--disallowedTools", "--permission-mode", "default"} {
 		if !strings.Contains(string(argv), want+"\n") {
 			t.Fatalf("argv lacks %q:\n%s", want, argv)
 		}

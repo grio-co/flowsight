@@ -12,6 +12,18 @@ name, and every release's assets carry that string in their file names.
 
 The newest entry is first.
 
+## 0.9.8r202609261906
+
+**First live question through Claude Code, and what it taught.** A 65 KB
+tool result overflowed Claude Code's limit and it fell back to its own shell
+and file tools, which then waited for approvals; a tool whose path also has
+a write route was sent to the write route; and the run ended at the turn
+cap without a sentence. Now: tool results are capped at 24 KB by default
+with a note saying how to narrow the query; Claude Code is run with its
+shell and file tools disallowed and a system prompt that says to use only
+FlowSight's tools; a tool name always resolves to the read route when one
+exists; and a run that ends without a final answer reports that plainly.
+
 ## 0.9.8r202609261903
 
 **Claude Code on another machine.** The claude-code provider can run the

@@ -57,7 +57,7 @@ type runResult struct {
 	InputTokens, OutputTokens int
 }
 
-const systemPrompt = `You are FlowSight's analyst. FlowSight is a network visibility and policy daemon on the operator's own gateway; every address, device name and domain you are shown belongs to their network and they are entitled to see it. Answer from FlowSight's data by calling its tools; do not guess what a tool can tell you. Prefer the narrowest tool and the smallest window that answers the question. Say which tools you looked at, in one short line at the end. Be brief and concrete: names, counts, times, countries. If the data does not say, say so.`
+const systemPrompt = `You are FlowSight's analyst. Use only the FlowSight tools (mcp__flowsight__*): never run shell commands or save results to files. When a result is truncated, ask again with a narrower query (one ip, fewer hours, a limit) instead of working around it. FlowSight is a network visibility and policy daemon on the operator's own gateway; every address, device name and domain you are shown belongs to their network and they are entitled to see it. Answer from FlowSight's data by calling its tools; do not guess what a tool can tell you. Prefer the narrowest tool and the smallest window that answers the question. Say which tools you looked at, in one short line at the end. Be brief and concrete: names, counts, times, countries. If the data does not say, say so.`
 
 const anthropicURL = "https://api.anthropic.com/v1/messages"
 
@@ -358,7 +358,9 @@ func claudeArgs(question string, cfg assistConfig, mcpConfigPath string) []strin
 	args := []string{"-p", question, "--output-format", "stream-json", "--verbose",
 		"--max-turns", strconv.Itoa(cfg.MaxTurns), "--append-system-prompt", systemPrompt}
 	if mcpConfigPath != "" {
-		args = append(args, "--mcp-config", mcpConfigPath, "--allowedTools", "mcp__flowsight__*", "--permission-mode", "default")
+		args = append(args, "--mcp-config", mcpConfigPath, "--allowedTools", "mcp__flowsight__*",
+			"--disallowedTools", "Bash,Read,Write,Edit,MultiEdit,Glob,Grep,WebFetch,WebSearch,Task,NotebookEdit,TodoWrite",
+			"--permission-mode", "default")
 	}
 	return args
 }
@@ -418,6 +420,9 @@ func (m *Module) runClaudeCode(ctx context.Context, question string, cfg assistC
 			msg = msg[:400]
 		}
 		return res, fmt.Errorf("claude exited: %v %s", werr, msg)
+	}
+	if res.Answer == "" || res.Turns >= cfg.MaxTurns && !endsWithSentence(res.Answer) {
+		return res, fmt.Errorf("no final answer after %d turns: raise max_turns or ask a narrower question", res.Turns)
 	}
 	return res, nil
 }
@@ -629,6 +634,9 @@ func (m *Module) runClaudeCodeSSH(ctx context.Context, question string, cfg assi
 		}
 		return res, fmt.Errorf("claude on %s: %v %s", cfg.ClaudeSSH, werr, msg)
 	}
+	if res.Answer == "" || res.Turns >= cfg.MaxTurns && !endsWithSentence(res.Answer) {
+		return res, fmt.Errorf("no final answer after %d turns: raise max_turns or ask a narrower question", res.Turns)
+	}
 	return res, nil
 }
 
@@ -739,4 +747,11 @@ func opensshKeyPair(pub ed25519.PublicKey, key ed25519.PrivateKey, comment strin
 	body = append(body, str(sec)...)
 	privPEM = pem.EncodeToMemory(&pem.Block{Type: "OPENSSH PRIVATE KEY", Bytes: body})
 	return privPEM, authorized
+}
+
+// endsWithSentence is a cheap sign that a transcript reached a conclusion
+// rather than being cut at the turn cap mid-work.
+func endsWithSentence(s string) bool {
+	s = strings.TrimSpace(s)
+	return s != "" && strings.ContainsAny(s[len(s)-1:], ".!?)")
 }
