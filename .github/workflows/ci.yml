@@ -1,0 +1,39 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: vet and test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: go vet
+        run: go vet ./...
+      - name: go test -race
+        run: go test -race ./...
+
+  lint:
+    name: golangci-lint
+    runs-on: ubuntu-latest
+    # Non-blocking for now: the tree has pre-existing findings (errcheck,
+    # staticcheck, unused, ...) that this workflow must not force anyone to
+    # fix in a hurry. Remove continue-on-error once `golangci-lint run ./...`
+    # is clean on the default branch.
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - uses: golangci/golangci-lint-action@v8
+        with:
+          version: v2.5.0
