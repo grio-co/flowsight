@@ -25,6 +25,17 @@ while the kernel held nothing; the kernel is now checked, so a reboot gets
 its rules back on the first reconcile. The dark-traffic check no longer
 panics on integer counts.
 
+**IPv6 in the live egress view.** pf writes an IPv6 endpoint as
+`addr[port]`, which the egress view could not read, so IPv6 transfers never
+showed up there. They do now. `/api/inspect/rules` returns every rule with
+its counters (`rules`), plus `backend` and `syntax`; `rule_count` now counts
+rules instead of output lines, and `raw` is the rule text without the
+counter lines. On a system without pf, inspect's state poller no longer
+warns on every poll and `/api/inspect/rules` answers 400. Underneath,
+modules that fill pf tables or read pf's connection table now go through
+backend-neutral services (ARCHITECTURE.md, "Enforcement services"), the
+first step towards FlowSight on nftables and pfSense. Nothing to do.
+
 ## 0.9.8r202609261940
 
 **Proxmox poll errors are visible.** A node that could not be polled now
