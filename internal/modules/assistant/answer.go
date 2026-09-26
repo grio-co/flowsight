@@ -74,9 +74,7 @@ func (m *Module) run(ctx context.Context, question string, cfg assistConfig, emi
 // Complete is the plain form other modules use (the map's hop lookup): one
 // prompt, one answer, no tools.
 func (m *Module) Complete(ctx context.Context, prompt string) (string, error) {
-	m.mu.Lock()
-	cfg := m.config
-	m.mu.Unlock()
+	cfg := m.cfg()
 	if !cfg.on() {
 		return "", errors.New("the assistant is off")
 	}

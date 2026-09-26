@@ -12,6 +12,13 @@ name, and every release's assets carry that string in their file names.
 
 The newest entry is first.
 
+## 0.9.8r202609261845
+
+**Assistant settings apply without a restart.** The module read its
+settings once at start, so choosing a provider on the Settings page left
+it reporting off until the daemon restarted. Settings are now read at every
+use.
+
 ## 0.9.8r202609261844
 
 **One key for the map's lookup and the assistant.** With no `api_key` of

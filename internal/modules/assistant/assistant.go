@@ -178,6 +178,15 @@ func (m *Module) Setup(ctx *core.Context) error {
 	return nil
 }
 
+// cfg is the current configuration: settings are read at every use, so a
+// change saved on the Settings page takes effect on the next question.
+func (m *Module) cfg() assistConfig {
+	m.loadConfig()
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.config
+}
+
 func (m *Module) loadConfig() {
 	s := m.ctx.Settings()
 	m.mu.Lock()
@@ -391,8 +400,8 @@ func fieldToJSONSchema(f *core.Field) map[string]any {
 
 // apiStatus returns the current status.
 func (m *Module) apiStatus(r *core.Req) (any, error) {
+	cfg := m.cfg()
 	m.mu.Lock()
-	cfg := m.config
 	lastErr := m.lastErr
 	m.mu.Unlock()
 
@@ -455,8 +464,8 @@ func (m *Module) apiAsk(r *core.Req) (any, error) {
 	if len(q) > 4000 {
 		return nil, core.BadRequest("question is too long (4000 characters at most)")
 	}
+	cfg := m.cfg()
 	m.mu.Lock()
-	cfg := m.config
 	m.mu.Unlock()
 	if !cfg.on() {
 		return nil, core.Errorf(400, "the assistant is off: choose a provider under Settings › assistant")
