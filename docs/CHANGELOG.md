@@ -12,6 +12,16 @@ name, and every release's assets carry that string in their file names.
 
 The newest entry is first.
 
+## 0.9.8r202609262110
+
+**Traffic shaping survives a reboot.** Shaping checked that dummynet was
+usable by running `dnctl pipe show`, which succeeds even when the dummynet
+kernel module is not loaded, so the module was never loaded after a reboot
+and every apply failed with "Protocol not available" until someone loaded it
+by hand. FlowSight now asks the kernel (`kldstat`) and loads dummynet when
+it is missing. If shaping is on and the Priority page shows that error,
+this revision fixes it on the next apply; nothing else to do.
+
 ## 0.9.8r202609262107
 
 **DNS keeps working after Unbound restarts.** A DNS-block policy's zone file

@@ -62,13 +62,21 @@ func classQueue(c Class, down bool) int {
 
 type dn struct {
 	run func(args ...string) (string, error)
+	// sys runs kldstat and kldload.
+	sys func(name string, args ...string) (string, error)
 }
 
 func newDN() *dn {
-	return &dn{run: func(args ...string) (string, error) {
-		out, err := exec.Command("dnctl", args...).CombinedOutput()
-		return string(out), err
-	}}
+	return &dn{
+		run: func(args ...string) (string, error) {
+			out, err := exec.Command("dnctl", args...).CombinedOutput()
+			return string(out), err
+		},
+		sys: func(name string, args ...string) (string, error) {
+			out, err := exec.Command(name, args...).CombinedOutput()
+			return string(out), err
+		},
+	}
 }
 
 func (d *dn) cmd(args ...string) error {
@@ -104,14 +112,14 @@ func queueBytes(mbit float64) int {
 }
 
 // available reports whether dummynet can be used at all, loading the module
-// if it is not already in the kernel.
+// if it is not already in the kernel. It asks the kernel, not dnctl: "dnctl
+// pipe show" succeeds with no dummynet loaded, and then every pipe fails with
+// "Protocol not available". That is the state after any reboot, since
+// kldload does not survive one.
 func (d *dn) available() error {
-	if _, err := d.run("pipe", "show"); err == nil {
-		return nil
-	}
-	if out, err := exec.Command("kldload", "dummynet").CombinedOutput(); err != nil {
-		if !strings.Contains(string(out), "already loaded") {
-			return fmt.Errorf("dummynet is not available: %s", strings.TrimSpace(string(out)))
+	if _, err := d.sys("kldstat", "-q", "-m", "dummynet"); err != nil {
+		if out, err := d.sys("kldload", "dummynet"); err != nil && !strings.Contains(out, "already loaded") {
+			return fmt.Errorf("dummynet is not available: %s", strings.TrimSpace(out))
 		}
 	}
 	if _, err := d.run("pipe", "show"); err != nil {

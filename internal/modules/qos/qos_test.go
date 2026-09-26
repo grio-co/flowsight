@@ -1,6 +1,7 @@
 package qos
 
 import (
+	"errors"
 	"strings"
 	"testing"
 )
@@ -192,5 +193,38 @@ func TestAddressRuleDependsOnWhichSideItIsOn(t *testing.T) {
 	if !strings.Contains(there, "match in on vtnet0 from any to <qos_r0>") ||
 		!strings.Contains(there, "match out on vtnet0 from <qos_r0> to any") {
 		t.Errorf("a remote address must be treated as a far end:\n%s", there)
+	}
+}
+
+// After a reboot dummynet is not in the kernel, yet "dnctl pipe show" still
+// succeeds; trusting it left shaping failing on every apply with "Protocol
+// not available". The kernel is asked instead, and the module loaded.
+func TestAvailableLoadsDummynetWhenTheKernelLacksIt(t *testing.T) {
+	var sys []string
+	loaded := false
+	d := &dn{
+		run: func(args ...string) (string, error) { return "", nil }, // dnctl answers either way
+		sys: func(name string, args ...string) (string, error) {
+			sys = append(sys, name+" "+strings.Join(args, " "))
+			switch name {
+			case "kldstat":
+				if !loaded {
+					return "", errors.New("exit status 1")
+				}
+			case "kldload":
+				loaded = true
+			}
+			return "", nil
+		},
+	}
+	if err := d.available(); err != nil {
+		t.Fatal(err)
+	}
+	if !loaded {
+		t.Fatalf("dummynet was not loaded; calls: %v", sys)
+	}
+	sys = nil
+	if err := d.available(); err != nil || len(sys) != 1 || sys[0] != "kldstat -q -m dummynet" {
+		t.Fatalf("with dummynet loaded, only the check should run: %v %v", err, sys)
 	}
 }

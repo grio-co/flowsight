@@ -254,7 +254,14 @@ The configuration, policy, CA and store directories are left in place.
 
 ## Shaping is on but nothing seems shaped
 
-Four things account for nearly every case, in the order worth checking.
+If the Priority page shows an error ending in "Protocol not available", the
+dummynet kernel module is not loaded. Versions before 0.9.8r202609262110
+checked for it with `dnctl`, which answers even without the module, so after
+a reboot shaping failed on every apply until someone ran `kldload dummynet`.
+Current versions ask the kernel and load the module themselves.
+
+Otherwise, four things account for nearly every case, in the order worth
+checking.
 
 **The rates are wrong.** Shaping works by making this firewall the
 bottleneck. If `download_mbit` or `upload_mbit` is at or above what the link
