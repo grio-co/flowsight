@@ -12,6 +12,14 @@ name, and every release's assets carry that string in their file names.
 
 The newest entry is first.
 
+## 0.9.8r202609261926
+
+**Abroad fits in one answer.** `/api/visibility/abroad` takes `detail=summary`
+(one small row per device, sessions per country, no destinations) and pages
+with `offset`; the busiest devices are now chosen before the cut, not after.
+The assistant is told to prefer summary and paging parameters over one call
+per device.
+
 ## 0.9.8r202609261918
 
 **A token of its own for the remote Claude.** `mcp_token_name` names an

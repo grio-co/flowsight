@@ -173,7 +173,7 @@ func shrinkJSON(v any, cap int) string {
 	for lo < hi { // the most rows that still fit
 		mid := (lo + hi + 1) / 2
 		obj[field] = arr[:mid]
-		obj["_truncated"] = map[string]any{"field": field, "kept": mid, "total": len(arr), "note": "narrow the query with ip, hours, minutes or limit for the rest"}
+		obj["_truncated"] = map[string]any{"field": field, "kept": mid, "total": len(arr), "note": "page with limit and offset, narrow with ip, hours or minutes, or use a summary mode if the tool has one"}
 		if bb, _ := json.Marshal(obj); len(bb) <= cap {
 			lo = mid
 		} else {
@@ -181,7 +181,7 @@ func shrinkJSON(v any, cap int) string {
 		}
 	}
 	obj[field] = arr[:lo]
-	obj["_truncated"] = map[string]any{"field": field, "kept": lo, "total": len(arr), "note": "narrow the query with ip, hours, minutes or limit for the rest"}
+	obj["_truncated"] = map[string]any{"field": field, "kept": lo, "total": len(arr), "note": "page with limit and offset, narrow with ip, hours or minutes, or use a summary mode if the tool has one"}
 	bb, _ := json.Marshal(obj)
 	return string(bb)
 }

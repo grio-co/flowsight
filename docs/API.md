@@ -605,7 +605,7 @@ Download the full OpenAPI 3.0 specification at `GET /api/openapi.json` for use w
 **Other operations**
 | Method | Path | What | Parameters |
 |---|---|---|---|
-| GET | `/api/visibility/abroad` | Show per-device traffic to foreign countries with session and byte counts by country | hours, ip, limit |
+| GET | `/api/visibility/abroad` | Show per-device traffic to foreign countries with session and byte counts by country. detail=summary fits the whole network in one answer; the default lists the destinations behind each country and is large, so page it with limit and offset or ask per device with ip= | hours, ip, limit, offset, detail |
 | GET | `/api/visibility/apps` | Breakdown of network traffic by application type with byte counts and session metrics | hours, ip |
 | GET | `/api/visibility/host` | Comprehensive analysis of a single host including connections, applications and countries | ip, hours |
 | GET | `/api/visibility/summary` | Get current network statistics including throughput, active flow count, and connected hosts | none |

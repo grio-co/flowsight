@@ -160,7 +160,9 @@ func (m *Module) Setup(ctx *core.Context) error {
 		core.Query("hours", "integer", "Time window in hours (default 24)", false, 24),
 		core.Query("ip", "string", "One device: any of its addresses (all of them are matched)", false, "192.168.1.10"),
 		core.Query("limit", "integer", "Devices to return, busiest first (default 50); devices_total says how many there were", false, 50),
-		core.Doc("Show per-device traffic to foreign countries with session and byte counts by country"),
+		core.Query("offset", "integer", "Skip this many devices (paging with limit)", false, 0),
+		core.Query("detail", "string", "summary: one small row per device with sessions per country and no destinations. Start here for an overview of the whole network, then ask for one device with ip= for the destinations.", false, "summary"),
+		core.Doc("Show per-device traffic to foreign countries with session and byte counts by country. detail=summary fits the whole network in one answer; the default lists the destinations behind each country and is large, so page it with limit and offset or ask per device with ip="),
 		core.Returns("Destination countries by device", map[string]any{
 			"devices": []map[string]any{
 				{"ip": "192.168.1.10", "countries": map[string]any{
@@ -856,6 +858,8 @@ func (m *Module) apiAbroad(r *core.Req) (any, error) {
 	hours := r.Hours(24)
 	since := time.Now().Add(-time.Duration(hours) * time.Hour).Unix()
 	devLimit := r.QInt("limit", 50, 1, 1000)
+	offset := r.QInt("offset", 0, 0, 100000)
+	summary := r.Q("detail", "") == "summary"
 	ip, err := r.QSafe("ip", "", 64)
 	if err != nil {
 		return nil, err
@@ -981,11 +985,42 @@ func (m *Module) apiAbroad(r *core.Req) (any, error) {
 		out = append(out, d)
 	}
 	total := len(out)
+	sort.SliceStable(out, func(i, j int) bool { return out[i].Sessions > out[j].Sessions })
+	if offset >= len(out) {
+		out = nil
+	} else {
+		out = out[offset:]
+	}
 	if len(out) > devLimit {
 		out = out[:devLimit]
 	}
-	sort.Slice(out, func(i, j int) bool { return out[i].Sessions > out[j].Sessions })
-	return map[string]any{"home_country": home, "devices_total": total, "limit": devLimit, "hours": hours, "devices": out}, nil
+	res := map[string]any{"home_country": home, "devices_total": total, "limit": devLimit, "offset": offset, "hours": hours}
+	if !summary {
+		res["devices"] = out
+		return res, nil
+	}
+	// The summary is the overview: one small row per device, countries as
+	// session counts, no destinations. Twenty times smaller, so a whole
+	// network fits in one answer; detail follows per device with ip=.
+	type brief struct {
+		IP              string           `json:"ip"`
+		Name            string           `json:"name,omitempty"`
+		MAC             string           `json:"mac,omitempty"`
+		Sessions        int64            `json:"sessions"`
+		AnycastSessions int64            `json:"anycast_sessions,omitempty"`
+		Countries       map[string]int64 `json:"countries"`
+	}
+	briefs := make([]brief, 0, len(out))
+	for _, d := range out {
+		b := brief{IP: d.IP, Name: d.Name, MAC: d.MAC, Sessions: d.Sessions, AnycastSessions: d.AnycastSessions, Countries: map[string]int64{}}
+		for _, c := range d.Countries {
+			b.Countries[c.Country] = c.Sessions
+		}
+		briefs = append(briefs, b)
+	}
+	res["detail"] = "summary"
+	res["devices"] = briefs
+	return res, nil
 }
 
 // topHostsBy answers "who does this": for each key (an app, a category, a
