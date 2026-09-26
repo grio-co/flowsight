@@ -216,13 +216,17 @@ func (m *Module) Health() core.Health {
 func (m *Module) confPath() string { return filepath.Join(m.dir, "squid.conf") }
 func (m *Module) pidPath() string  { return filepath.Join(m.runDir, "squid.pid") }
 
+// squidFallbacks is where squid is looked for when the platform's path does
+// not exist.
+var squidFallbacks = []string{"/usr/local/sbin/squid", "/usr/sbin/squid"}
+
 func (m *Module) squidBin() string {
 	if b := m.ctx.Platform.SquidBin; b != "" {
 		if _, err := os.Stat(b); err == nil {
 			return b
 		}
 	}
-	for _, c := range []string{"/usr/local/sbin/squid", "/usr/sbin/squid"} {
+	for _, c := range squidFallbacks {
 		if _, err := os.Stat(c); err == nil {
 			return c
 		}
@@ -283,6 +287,10 @@ func (m *Module) waitListening(d time.Duration) bool {
 	return false
 }
 
+// superviseListenWait is how long the supervisor waits for a running proxy
+// to answer before withdrawing the redirects.
+var superviseListenWait = 10 * time.Second
+
 // supervise keeps the proxy in the state the configuration asks for.
 func (m *Module) supervise() error {
 	m.expireHeldBumps()
@@ -307,7 +315,7 @@ func (m *Module) supervise() error {
 			return err
 		}
 	}
-	if !m.waitListening(10 * time.Second) {
+	if !m.waitListening(superviseListenWait) {
 		// Running but deaf: pull the redirects rather than blackhole the LAN.
 		if m.fw != nil {
 			_ = m.fw.FlushAnchor("web")
