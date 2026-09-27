@@ -20,6 +20,10 @@ looks wrong.
 
 The rc script on FreeBSD supervises the daemon with `daemon(8)` and
 restarts it after five seconds if it exits; systemd does the same on Linux.
+`service flowsight stop` stops the supervisor and with it the daemon. Before
+0.9.8r202609270353 it stopped only the daemon, the supervisor started it again five
+seconds later, and `restart` reported a failure; if a stop does not hold on
+an older version, `kill $(cat /var/run/flowsight/daemon.pid)` stops both.
 
 ## Updating
 

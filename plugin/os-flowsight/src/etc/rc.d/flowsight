@@ -20,6 +20,8 @@ pidfile=/var/run/flowsight/flowsightd.pid
 procname=/usr/local/sbin/flowsightd
 supervisor_pidfile=/var/run/flowsight/daemon.pid
 start_cmd=flowsight_start
+stop_cmd=flowsight_stop
+status_cmd=flowsight_status
 extra_commands=reload
 
 # Start through daemon(8) with every standard descriptor redirected. The
@@ -28,11 +30,55 @@ extra_commands=reload
 # that caller would wait on them forever.
 flowsight_start()
 {
+    if flowsight_supervisor >/dev/null; then
+        echo "${name} is already running."
+        return 0
+    fi
     install -d -m 755 /var/run/flowsight /var/log/flowsight /var/db/flowsight
     echo "Starting ${name}."
     /usr/sbin/daemon -f -S -T flowsightd -R 5 -P ${supervisor_pidfile} -p ${pidfile} \
         -o /var/log/flowsight/daemon.out ${procname} -config ${flowsight_config} \
         </dev/null >/dev/null 2>&1
+}
+
+# The pid of a live supervisor, if there is one.
+flowsight_supervisor()
+{
+    local pid
+    [ -f ${supervisor_pidfile} ] || return 1
+    pid=$(cat ${supervisor_pidfile})
+    [ -n "${pid}" ] && kill -0 "${pid}" 2>/dev/null || return 1
+    echo "${pid}"
+}
+
+# Stop the supervisor, not the daemon: daemon(8) passes SIGTERM on to the
+# daemon and exits. Signalling only the daemon left the supervisor to start
+# it again five seconds later, so "stop" did not stop and "restart" failed.
+flowsight_stop()
+{
+    local pid
+    if ! pid=$(flowsight_supervisor); then
+        echo "${name} is not running."
+        return 1
+    fi
+    echo "Stopping ${name}."
+    kill -TERM "${pid}"
+    pwait -t 30 "${pid}" 2>/dev/null
+    if kill -0 "${pid}" 2>/dev/null; then
+        echo "${name} did not stop within 30 seconds."
+        return 1
+    fi
+}
+
+flowsight_status()
+{
+    local pid
+    if pid=$(flowsight_supervisor); then
+        echo "${name} is running as pid $(cat ${pidfile} 2>/dev/null) (supervisor ${pid})."
+    else
+        echo "${name} is not running."
+        return 1
+    fi
 }
 
 run_rc_command "$1"

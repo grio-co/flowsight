@@ -45,8 +45,39 @@ rcvar=flowsight_enable
 load_rc_config $name
 : ${flowsight_enable:=NO}
 pidfile=/var/run/flowsight/flowsightd.pid
-command=/usr/sbin/daemon
-command_args="-S -T flowsightd -R 5 -P /var/run/flowsight/daemon.pid -p ${pidfile} /usr/local/sbin/flowsightd -config /usr/local/etc/flowsight/flowsight.json"
+procname=/usr/local/sbin/flowsightd
+supervisor_pidfile=/var/run/flowsight/daemon.pid
+start_cmd=flowsight_start
+stop_cmd=flowsight_stop
+status_cmd=flowsight_status
+flowsight_supervisor() {
+    local pid
+    [ -f ${supervisor_pidfile} ] || return 1
+    pid=$(cat ${supervisor_pidfile})
+    [ -n "${pid}" ] && kill -0 "${pid}" 2>/dev/null || return 1
+    echo "${pid}"
+}
+flowsight_start() {
+    if flowsight_supervisor >/dev/null; then echo "${name} is already running."; return 0; fi
+    install -d -m 755 /var/run/flowsight /var/log/flowsight /var/db/flowsight
+    echo "Starting ${name}."
+    /usr/sbin/daemon -f -S -T flowsightd -R 5 -P ${supervisor_pidfile} -p ${pidfile} \
+        ${procname} -config /usr/local/etc/flowsight/flowsight.json </dev/null >/dev/null 2>&1
+}
+# Stop the daemon(8) supervisor, which passes SIGTERM on to flowsightd;
+# stopping only flowsightd left the supervisor to start it again.
+flowsight_stop() {
+    local pid
+    if ! pid=$(flowsight_supervisor); then echo "${name} is not running."; return 1; fi
+    echo "Stopping ${name}."
+    kill -TERM "${pid}"
+    pwait -t 30 "${pid}" 2>/dev/null
+    ! kill -0 "${pid}" 2>/dev/null
+}
+flowsight_status() {
+    local pid
+    if pid=$(flowsight_supervisor); then echo "${name} is running as pid $(cat ${pidfile} 2>/dev/null) (supervisor ${pid})."; else echo "${name} is not running."; return 1; fi
+}
 run_rc_command "$1"
 RC
     chmod 755 /usr/local/etc/rc.d/flowsight

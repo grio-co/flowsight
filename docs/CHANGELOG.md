@@ -12,6 +12,17 @@ name, and every release's assets carry that string in their file names.
 
 The newest entry is first.
 
+## 0.9.8r202609270353
+
+**`service flowsight stop` stops FlowSight.** The rc script signalled the
+daemon rather than the `daemon(8)` supervisor around it, so the supervisor
+started FlowSight again five seconds after every stop, the GUI's stop did
+not hold, and `restart` exited with an error while the old supervisor
+quietly respawned the process. Stop and status now act on the supervisor,
+and restart replaces both. Updates were never affected in effect, because
+the respawn picked up the new binary; they now restart cleanly as well.
+Nothing to do; the package installs the new script.
+
 ## 0.9.8r202609262120
 
 **Captive zones can reach their gateway.** A zone marked captive blocked
