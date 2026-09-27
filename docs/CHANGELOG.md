@@ -12,6 +12,24 @@ name, and every release's assets carry that string in their file names.
 
 The newest entry is first.
 
+## 0.9.8r202609271436
+
+**Give a device a DNS name when you name it.** Renaming a device on its
+page now opens a dialog with *Also add it to DNS*: FlowSight derives a DNS
+label from the name, offers the local domain your network already uses,
+and adds the device forward and reverse (name to address, address to name)
+on the gateway resolver and on each connected Pi-hole, because a device
+asks only one of them. It can follow the device, moving the name when the
+device's IPv4 address changes. The gateway's records live in FlowSight's
+own resolver file, checked before use and loaded without flushing the
+resolver's cache; your OPNsense host overrides are never changed, a name
+that is already an override is refused, and an address whose reverse name
+an override already answers gets the forward name only. On a Pi-hole they
+are local DNS records, and FlowSight removes only the ones it added. The
+device's Identity card shows its DNS name, and *DNS › Local names* lists
+every name with what each resolver answers for it right now. Every change
+is in the change history. How-to: `docs/howto/local-names.md`.
+
 ## 0.9.8r202609271418
 
 **Devices you do not inspect always get the server's own certificate.**

@@ -198,8 +198,12 @@ device's lookups fail outright, or when an app keeps retrying one blocked
 name. With a client filter only that client's are shown.
 [Device advisories](howto/device-advisories.md) lists what is watched.
 
+**Local names tab.** Every device name FlowSight put in DNS, with what each
+resolver answers for it forward and reverse right now; edit or remove them
+there. See [Give a device a DNS name](howto/local-names.md).
+
 **Pi-hole tab.** While a Pi-hole v6 server is connected, the DNS page has a
-second tab, *Pi-hole*: the connected servers (version, blocking state,
+further tab, *Pi-hole*: the connected servers (version, blocking state,
 whether FlowSight may change settings), *Pause* and *Resume* for blocking,
 the allow and deny lists, and a curated set of settings in plain language,
 each with what it does, FlowSight's recommendation and why, Pi-hole's own
@@ -1023,6 +1027,14 @@ listing the most recent DNS blocks for the host with the list that blocked
 each (FlowSight policy or Pi-hole gravity, regex, denylist) and the
 resolver they came through; the policies that match it and which group
 brought it in; enrolment class and zone.
+
+**Naming a device.** *rename* in the Identity card opens a dialog for the
+name FlowSight shows. With *Also add it to DNS* ticked, the same dialog
+gives the device a name on the network, forward and reverse
+(`kitchen-ipad.grio.co` to its address and back), on the gateway resolver
+and each connected Pi-hole, and can make the name follow the device when its
+address changes. The Identity card's *DNS name* row shows it. See
+[Give a device a DNS name](howto/local-names.md).
 
 **Needs attention on this device** sits at the top of a host page when the
 device has open findings: device advisories first, with what the person

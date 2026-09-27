@@ -54,6 +54,7 @@ func (m *Module) Info() core.ModuleInfo {
 			"cache_names_seconds": 60,
 			"manage_logging":      true,
 			"max_zone_domains":    1500000,
+			"local_domain":        "",
 		},
 		Schema: []core.SettingField{
 			{Key: "log_path", Label: "Resolver log", Type: "string",
@@ -63,6 +64,8 @@ func (m *Module) Info() core.ModuleInfo {
 			{Key: "cache_names_seconds", Label: "Cache snapshot interval (s)", Type: "int"},
 			{Key: "max_zone_domains", Label: "Max domains per policy zone", Type: "int",
 				Help: "Each policy becomes one response policy zone; memory grows with its size. The compiler refuses larger ones."},
+			{Key: "local_domain", Label: "Local domain for device names", Type: "string", Placeholder: "grio.co",
+				Help: "The domain offered first when you give a device a DNS name. Empty: the one your host overrides and Pi-holes use most."},
 		},
 	}
 }
@@ -116,6 +119,7 @@ func (m *Module) Setup(ctx *core.Context) error {
 			"series": []map[string]any{{"t": 1790376243, "queries": 100, "blocked": 2}},
 			"step":   300,
 		}))
+	m.registerNameRoutes(ctx)
 	ctx.Panel(core.Panel{ID: "dns", Title: "DNS", Group: "Monitor", Order: 50, Icon: "dns"})
 	return nil
 }

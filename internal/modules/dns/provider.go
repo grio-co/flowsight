@@ -371,7 +371,7 @@ func (p *provider) Apply(a core.Artifact) (string, error) {
 			entries, _ := os.ReadDir(dir)
 			for _, e := range entries {
 				n := e.Name()
-				if !strings.HasPrefix(n, "flowsight-") || n == "flowsight-logging.conf" {
+				if !strings.HasPrefix(n, "flowsight-") || n == "flowsight-logging.conf" || n == namesFileName {
 					continue
 				}
 				key := filepath.Join(dir, n)

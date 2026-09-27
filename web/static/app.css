@@ -806,3 +806,12 @@ tr.flagged td:first-child { box-shadow: inset 3px 0 0 var(--warn); }
 .ph-side textarea { width: 100%; font-family: var(--mono, monospace); font-size: 12px; }
 .ph-val { margin-bottom: 2px; }
 @media (max-width: 760px) { .ph-row { grid-template-columns: 1fr; } }
+
+/* Naming a device and its DNS name. */
+.nm-form .nm-toggle { display: flex; gap: 8px; align-items: flex-start; margin-top: 10px; }
+.nm-dns { border-left: 3px solid var(--line); padding-left: 12px; margin-top: 8px; }
+.nm-name { display: flex; align-items: center; gap: 4px; }
+.nm-name input { flex: 1; min-width: 0; font-family: var(--mono, monospace); }
+.nm-preview { margin: 6px 0; color: var(--muted); }
+.nm-sec { display: block; margin-top: 10px; }
+.nm-sec label, .nm-addr { display: flex; gap: 6px; align-items: baseline; flex-wrap: wrap; margin: 4px 0; font-weight: normal; }

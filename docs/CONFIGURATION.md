@@ -180,6 +180,8 @@ Resolver visibility from Unbound's reply log and cache; per-group DNS blocking a
 | `cache_names_seconds` | Cache snapshot interval (s) | int | `60` |  |
 | `max_zone_domains` | Max domains per policy zone | int | `1500000` | Each policy becomes one response policy zone; memory grows with its size. The compiler refuses larger ones. |
 
+`local_domain` (default empty): the domain offered first when a device is given a DNS name from its page. Empty picks the domain your OPNsense host overrides and Pi-holes use most. Device names are kept in the store (KV `dns.local_names`) and written to `flowsight-names.conf` in the Unbound include directories (live and, on OPNsense, `/usr/local/etc/unbound.opnsense.d`) and to each chosen Pi-hole's `dns.hosts`. See `docs/howto/local-names.md`.
+
 ### egress (Business tier)
 
 What is leaving the network right now, read from pf's live connection counters rather than from a log, so a transfer is visible while it is running.

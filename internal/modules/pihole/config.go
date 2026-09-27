@@ -623,3 +623,148 @@ func (m *Module) registerConfigRoutes(ctx *core.Context) {
 			core.Fld("server", "string", false, "One Pi-hole, or empty for all", "all")),
 		core.Returns("Per-server result", map[string]any{"ok": true, "results": []map[string]any{{"url": "https://192.168.1.53", "ok": true}}}))
 }
+
+// ---------------------------------------------------------------- service
+//
+// Other modules reach the connected Pi-holes through this service: the DNS
+// module's local names put a device's forward and reverse records on every
+// Pi-hole, because a Pi-hole answers its clients from its own records and
+// forwards everything else upstream, never to the gateway.
+
+// HostsTarget is one connected Pi-hole as the service reports it.
+type HostsTarget struct {
+	URL      string `json:"url"`
+	Host     string `json:"host"`
+	Writable bool   `json:"writable"`
+	Domain   string `json:"domain"`
+	Error    string `json:"error,omitempty"`
+}
+
+// Targets lists the connected v6 Pi-holes, whether FlowSight may change
+// their settings, and each one's local domain.
+func (m *Module) Targets() []HostsTarget {
+	targetsMu.Lock()
+	defer targetsMu.Unlock()
+	if time.Since(targetsAt) < time.Minute && targetsFor == strings.Join(m.serverURLs(), ",") {
+		return append([]HostsTarget(nil), targetsCache...)
+	}
+	var out []HostsTarget
+	for _, v := range m.readAll(m.connected()) {
+		t := HostsTarget{URL: v.s.URL, Host: v.s.Host}
+		if v.err != nil {
+			t.Error = v.err.Error()
+		} else {
+			t.Writable = v.settings["webserver.api.app_sudo"]["value"] == true
+			if d := v.settings["dns.domain.name"]; d != nil {
+				t.Domain, _ = d["value"].(string)
+			}
+		}
+		out = append(out, t)
+	}
+	targetsCache, targetsAt, targetsFor = out, time.Now(), strings.Join(m.serverURLs(), ",")
+	return append([]HostsTarget(nil), out...)
+}
+
+// Targets is asked for on every device page; the answer (which needs the
+// full settings of every Pi-hole) is kept for a minute.
+var (
+	targetsMu    sync.Mutex
+	targetsCache []HostsTarget
+	targetsAt    time.Time
+	targetsFor   string
+)
+
+// Hosts returns each connected Pi-hole's local records (dns.hosts), keyed by
+// server URL.
+func (m *Module) Hosts() map[string][]string {
+	out := map[string][]string{}
+	for _, v := range m.readAll(m.connected()) {
+		if v.err != nil {
+			continue
+		}
+		var lines []string
+		if d := v.settings["dns.hosts"]; d != nil {
+			if arr, ok := d["value"].([]any); ok {
+				for _, x := range arr {
+					lines = append(lines, fmt.Sprint(x))
+				}
+			}
+		}
+		out[v.s.URL] = lines
+	}
+	return out
+}
+
+// EditHosts removes the given lines from, and adds the given lines to, the
+// local records of the named Pi-holes (URLs; empty means all connected).
+// Only exact lines are removed, so records the operator made on the
+// Pi-hole are never touched. It returns one result per server.
+func (m *Module) EditHosts(servers []string, add, remove []string, actor, why string) []map[string]any {
+	want := map[string]bool{}
+	for _, s := range servers {
+		want[strings.TrimRight(s, "/")] = true
+	}
+	var results []map[string]any
+	for _, v := range m.readAll(m.connected()) {
+		if len(want) > 0 && !want[v.s.URL] && !want[v.s.Host] {
+			continue
+		}
+		res := map[string]any{"url": v.s.URL, "host": v.s.Host}
+		results = append(results, res)
+		if v.err != nil {
+			res["error"] = v.err.Error()
+			continue
+		}
+		if v.settings["webserver.api.app_sudo"]["value"] != true {
+			res["error"] = "read only: turn on “Permit app password to modify config” on this Pi-hole"
+			continue
+		}
+		var cur []string
+		if d := v.settings["dns.hosts"]; d != nil {
+			if arr, ok := d["value"].([]any); ok {
+				for _, x := range arr {
+					cur = append(cur, fmt.Sprint(x))
+				}
+			}
+		}
+		drop := map[string]bool{}
+		for _, l := range remove {
+			drop[strings.TrimSpace(l)] = true
+		}
+		next := []string{}
+		have := map[string]bool{}
+		for _, l := range cur {
+			if drop[strings.TrimSpace(l)] {
+				continue
+			}
+			next = append(next, l)
+			have[strings.TrimSpace(l)] = true
+		}
+		for _, l := range add {
+			if l = strings.TrimSpace(l); l != "" && !have[l] {
+				next = append(next, l)
+				have[l] = true
+			}
+		}
+		if sameValue(toAny(cur), toAny(next)) {
+			res["ok"], res["unchanged"] = true, true
+			continue
+		}
+		if _, _, err := m.call(v.s, "PATCH", "/api/config", map[string]any{"config": nest("dns.hosts", next)}); err != nil {
+			res["error"] = err.Error()
+			continue
+		}
+		res["ok"] = true
+		_ = m.ctx.Store.RecordChange("pihole", v.s.Host+":dns.hosts", actor, strings.Join(cur, "\n"), strings.Join(next, "\n"), "",
+			"Pi-hole "+v.s.Host+": local records "+why)
+	}
+	return results
+}
+
+func toAny(s []string) []any {
+	out := make([]any, len(s))
+	for i, x := range s {
+		out[i] = x
+	}
+	return out
+}

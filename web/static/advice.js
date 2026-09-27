@@ -139,8 +139,8 @@
     return phConnected;
   };
   FS.dnsTabs = async (active) => {
-    if (!await FS.piholeConnected()) return '';
-    return `<div class="tabs dns-tabs"><a href="#dns" class="${active === 'dns' ? 'on' : ''}">Queries</a><a href="#pihole" class="${active === 'pihole' ? 'on' : ''}">Pi-hole</a></div>`;
+    const ph = await FS.piholeConnected();
+    return `<div class="tabs dns-tabs"><a href="#dns" class="${active === 'dns' ? 'on' : ''}">Queries</a><a href="#dnsnames" class="${active === 'dnsnames' ? 'on' : ''}">Local names</a>${ph ? `<a href="#pihole" class="${active === 'pihole' ? 'on' : ''}">Pi-hole</a>` : ''}</div>`;
   };
 
   // --------------------------------------------------------------- Pi-hole
@@ -167,7 +167,7 @@
     title: 'Pi-hole', refresh: 0,
     async render(el) {
       const [tabs, cfg, doms, adv] = await Promise.all([FS.dnsTabs('pihole'), FS.get('/api/pihole/config'), FS.get('/api/pihole/domains'), FS.get('/api/system/findings?module=advisor')]);
-      if (!tabs) { el.innerHTML = FS.empty('No Pi-hole is connected. Add one under Settings › pihole: its URL and an app password.') + `<div class="actions" style="margin-top:10px"><a class="btn" href="#modules?m=pihole">Pi-hole settings</a><a class="btn" href="#dns">DNS</a></div>`; return; }
+      if (!await FS.piholeConnected()) { el.innerHTML = FS.empty('No Pi-hole is connected. Add one under Settings › pihole: its URL and an app password.') + `<div class="actions" style="margin-top:10px"><a class="btn" href="#modules?m=pihole">Pi-hole settings</a><a class="btn" href="#dns">DNS</a></div>`; return; }
       if (cfg.error) { el.innerHTML = tabs + FS.err(cfg.error); return; }
       const servers = cfg.servers || []; const writable = servers.filter(s => s.writable);
       const anyWritable = writable.length > 0;

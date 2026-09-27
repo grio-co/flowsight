@@ -115,6 +115,7 @@ func (m *Module) Setup(ctx *core.Context) error {
 	}))
 	ctx.Route("POST", "/api/pihole/pull", m.apiPull, core.Write(), core.Doc("Pull from every server now"), core.Returns("Success", map[string]any{"ok": true}))
 	m.registerConfigRoutes(ctx)
+	ctx.Publish("pihole", m)
 	return nil
 }
 

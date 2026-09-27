@@ -139,11 +139,12 @@
     title: 'Host', refresh: 30,
     async render(el, ctx) {
       const ip = ctx.arg; if (!ip) { el.innerHTML = FS.err('no host given'); return; }
-      const [d, scanData, visData, hf] = await Promise.all([
+      const [d, scanData, visData, hf, dnsName] = await Promise.all([
         get(`/api/visibility/host?ip=${encodeURIComponent(ip)}&${FS.since()}`),
         get(`/api/scan/result?ip=${encodeURIComponent(ip)}`),
         get(`/api/visibility/visibility?ip=${encodeURIComponent(ip)}&${FS.since()}`),
-        get(`/api/system/findings?host=${encodeURIComponent(ip)}`)
+        get(`/api/system/findings?host=${encodeURIComponent(ip)}`),
+        get(`/api/dns/names/suggest?ip=${encodeURIComponent(ip)}`)
       ]);
       if (d.error) { el.innerHTML = FS.err(d.error); return; }
       // Findings about this device from every module, across all its addresses.
@@ -151,7 +152,7 @@
       const h = d.host || {}, dev = d.device || {}, t = d.totals || {}, dt = d.dns_totals || {};
       const scan = scanData && !scanData.error ? scanData : null;
       FS.setTitle((h.name || ip) + (h.name ? ` · ${ip}` : ''));
-      const identCard = `<dl class="kv"><dt>Address</dt><dd class="mono">${esc(ip)}${(d.addresses || []).length > 1 ? `<div class="small muted" style="margin-top:3px">also ${(d.addresses || []).filter(a => a !== ip).map(a => `<a href="#host/${encodeURIComponent(a)}" class="mono">${esc(a)}</a>`).join(', ')}</div>` : ''}</dd><dt>Name</dt><dd>${esc(h.name || '—')} <a href="#" id="rename" class="small">rename</a></dd><dt>MAC</dt><dd class="mono">${esc(h.mac || '—')}</dd><dt>Vendor</dt><dd>${esc(h.vendor || '—')}</dd><dt>Zone</dt><dd>${esc(dev.zone || h.zone || '—')}</dd><dt>Class</dt><dd>${esc(dev.class || dev.device_type || h.device_type || '—')}</dd>${dev.proxmox ? `<dt>Proxmox</dt><dd>${esc(dev.proxmox.name)} (${dev.proxmox.type} ${dev.proxmox.vmid} on ${esc(dev.proxmox.node)})</dd>` : ''}<dt>First seen</dt><dd>${h.first_seen ? when(h.first_seen) : '—'}</dd><dt>Last seen</dt><dd>${ago(h.last_seen)}</dd></dl><div class="actions"><button class="btn small" id="identify">Identify device</button></div>`;
+      const identCard = `<dl class="kv"><dt>Address</dt><dd class="mono">${esc(ip)}${(d.addresses || []).length > 1 ? `<div class="small muted" style="margin-top:3px">also ${(d.addresses || []).filter(a => a !== ip).map(a => `<a href="#host/${encodeURIComponent(a)}" class="mono">${esc(a)}</a>`).join(', ')}</div>` : ''}</dd><dt>Name</dt><dd>${esc(h.name || '—')} <a href="#" id="rename" class="small">rename</a></dd>${FS.dnsNameRow ? FS.dnsNameRow(dnsName) : ''}<dt>MAC</dt><dd class="mono">${esc(h.mac || '—')}</dd><dt>Vendor</dt><dd>${esc(h.vendor || '—')}</dd><dt>Zone</dt><dd>${esc(dev.zone || h.zone || '—')}</dd><dt>Class</dt><dd>${esc(dev.class || dev.device_type || h.device_type || '—')}</dd>${dev.proxmox ? `<dt>Proxmox</dt><dd>${esc(dev.proxmox.name)} (${dev.proxmox.type} ${dev.proxmox.vmid} on ${esc(dev.proxmox.node)})</dd>` : ''}<dt>First seen</dt><dd>${h.first_seen ? when(h.first_seen) : '—'}</dd><dt>Last seen</dt><dd>${ago(h.last_seen)}</dd></dl><div class="actions"><button class="btn small" id="identify">Identify device</button></div>`;
       el.innerHTML = `
       ${devF.length && FS.adviceHTML ? `<div class="attn" style="margin-bottom:14px">${card(`Needs attention on this device`, FS.adviceHTML(devF, { hideDevice: true, max: 5 }), `${num(devF.length)} open \u00b7 details in Findings below`)}</div>` : ''}
       <div class="grid cols-4">
@@ -186,7 +187,9 @@
       // A quick way to the question everyone asks about a gadget.
       const idc = FS.$('#rename', el); if (idc && idc.parentNode && !FS.$('#abroad-link', el)) { const a = document.createElement('a'); a.id = 'abroad-link'; a.className = 'btn small'; a.href = '#flows?ip=' + encodeURIComponent(ip) + '&abroad=1'; a.textContent = 'Sessions outside the country'; idc.parentNode.appendChild(a); }
       if (idc && idc.parentNode && !FS.$('#baseline-link', el)) { const b = document.createElement('a'); b.id = 'baseline-link'; b.className = 'btn small'; b.href = '#anomalies?ip=' + encodeURIComponent(ip); b.textContent = 'Baseline'; idc.parentNode.appendChild(b); }
-      FS.$('#rename', el).onclick = async (e) => { e.preventDefault(); const name = prompt('Display name for ' + ip, h.name || ''); if (name === null) return; const r = await post('/api/identity/name', { ip, name }); if (r.error) FS.toast(r.error, true); else FS.render(); };
+      FS.$$('[data-nm-open]', el).forEach(a => a.onclick = (e) => { e.preventDefault(); FS.nameDevice(ip, h.name || '', () => FS.render()); });
+      if (FS.nameDevice) FS.$('#rename', el).onclick = (e) => { e.preventDefault(); FS.nameDevice(ip, h.name || '', () => FS.render()); };
+      else FS.$('#rename', el).onclick = async (e) => { e.preventDefault(); const name = prompt('Display name for ' + ip, h.name || ''); if (name === null) return; const r = await post('/api/identity/name', { ip, name }); if (r.error) FS.toast(r.error, true); else FS.render(); };
       const identBtn = FS.$('#identify', el);
       if (identBtn) identBtn.onclick = async () => { const scanResp = await post('/api/scan/start', { ip, profile: 'identify' }); if (scanResp.error) { FS.toast(scanResp.error.includes('disabled') ? 'Scanning disabled: Settings › Scan to enable it' : scanResp.error, true); return; } FS.toast('Identifying ' + ip + '...'); let result; for (let i = 0; i < 60; i++) { await new Promise(r => setTimeout(r, 3000)); result = await get(`/api/scan/result?ip=${encodeURIComponent(ip)}`); if (result && !result.error && result.finished) break; } if (result && !result.error) FS.render(); };
     }
