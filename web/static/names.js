@@ -5,7 +5,7 @@
 // network: a forward record (nas.grio.co -> 192.168.1.10) and a reverse one
 // (192.168.1.10 -> nas.grio.co), on the gateway resolver and on each
 // connected Pi-hole, so every device can reach it by name whichever
-// resolver it asks. DNS › Local names lists them.
+// resolver it asks. Settings › dns › Device names lists them.
 (function () {
   const esc = (s) => FS.esc(s);
   const DOCS = 'https://github.com/grio-co/flowsight/blob/main/docs/howto/';
@@ -107,11 +107,13 @@
     return `<dt>DNS name</dt><dd>${ex ? `<span class="mono">${esc(ex.fqdn)}</span> <a href="#" class="small" data-nm-open>edit</a>` : `<span class="muted">not in DNS</span> <a href="#" class="small" data-nm-open>add</a>`}</dd>`;
   };
 
-  // ------------------------------------------------------------ DNS › Local names
-  FS.registerPage('dnsnames', {
-    title: 'Local names', refresh: 0,
-    async render(el) {
-      const [tabs, d] = await Promise.all([FS.dnsTabs ? FS.dnsTabs('dnsnames') : '', FS.get('/api/dns/names')]);
+  // ------------------------------------------------------------ Settings › dns › Device names
+  FS.registerPage('dnsnames', { title: 'Device names', refresh: 0, async render() { FS.go('#modules/dns?tab=names'); } });
+
+  FS.renderLocalNames = async (el) => {
+    {
+      const tabs = '';
+      const d = await FS.get('/api/dns/names');
       if (d.error) { el.innerHTML = tabs + FS.err(d.error); return; }
       const rows = d.names || [];
       const stat = (s) => (s || []).map(x => {
@@ -137,5 +139,5 @@
         FS.toast(r.error || r.gateway_error || (bad.length ? bad.map(x => x.host + ': ' + x.error).join('; ') : 'Removed'), !!(r.error || r.gateway_error || bad.length)); FS.render();
       });
     }
-  });
+  };
 })();

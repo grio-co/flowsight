@@ -37,9 +37,9 @@ FS.pages.host.render(el, { arg: '192.168.1.44', params: {} }).then(function () {
   if (!/value="192\.168\.1\.44" checked/.test(modalHTML)) throw new Error('the IPv4 address should be chosen by default');
   if (/value="2600::44" checked/.test(modalHTML)) throw new Error('a privacy IPv6 address must not be chosen by default');
   if (!/value="https:\/\/192\.168\.1\.54" disabled/.test(modalHTML)) throw new Error('a read-only Pi-hole must be disabled');
-  return FS.pages.dnsnames.render(el = mkEl(), { params: {} });
+  return FS.renderLocalNames(el = mkEl());
 }).then(function () {
-  ['Local names</a>', 'nas.grio.co', 'answers', 'no forward', 'follows', 'Pi-hole</a>'].forEach(function (s) {
+  ['nas.grio.co', 'answers', 'no forward', 'follows'].forEach(function (s) {
     if (el.innerHTML.indexOf(s) < 0) throw new Error('local names page missing: ' + s);
   });
   print('names: dialog offers forward and reverse DNS, host page shows the name, Local names lists resolver answers');

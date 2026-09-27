@@ -58,7 +58,7 @@ again, with the box ticked, replaces the old name everywhere.
 
 ## See and manage names
 
-*DNS › Local names* lists every name FlowSight put in DNS, its addresses,
+*Settings › dns › Device names* lists every name FlowSight put in DNS, its addresses,
 whether it follows its device, and what each resolver answers for it right
 now, forward and reverse. Hover a resolver's badge for the exact answers.
 *Edit* opens the same dialog; *Remove* takes the name out of every resolver.

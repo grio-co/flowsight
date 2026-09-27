@@ -36,14 +36,19 @@ FS.pages.host.render(el, { arg: '192.168.1.69', params: {} }).then(function () {
   ['Needs attention on this device', 'iCloud Private Relay is blocked', 'Safari can stall', 'What to do.', 'Let Private Relay work on this Pi-hole', 'mask-h2.icloud.com', 'NXDOMAIN', 'host-findings'].forEach(function (s) {
     if (h.indexOf(s) < 0) throw new Error('host page missing: ' + s);
   });
-  return FS.pages.pihole.render(el = mkEl(), { params: {} });
+  return FS.renderPihole(el = mkEl());
 }).then(function () {
   var h = el.innerHTML;
-  ['Queries</a>', 'Pi-hole</a>', 'read only', 'app_sudo is off', 'Block iCloud Private Relay', 'On, the Pi-hole answers NXDOMAIN', 'api3.siftscience.com', 'Pause 5 min', 'Device advisories caused by a Pi-hole'].forEach(function (s) {
+  ['read only', 'app_sudo is off', 'Block iCloud Private Relay', 'On, the Pi-hole answers NXDOMAIN', 'api3.siftscience.com', 'Pause 5 min', 'Device advisories caused by a Pi-hole'].forEach(function (s) {
     if (h.indexOf(s) < 0) throw new Error('pihole page missing: ' + s);
   });
   if (h.indexOf('<form class="ph-set"') >= 0) throw new Error('a read-only Pi-hole must not offer edits');
   if (FS.issueMark('192.168.1.69') !== '') { /* index not loaded yet: fine */ }
+  return FS.dnsTabs('pihole');
+}).then(function (tabs) {
+  ['#modules/dns"', '#modules/dns?tab=names', '#modules/dns?tab=pihole" class="on"', 'Resolver', 'Device names'].forEach(function (x) {
+    if (tabs.indexOf(x) < 0) throw new Error('settings tabs missing: ' + x);
+  });
   return FS.loadIssues();
 }).then(function () {
   if (FS.issueMark('2600::1').indexOf('iCloud Private Relay is blocked') < 0) throw new Error('issue mark should follow every address of the device');

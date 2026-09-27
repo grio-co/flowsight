@@ -189,7 +189,13 @@ every 30 seconds, going back 24 hours on first contact, deduplicates by
 Pi-hole's query ids, and files each query under its client with the
 verdict and list (gravity, regex, denylist, upstream blocked). Client
 names Pi-hole knows are used for hosts FlowSight has no name for. Nothing is
-written to the Pi-holes unless you change something on the *Pi-hole* tab.
+written to the Pi-holes unless you change something under *Settings › dns ›
+Pi-hole*.
+
+**Monitor, not configure.** This page only watches. Resolver settings,
+device names in DNS and Pi-hole configuration are on **Settings › dns**,
+in three tabs: *Resolver*, *Device names* and, while a Pi-hole v6 server is
+connected, *Pi-hole*. A link at the top of this page goes there.
 
 **Device advisories** appear above the charts when a device keeps getting a
 failing answer for a name it depends on (Private Relay, connectivity checks,
@@ -198,12 +204,12 @@ device's lookups fail outright, or when an app keeps retrying one blocked
 name. With a client filter only that client's are shown.
 [Device advisories](howto/device-advisories.md) lists what is watched.
 
-**Local names tab.** Every device name FlowSight put in DNS, with what each
+**Settings › dns › Device names.** Every device name FlowSight put in DNS, with what each
 resolver answers for it forward and reverse right now; edit or remove them
 there. See [Give a device a DNS name](howto/local-names.md).
 
-**Pi-hole tab.** While a Pi-hole v6 server is connected, the DNS page has a
-further tab, *Pi-hole*: the connected servers (version, blocking state,
+**Settings › dns › Pi-hole.** While a Pi-hole v6 server is connected, this
+tab shows the connected servers (version, blocking state,
 whether FlowSight may change settings), *Pause* and *Resume* for blocking,
 the allow and deny lists, and a curated set of settings in plain language,
 each with what it does, FlowSight's recommendation and why, Pi-hole's own
@@ -1558,7 +1564,15 @@ setting is marked restart. A module above the current tier shows its tier and ca
 be enabled. Every setting is listed in the
 [Configuration reference](CONFIGURATION.md).
 
-**pihole** pulls Pi-hole query logs (see the DNS page above).
+**dns** has three tabs: *Resolver* (the module's settings), *Device names*
+(every device name FlowSight put in DNS, see [Give a device a DNS
+name](howto/local-names.md)) and, while a Pi-hole v6 server is connected,
+*Pi-hole* (see [Pi-hole with FlowSight](howto/pihole.md)). All DNS
+configuration is here; *Monitor › DNS* only watches.
+
+**pihole** connects FlowSight to your Pi-holes (servers and app password) and
+pulls their query logs; what the Pi-holes do is configured on *Settings ›
+dns › Pi-hole*.
 
 Two modules hold interface behaviour rather than network function:
 **enrich** (reverse-DNS names and country lookup for bare addresses, both

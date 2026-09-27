@@ -1,4 +1,4 @@
-// Device advisories and the Pi-hole tab of the DNS page.
+// Device advisories, and the DNS settings tabs (device names, Pi-hole).
 //
 // An advisory is a finding about something a person notices on a device
 // ("Safari won't load", "notifications stopped") whose cause is a resolver
@@ -130,7 +130,7 @@
   };
 
   // --------------------------------------------------------------- DNS tabs
-  // The Pi-hole tab exists only while a Pi-hole v6 server is connected.
+  // The Pi-hole tab of Settings › dns exists only while a Pi-hole v6 server is connected.
   let phAt = 0, phConnected = 0;
   FS.piholeConnected = async () => {
     if (Date.now() - phAt < 30000) return phConnected;
@@ -138,10 +138,25 @@
     phConnected = (s && !s.error && s.connected) || 0; phAt = Date.now();
     return phConnected;
   };
+  // DNS configuration lives on Settings › dns, in tabs: the resolver's own
+  // settings, device names, and (while one is connected) the Pi-hole.
+  // Monitor › DNS only watches.
   FS.dnsTabs = async (active) => {
     const ph = await FS.piholeConnected();
-    return `<div class="tabs dns-tabs"><a href="#dns" class="${active === 'dns' ? 'on' : ''}">Queries</a><a href="#dnsnames" class="${active === 'dnsnames' ? 'on' : ''}">Local names</a>${ph ? `<a href="#pihole" class="${active === 'pihole' ? 'on' : ''}">Pi-hole</a>` : ''}</div>`;
+    const t = (id, label) => `<a href="#modules/dns${id === 'resolver' ? '' : '?tab=' + id}" class="${active === id ? 'on' : ''}">${label}</a>`;
+    return `<div class="tabs dns-tabs">${t('resolver', 'Resolver')}${t('names', 'Device names')}${ph ? t('pihole', 'Pi-hole') : ''}</div>`;
   };
+  FS.dnsSettings = async (el, ctx) => {
+    const tab = (ctx.params && ctx.params.tab) || 'resolver';
+    const left = FS.$('.two > div', el) || el;
+    const strip = await FS.dnsTabs(tab);
+    if (tab === 'resolver') { left.insertAdjacentHTML('afterbegin', strip); return; }
+    left.innerHTML = strip + '<div class="dns-set"></div>';
+    const host = FS.$('.dns-set', left);
+    if (tab === 'pihole') await FS.renderPihole(host);
+    else if (FS.renderLocalNames) await FS.renderLocalNames(host);
+  };
+
 
   // --------------------------------------------------------------- Pi-hole
   const fmtVal = (v) => Array.isArray(v) ? (v.length ? v.map(x => `<div class="mono small">${esc(x)}</div>`).join('') : '<span class="muted small">none</span>')
@@ -163,12 +178,16 @@
     return `<form class="ph-set" data-key="${esc(s.key)}" data-caution="${esc(s.caution || '')}" data-restarts="${s.restarts_dns ? 1 : 0}">${input}${target}<button class="btn small">Apply</button></form>`;
   }
 
-  FS.registerPage('pihole', {
-    title: 'Pi-hole', refresh: 0,
-    async render(el) {
-      const [tabs, cfg, doms, adv] = await Promise.all([FS.dnsTabs('pihole'), FS.get('/api/pihole/config'), FS.get('/api/pihole/domains'), FS.get('/api/system/findings?module=advisor')]);
-      if (!await FS.piholeConnected()) { el.innerHTML = FS.empty('No Pi-hole is connected. Add one under Settings › pihole: its URL and an app password.') + `<div class="actions" style="margin-top:10px"><a class="btn" href="#modules?m=pihole">Pi-hole settings</a><a class="btn" href="#dns">DNS</a></div>`; return; }
-      if (cfg.error) { el.innerHTML = tabs + FS.err(cfg.error); return; }
+  // Pi-hole configuration lives on Settings › dns (tab Pi-hole); the old
+  // route sends people there.
+  FS.registerPage('pihole', { title: 'Pi-hole', refresh: 0, async render() { FS.go('#modules/dns?tab=pihole'); } });
+
+  FS.renderPihole = async (el) => {
+    {
+      const tabs = '';
+      const [cfg, doms, adv] = await Promise.all([FS.get('/api/pihole/config'), FS.get('/api/pihole/domains'), FS.get('/api/system/findings?module=advisor')]);
+      if (!await FS.piholeConnected()) { el.innerHTML = FS.empty('No Pi-hole is connected. Add one under Settings › pihole: its URL and an app password.') + `<div class="actions" style="margin-top:10px"><a class="btn" href="#modules/pihole">Pi-hole connection</a></div>`; return; }
+      if (cfg.error) { el.innerHTML = FS.err(cfg.error); return; }
       const servers = cfg.servers || []; const writable = servers.filter(s => s.writable);
       const anyWritable = writable.length > 0;
       const srvCard = FS.table(servers, [
@@ -228,5 +247,5 @@
         FS.toast(r.error || (bad.length ? bad.map(x => x.host + ': ' + x.error).join('; ') : 'Removed'), !!(r.error || bad.length)); if (!r.error) FS.render();
       });
     }
-  });
+  };
 })();

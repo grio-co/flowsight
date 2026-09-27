@@ -393,7 +393,13 @@
         FS.speedTestsWire(host, () => FS.render());
         if ((st || {}).running) setTimeout(() => { if (FS.parseHash().page === 'modules') FS.render(); }, 5000);
       }
-      const form = FS.$('form.f', el);
+      if (m && m.name === 'dns' && FS.dnsSettings) await FS.dnsSettings(el, ctx);
+      if (m && m.name === 'pihole') {
+        const note = document.createElement('div'); note.style.marginTop = '14px';
+        note.innerHTML = card('Pi-hole configuration', `<div class="small">This page connects FlowSight to your Pi-holes. What the Pi-holes do (blocking, device-specific answers, upstreams, allow and deny lists) is configured on <a href="#modules/dns?tab=pihole">Settings › dns › Pi-hole</a>.</div>`);
+        (FS.$('.two > div', el) || el).appendChild(note);
+      }
+      const form = FS.$('form.f:not(.ph-add):not(.ph-set):not(.nm-form)', el);
       const save = async (extra) => { const settings = form ? FS.readForm(form, m.schema) : {}; Object.assign(settings, extra || {}); const r = await post('/api/system/modules/save', { module: m.name, settings }); if (r.error) FS.toast(r.error, true); else FS.toast('Saved' + (r.note ? ' — ' + r.note : '')); };
       if (form) form.onsubmit = (e) => { e.preventDefault(); save(); };
       const en = FS.$('#en', el); if (en) en.onchange = () => save({ enabled: en.checked });

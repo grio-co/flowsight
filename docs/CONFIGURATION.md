@@ -296,7 +296,7 @@ UDP flow collectors for NetFlow v5/v9, IPFIX, and sFlow v5. Extends visibility t
 
 ### pihole
 
-Pulls Pi-hole query logs into the DNS history and, on Pi-hole v6, offers a curated set of Pi-hole settings on the *Pi-hole* tab of the DNS page (shown only while a v6 server is connected). See `docs/howto/pihole.md`.
+Pulls Pi-hole query logs into the DNS history and, on Pi-hole v6, offers a curated set of Pi-hole settings on *Settings › dns › Pi-hole* (the tab is shown only while a v6 server is connected). See `docs/howto/pihole.md`.
 
 | Key | Default | Meaning |
 |---|---|---|

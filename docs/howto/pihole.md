@@ -5,14 +5,15 @@ FlowSight works with Pi-hole in two ways:
 1. **Reading.** It pulls each Pi-hole's query log into the DNS history, so
    every lookup a device makes through a Pi-hole shows up under that device,
    with the list that blocked it. Device advisories are built from it.
-2. **Configuring.** On Pi-hole v6, the *Pi-hole* tab of the DNS page shows
+2. **Configuring.** On Pi-hole v6, *Settings › dns › Pi-hole* shows
    the settings that matter for what devices experience, with what each one
    does, what FlowSight recommends and why, each Pi-hole's current value,
    and a way to change it. It also pauses and resumes blocking, and edits
    the allow and deny lists.
 
-The *Pi-hole* tab appears only while at least one Pi-hole v6 server is
-connected. Without one, the DNS page has no tabs.
+The *Pi-hole* tab of *Settings › dns* appears only while at least one
+Pi-hole v6 server is connected. *Settings › pihole* is where the
+connection itself (servers, app password) is set.
 
 ## Connect a Pi-hole
 
@@ -24,7 +25,7 @@ connected. Without one, the DNS page has no tabs.
    A line starting with `#` keeps a server in the list without contacting it.
 3. Wait half a minute. *Status* shows the pihole module importing; the DNS
    page's *Via* column shows `pi-hole 192.168.1.53` for its queries, and the
-   *Pi-hole* tab appears.
+   *Pi-hole* tab appears under *Settings › dns*.
 
 ## Let FlowSight change settings
 

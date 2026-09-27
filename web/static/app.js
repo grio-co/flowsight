@@ -14,7 +14,7 @@
     try {
       if (window.parent === window || !FS.state.page) return;
       const page = FS.state.page;
-      const menuPage = page === 'host' ? 'hosts' : page === 'policy-matches' ? 'policy' : (page === 'pihole' || page === 'dnsnames') ? 'dns' : page;
+      const menuPage = page === 'host' ? 'hosts' : page === 'policy-matches' ? 'policy' : (page === 'pihole' || page === 'dnsnames') ? 'modules' : page;
       const def = FS.pages[page] || {};
       const g = (FS.panelGroups || {})[menuPage] || {};
       window.parent.postMessage({ fsNav: { page, hash: location.hash.slice(1), title: def.title || page, group: g.group || '' } }, location.origin);
@@ -117,7 +117,7 @@
     const { page, arg, params } = FS.parseHash();
     const def = FS.pages[page] || FS.pages.overview;
     FS.state.page = page; FS.state.params = params;
-    $$('#menu a').forEach(a => a.classList.toggle('active', a.dataset.page === page || (page === 'host' && a.dataset.page === 'hosts') || ((page === 'pihole' || page === 'dnsnames') && a.dataset.page === 'dns') || (page === 'modules' && a.dataset.page === 'modules')));
+    $$('#menu a').forEach(a => a.classList.toggle('active', a.dataset.page === page || (page === 'host' && a.dataset.page === 'hosts') || ((page === 'pihole' || page === 'dnsnames') && a.dataset.page === 'modules') || (page === 'modules' && a.dataset.page === 'modules')));
     FS.setTitle(def.title);
     FS.tellHost();
     $('#nav').classList.remove('open');

@@ -39,7 +39,7 @@ after 15 quiet minutes).
   findings; hover it for the list, click it for the device.
 - **DNS**: *Device advisories* above the charts; with a client filter, only
   that client's.
-- **Pi-hole** tab of DNS: advisories a Pi-hole caused, next to the setting
+- **Settings › dns › Pi-hole**: advisories a Pi-hole caused, next to the setting
   that causes them.
 - **Findings**: every advisory with the *What to do* line.
 
@@ -72,7 +72,7 @@ answers an hour for mask.icloud.com, to that one phone.
 There is no single right fix; pick one:
 
 1. **Let the relay work.** Turn the Pi-hole setting off (the advisory's
-   button, or the *Pi-hole* tab of DNS › *Device-specific behaviour*).
+   button, or *Settings › dns › Pi-hole › Device-specific behaviour*).
    Safari then goes through Apple's relay: it works, but neither the Pi-hole
    nor FlowSight can see which sites it visits.
    Changing the setting on the Pi-hole by hand is not enough on its own:

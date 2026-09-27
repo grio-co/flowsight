@@ -12,6 +12,18 @@ name, and every release's assets carry that string in their file names.
 
 The newest entry is first.
 
+## 0.9.8r202609271444
+
+**DNS configuration moved to Settings › dns.** *Monitor › DNS* now only
+watches: queries, blocks, device advisories, and a link to the settings.
+Configuration is on *Settings › dns*, in tabs: *Resolver* (the module's
+settings), *Device names* (the names FlowSight put in DNS, formerly
+*DNS › Local names*) and, while a Pi-hole v6 server is connected, *Pi-hole*
+(formerly the Pi-hole tab of the DNS page). Old links go to the new tabs.
+*Settings › pihole* keeps the connection (servers, app password) and points
+to the new tab for everything the Pi-holes do. Device naming stays on each
+device's page, and an advisory's one-click fix stays with the advisory.
+
 ## 0.9.8r202609271438
 
 **Naming dialog: privacy addresses fold away.** A phone can hold a dozen
