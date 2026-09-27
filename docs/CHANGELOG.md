@@ -12,6 +12,16 @@ name, and every release's assets carry that string in their file names.
 
 The newest entry is first.
 
+## 0.9.8r202609271622
+
+**SmartSearch filters the Map.** On the Map the search now filters the
+floating panels (route steps included; the key stays), badges each tab of
+the data drawer with its match count, and lights the routes to destinations
+matching by address, name, city or country and the routes through hops
+matching by address, router name or place, fading the rest. The Destinations
+tab keeps destinations whose routes were lit. A note floats over the map
+with the count; *Clear search* or the map's own × ends it.
+
 ## 0.9.8r202609271519
 
 **SmartSearch finds devices by the names you gave them.** Names given on a

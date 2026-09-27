@@ -35,7 +35,10 @@
     if (r && typeof r === 'object') rowText.set(r, t);
     return t;
   };
-  S.filterRows = (rows, cols) => rows.filter(r => S.match(S.rowText(r, cols)));
+  // S.extra, when a page sets it, keeps rows its own logic ties to the
+  // search: on the map, the destinations whose routes were lit.
+  S.extra = null;
+  S.filterRows = (rows, cols) => rows.filter(r => S.match(S.rowText(r, cols)) || (S.extra && S.extra(r)));
 
   // Tables built by FS.table register here, so typing re-filters their full
   // data without asking the server again.
@@ -82,9 +85,13 @@
     view = view || $('#view'); if (!view) return;
     $$('.ss-hide, .ss-miss', view).forEach(e => e.classList.remove('ss-hide', 'ss-miss'));
     unmark(view);
-    const old = $('.ss-banner', view); if (old) old.remove();
+    $$('.ss-banner', view).forEach(o => o.remove());
     S.panels = [];
-    if (!S.active() || view.classList.contains('fullbleed')) return;
+    $$('.ss-count', view).forEach(e => e.remove());
+    $$('.ss-zero', view).forEach(e => e.classList.remove('ss-zero'));
+    if (view.classList.contains('fullbleed')) { applyMap(view); return; }
+    if (S.extra) { S.extra = null; S.refilterTables(); }
+    if (!S.active()) return;
     const title = ($('#title') || {}).textContent || '';
     const { arg } = FS.parseHash();
     const pageAbout = S.match(title + ' ' + (arg || ''));
@@ -120,6 +127,56 @@
     view.insertBefore(b, view.firstChild);
     $('[data-ss-clear]', b).onclick = () => S.set('', true);
   };
+
+  // Counts the matches inside one container: its tables, its items, and
+  // its cards (a card whose title matches counts whole).
+  function countIn(box) {
+    let n = 0;
+    $$('.tablewrap[data-ss-count]', box).forEach(t => { n += Number(t.dataset.ssCount) || 0; });
+    const items = $$(ITEMS, box).filter(i => !i.closest('table') && !i.parentNode.closest(ITEMS));
+    items.forEach(i => { const ok = S.match(textOf(i)); i.classList.toggle('ss-miss', !ok); if (ok) n++; });
+    const hasStructure = $$('.tablewrap[data-ss-count]', box).length || items.length;
+    return hasStructure ? n : (S.match(textOf(box)) ? 1 : 0);
+  }
+
+  // The map: panels float over a drawing, so they are filtered in place
+  // (the key, which switches what is drawn, is left alone); the data
+  // drawer's tabs say how much each holds; the drawing lights the routes to
+  // what matches; and the note floats over the map instead of pushing it.
+  function applyMap(view) {
+    const canvas = $('.mapcanvas', view);
+    const lit = FS.mapSearch ? FS.mapSearch(S) : null;
+    // The drawer's destination rows follow the drawing: a destination whose
+    // route runs through a matching hop stays, though its own name does not.
+    const litSet = lit && lit.dsts ? new Set(lit.dsts) : null;
+    S.extra = litSet && litSet.size ? (r => !!(r && r.dst && litSet.has(r.dst))) : null;
+    S.refilterTables();
+    if (!S.active()) return;
+    let hidden = 0;
+    $$('.fspanel[data-panel]', view).forEach(p => {
+      if (p.dataset.panel === 'key') return;
+      const title = ($('.fspt', p) || {}).textContent || 'Panel';
+      if (S.match(title)) { S.panels.push({ card: p, title, n: 1, whole: true }); return; }
+      let n = 0;
+      const panes = $$('.datapane', p);
+      if (panes.length) {
+        panes.forEach(pane => {
+          const c = countIn(pane); n += c;
+          const btn = $(`.datatabs [data-tab="${pane.dataset.pane}"]`, p);
+          if (btn) { btn.insertAdjacentHTML('beforeend', `<span class="ss-count">${FS.num(c)}</span>`); btn.classList.toggle('ss-zero', c === 0); }
+        });
+      } else n = countIn($('.fspb', p) || p);
+      p.classList.toggle('ss-hide', n === 0);
+      if (n === 0) hidden++; else S.panels.push({ card: p, title, n, whole: false });
+    });
+    mark(view);
+    if (!canvas) return;
+    const b = document.createElement('div'); b.className = 'ss-banner ss-float';
+    const routes = lit ? lit.routes : 0;
+    b.innerHTML = `<span>Map filtered to \u201c${esc(S.q)}\u201d: <b>${FS.num(routes)}</b> route${routes === 1 ? '' : 's'} lit${lit && lit.hops ? ` through ${FS.num(lit.hops)} matching hop${lit.hops === 1 ? '' : 's'}` : ''} \u00b7 ${S.panels.length} panel${S.panels.length === 1 ? '' : 's'}${hidden ? `, ${hidden} hidden` : ''}.</span><button class="btn small" data-ss-clear>Clear search</button>`;
+    canvas.appendChild(b);
+    $('[data-ss-clear]', b).onclick = () => S.set('', true);
+  }
 
   S.afterRender = (view) => { if (S.active()) S.applyDOM(view); drawDrop(); };
 

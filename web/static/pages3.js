@@ -1767,10 +1767,31 @@
           t.classList.toggle('onpath', on);
         });
         if (bar && barText) {
-          barText.textContent = `${dsts.length} route${dsts.length === 1 ? '' : 's'} through ${label}`;
+          barText.textContent = focusId === '__search'
+            ? `${dsts.length} route${dsts.length === 1 ? '' : 's'} matching ${label}`
+            : `${dsts.length} route${dsts.length === 1 ? '' : 's'} through ${label}`;
           bar.hidden = false;
         }
         if (FS.pathsView) FS.pathsView.focus = { dsts: dsts, label: label, id: focusId };
+      };
+
+      // SmartSearch on the map: the routes to destinations that match (by
+      // address, name, city or country), and the routes through hops that
+      // match (by address, router name or place), stay lit; the rest fade,
+      // exactly as when a hop is picked. Called by smartsearch.js after
+      // every render and keystroke; returns what it lit.
+      FS.mapSearch = (S) => {
+        if (!document.body.contains(el)) return null;
+        const clear = () => { if (focusId === '__search') litRoute(null); };
+        if (!S || !S.active()) { clear(); return null; }
+        const cn = (c) => c ? c + ' ' + FS.countryName(c) : '';
+        const want = new Set();
+        (dests.destinations || []).forEach(d => { if (S.match([d.dst, d.name, d.city, cn(d.country)].join(' '))) want.add(d.dst); });
+        const hopHit = new Set(nodes.filter(n => S.match([...(n.ips || []), ...(n.names || []), n.city, cn(n.country), n.via].join(' '))).map(n => n.id));
+        if (hopHit.size) legs.forEach(l => { if (hopHit.has(l.from) || hopHit.has(l.to)) (l.destinations || []).forEach(d => want.add(d)); });
+        const list = Array.from(want);
+        if (list.length) litRoute(list, '\u201c' + S.q + '\u201d', '__search'); else clear();
+        return { routes: list.length, hops: hopHit.size, dsts: list };
       };
       const crumbEls = el.querySelectorAll('[data-crumb]');
 
@@ -2006,7 +2027,9 @@
       if (savedBox) {
         // A refresh, not an arrival: put the reader back where they were,
         // with whatever they had narrowed to.
-        if (savedFocus) {
+        // A focus the search made is the search's to redo (smartsearch.js
+        // runs after this render), not a hop to reselect.
+        if (savedFocus && savedFocus.id !== '__search') {
           litRoute(savedFocus.dsts, savedFocus.label, savedFocus.id);
           if (savedFocus.id) select(savedFocus.id);
         }
@@ -2046,6 +2069,7 @@
 
       const off = FS.$('#mapfilter-off', el);
       if (off) off.onclick = () => {
+        if (focusId === '__search' && FS.smart) { FS.smart.set('', true); return; }
         litRoute(null);
         zoomedOn = null;
         if (FS.panZoomHandle) FS.panZoomHandle.reset();

@@ -75,6 +75,17 @@ does two things as you type:
   and DNS lookups; a domain to its DNS lookups, sessions and web requests;
   an application to its page, sessions and control.
 
+**On the Map** the search filters the floating panels in place (the key,
+which switches what is drawn, stays), each tab of the data drawer shows how
+many matches it holds, and the drawing lights the routes to destinations
+that match by address, name, city or country, and the routes through hops
+that match by address, router name or place; the rest fade, as when a hop is
+picked. The Destinations tab keeps the destinations whose routes were lit
+even when their own names do not match. A note floats over the map with the
+count and *Clear search*; the map's own × clears it too. The Destinations
+tab lists the busiest 400 destinations, so a lit route can lead somewhere
+not in it.
+
 The search stays on as you follow those links, so the next page opens
 already narrowed to the same thing, and it survives a reload. Arrow keys move
 through the dropdown and Enter opens the highlighted result; Enter on a bare

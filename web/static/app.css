@@ -839,3 +839,9 @@ mark.ss-hl { background: color-mix(in srgb, #facc15 55%, transparent); color: in
 .card.ss-flash { outline: 3px solid var(--accent); outline-offset: 2px; transition: outline-color 1.2s; }
 tr.ss-none td { text-align: center; padding: 10px; }
 @media (max-width: 720px) { #search, #search:focus { width: 150px; } #ss-drop { right: 8px; } }
+/* SmartSearch on the map: the note floats over the drawing. */
+.ss-banner.ss-float { position: absolute; left: 50%; bottom: 16px; transform: translateX(-50%); z-index: 6; margin: 0; max-width: calc(100% - 32px);
+  box-shadow: 0 6px 20px rgba(16,24,40,.18); background: var(--panel); }
+.datatabs .ss-count { margin-left: 6px; font-size: 11px; padding: 0 6px; border-radius: 9px; background: var(--accent); color: var(--accent-ink); }
+.datatabs .ss-zero { opacity: .5; }
+.datatabs .ss-zero .ss-count { background: var(--chip); color: var(--muted); }
