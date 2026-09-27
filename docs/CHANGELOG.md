@@ -12,6 +12,13 @@ name, and every release's assets carry that string in their file names.
 
 The newest entry is first.
 
+## 0.9.8r202609271647
+
+**SmartSearch uses the name you gave a device.** A device carrying a
+generated name on its host record ("intel-corpor-afc7ab") was listed by
+that name, and not found by the one given on its page; the given name now
+wins.
+
 ## 0.9.8r202609271634
 
 **DNS settings tabs use the full width.** *Device names*, *Pi-hole* and

@@ -140,6 +140,7 @@ func (c *Core) apiSearch(r *Req) (any, error) {
 		// whichever row has them.
 		type devAgg struct {
 			ip, mac, name, vendor, zone, host string
+			named                             bool
 			fields                            []string
 		}
 		var order []string
@@ -159,11 +160,16 @@ func (c *Core) apiSearch(r *Req) (any, error) {
 			if strings.Contains(d.ip, ":") && !strings.Contains(ip, ":") {
 				d.ip = ip // a device page reads best under its IPv4 address
 			}
+			// The name identity gives (the operator's own first) beats a
+			// name stored on the row, which may be a generated one such as
+			// "intel-corpor-afc7ab".
+			if !d.named && idn != nil {
+				if n := idn.Name(ip); n != "" {
+					d.name, d.named = n, true
+				}
+			}
 			if d.name == "" {
 				d.name = sOf(row["name"])
-			}
-			if d.name == "" && idn != nil {
-				d.name = idn.Name(ip)
 			}
 			if d.host == "" {
 				d.host = sOf(row["hostname"])

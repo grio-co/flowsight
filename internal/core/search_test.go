@@ -52,3 +52,31 @@ func TestSearchMergesADevicesAddresses(t *testing.T) {
 }
 
 func itoa(n int64) string { return strconv.FormatInt(n, 10) }
+
+type fakeIdentity struct{ names map[string]string }
+
+func (f fakeIdentity) Name(ip string) string    { return f.names[ip] }
+func (f fakeIdentity) MAC(ip string) string     { return "" }
+func (f fakeIdentity) Vendor(mac string) string { return "" }
+func (f fakeIdentity) IsLocal(ip string) bool   { return true }
+func (f fakeIdentity) LocalNetworks() []string  { return nil }
+
+// A name the operator gave beats a generated name stored on the row.
+func TestSearchPrefersTheGivenName(t *testing.T) {
+	s, err := OpenStore(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Exec(`INSERT INTO hosts(ip,mac,name,last_seen,is_local) VALUES('192.168.0.213','b4:0e:de:af:c7:ab','intel-corpor-afc7ab',` + itoa(time.Now().Unix()) + `,1)`); err != nil {
+		t.Fatal(err)
+	}
+	c := &Core{Store: s, Infos: map[string]ModuleInfo{}, Services: map[string]any{"identity": fakeIdentity{map[string]string{"192.168.0.213": "Chromebook c7ab"}}}}
+	out, err := c.apiSearch(&Req{Request: httptest.NewRequest("GET", "/api/search?q=chromebook", nil)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	groups := out.(map[string]any)["groups"].([]searchGroup)
+	if len(groups) == 0 || groups[0].Results[0].Title != "Chromebook c7ab" {
+		t.Fatalf("groups: %+v", groups)
+	}
+}
