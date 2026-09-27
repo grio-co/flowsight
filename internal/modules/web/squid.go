@@ -162,7 +162,6 @@ func (p squidParams) render() (string, map[string]string) {
 		w("adaptation_access fsdeep_resp_set deny all")
 	}
 	w("tls_outgoing_options options=NO_SSLv3,NO_TLSv1,NO_TLSv1_1 min-version=1.2")
-	w("sslproxy_cert_error deny all")
 	w("")
 	w("# Logging: one line per request with the server name and bump mode, read by flowsightd.")
 	w(`logformat flowsight %%ts.%%03tu %%6tr %%>a %%>p %%<a %%<p %%Ss/%%03>Hs %%<st %%>st %%rm "%%ru" %%ssl::>sni %%ssl::bump_mode %%ssl::>negotiated_version "%%ssl::<cert_subject" "%%ssl::<cert_issuer" %%{User-Agent}>h`)
@@ -254,11 +253,32 @@ func (p squidParams) render() (string, map[string]string) {
 		w("ssl_bump stare fs_src_%s step2", pol.ID)
 		w("ssl_bump bump fs_src_%s step3", pol.ID)
 	}
-	_ = anyInspect
 	if p.PeekServerCert {
 		w("ssl_bump peek step2")
 	}
 	w("ssl_bump splice all")
+	w("")
+	// Server certificate errors. Squid checks the server's certificate
+	// whenever it reads it, which includes peeking at step 2 for a client
+	// it will only splice. A refused certificate there does not end in a
+	// splice: squid bumps the client to show its error page, under a
+	// certificate signed by the FlowSight CA (or the placeholder). A device
+	// that no policy inspects, and that does not trust that CA, then sees a
+	// forged certificate for every server whose chain squid cannot complete
+	// (a missing intermediate is enough) and its apps retry in a loop. Only
+	// an inspected client, which trusts the CA and gets squid's own view of
+	// the server, may have errors refused; everyone else gets the server's
+	// own certificate and judges it themselves, as without the proxy.
+	w("# Refuse bad server certificates only for inspected clients; a spliced")
+	w("# client receives the server's own certificate and validates it itself.")
+	if anyInspect {
+		for _, pol := range p.Policies {
+			if pol.Inspect {
+				w("sslproxy_cert_error deny fs_src_%s", pol.ID)
+			}
+		}
+	}
+	w("sslproxy_cert_error allow all")
 	w("")
 	w("# HTTP access. Denied requests get the block page; everything local is allowed.")
 	w("http_access deny !Safe_ports")

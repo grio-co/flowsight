@@ -30,6 +30,40 @@ never increments a counter.
 * A plain forward-proxy port on loopback exists because squid needs one for
   its internal URLs.
 
+## Who is decrypted, and who only has a certificate looked at
+
+Inspection is scoped per policy. For each policy with `tls.inspect` the
+proxy gets a source ACL of that policy's members and three rules: splice the
+bypassed and pinned names, stare at step 2, bump at step 3. Every other
+client meets `ssl_bump splice all` after peeking at the ClientHello, and pf
+redirects everyone the same way; the scoping is entirely in squid. Two
+switches widen it: *Stateful Packet Inspection › Inspect everything that
+crosses the firewall* adds a `deep_all` policy covering every local network,
+and nothing else does.
+
+Squid checks a server's certificate whenever it reads one. With *Record
+server certificates without inspecting* (`peek_server_cert`) on, it reads it
+for every client, including the ones it will only splice. Had that check
+refused a certificate squid could not verify, squid would not splice: it
+bumps the client to show an error page under a certificate signed by the
+FlowSight CA. A device that is not inspected, and does not trust the CA,
+would then see a forged certificate for every server whose chain the
+firewall cannot complete (a server that leaves out its intermediate is
+enough), and its apps retry in a loop. So `sslproxy_cert_error` refuses bad
+certificates only for the members of inspecting policies and allows them for
+everyone else; a spliced client always receives the server's own
+certificate and judges it itself, exactly as without the proxy.
+
+To check which certificate a device receives, run from it (or from a device
+in the same position):
+
+```
+openssl s_client -connect example.com:443 -servername example.com </dev/null | grep -E 'i:|Verify'
+```
+
+An issuer of *FlowSight Inspection CA* on a device no policy inspects is a
+bug; the TLS page lists which clients were bumped (mode *bump*).
+
 ## IPv6
 
 pf cannot redirect LAN traffic to `[::1]`, so IPv6 interception needs an

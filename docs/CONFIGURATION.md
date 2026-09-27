@@ -488,7 +488,7 @@ Transparent proxy: server names on every web session, inline blocking at the TLS
 | `interfaces` | Interfaces | list | `[]` | pf interface names (vtnet0, igb1). Empty: any. |
 | `http_port` | HTTP listener port | int | `3128` |  |
 | `https_port` | HTTPS listener port | int | `3129` |  |
-| `peek_server_cert` | Record server certificates without inspecting | bool | `false` | Peeks one step further into the handshake to log the server certificate, then splices. A few servers dislike it. |
+| `peek_server_cert` | Record server certificates without inspecting | bool | `false` | Peeks one step further into the handshake to log the server certificate, then splices. The device still receives the server's own certificate and judges it itself, even one the firewall cannot verify; only inspected devices get the proxy's error page for a bad certificate. A few servers dislike it. |
 | `ipv6_listener` | IPv6 listener address | string | `"fd99::1"` | An IPv6 address the firewall holds on the LAN (a unique local address as a virtual IP works well). Empty: IPv6 web traffic is not intercepted. |
 | `block_page_port` | Block page port | int | `8082` |  |
 | `workers` | Squid workers | int | `1` |  |

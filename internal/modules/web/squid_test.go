@@ -56,3 +56,47 @@ func TestSquidAddressListsGoToFilesAndStayValid(t *testing.T) {
 		t.Fatal("an exclusion list with nothing valid still produced an ACL")
 	}
 }
+
+// A client no policy inspects must receive the server's own certificate.
+// Squid validates the server certificate whenever it reads it, including a
+// peek at step 2 ahead of a splice, and a refused certificate makes it bump
+// the client to show an error page under the FlowSight CA. So certificate
+// errors may be refused only for inspected clients, and everyone else must
+// be allowed through to judge the certificate themselves.
+func TestSquidCertErrorsRefusedOnlyForInspectedClients(t *testing.T) {
+	for _, peek := range []bool{false, true} {
+		p := squidParams{
+			Dir: "/d", CAPath: "/ca.pem", PeekServerCert: peek,
+			Policies: []squidPolicy{
+				{ID: "inspect_mac", Members: []string{"192.168.1.119/32"}, Inspect: true, Monitor: true},
+				{ID: "kids", Members: []string{"192.168.1.20"}, Domains: []string{"example.com"}},
+			},
+		}
+		conf, _ := p.render()
+		var rules []string
+		for _, line := range strings.Split(conf, "\n") {
+			if strings.HasPrefix(line, "sslproxy_cert_error ") {
+				rules = append(rules, line)
+			}
+		}
+		want := []string{"sslproxy_cert_error deny fs_src_inspect_mac", "sslproxy_cert_error allow all"}
+		if strings.Join(rules, "\n") != strings.Join(want, "\n") {
+			t.Fatalf("peek=%v: certificate error rules:\n%s\nwant:\n%s", peek, strings.Join(rules, "\n"), strings.Join(want, "\n"))
+		}
+		// squid rejects a configuration that uses an ACL before defining it.
+		if strings.Index(conf, "acl fs_src_inspect_mac ") > strings.Index(conf, "sslproxy_cert_error deny fs_src_inspect_mac") {
+			t.Fatalf("peek=%v: the inspected-client ACL is used before it is defined", peek)
+		}
+		if got := strings.Contains(conf, "ssl_bump peek step2"); got != peek {
+			t.Fatalf("peek=%v: ssl_bump peek step2 present=%v", peek, got)
+		}
+	}
+
+	// Without a CA nothing is bumped by policy, so nothing refuses errors;
+	// otherwise squid would bump to show them under the placeholder.
+	conf, _ := squidParams{Dir: "/d", PeekServerCert: true,
+		Policies: []squidPolicy{{ID: "inspect_mac", Members: []string{"192.168.1.119"}, Inspect: true}}}.render()
+	if strings.Contains(conf, "sslproxy_cert_error deny") || !strings.Contains(conf, "sslproxy_cert_error allow all") {
+		t.Fatal("certificate errors refused without an inspection CA")
+	}
+}

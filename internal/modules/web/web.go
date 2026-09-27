@@ -94,7 +94,7 @@ func (m *Module) Info() core.ModuleInfo {
 			{Key: "http_port", Label: "HTTP listener port", Type: "int"},
 			{Key: "https_port", Label: "HTTPS listener port", Type: "int"},
 			{Key: "peek_server_cert", Label: "Record server certificates without inspecting", Type: "bool",
-				Help: "Peeks one step further into the handshake to log the server certificate, then splices. A few servers dislike it."},
+				Help: "Peeks one step further into the handshake to log the server certificate, then splices. The device still receives the server's own certificate and judges it itself, even one the firewall cannot verify; only inspected devices get the proxy's error page for a bad certificate. A few servers dislike it."},
 			{Key: "auto_bypass_pinned", Label: "Relay pinned sites without inspecting", Type: "bool",
 				Help: "A client that pins its certificate refuses the inspection certificate and the site fails to load. With this on, FlowSight recognises that refusal and relays the name untouched from then on, so the site works; its server name, timing and volume are still recorded. No proxy can decrypt a pinned client."},
 			{Key: "pinned_failures", Label: "Refusals before a name counts as pinned", Type: "int"},

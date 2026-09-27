@@ -284,7 +284,11 @@ Certificate transparency for the network.
 
 **Decrypting sessions, step by step.** Without a CA the proxy only peeks
 at handshakes: you see server names, versions and certificates, never the
-inside of a session. To decrypt selected devices:
+inside of a session. A device that no inspecting policy matches is never
+shown the inspection certificate, with or without a CA: it receives each
+server's own certificate, including one the firewall itself cannot verify,
+and decides about it as it would without FlowSight. To decrypt selected
+devices:
 
 1. **TLS › Create inspection CA** (Pro). The key pair is generated on the
    firewall and never leaves it.

@@ -12,6 +12,23 @@ name, and every release's assets carry that string in their file names.
 
 The newest entry is first.
 
+## 0.9.8r202609271415
+
+**Devices you do not inspect always get the server's own certificate.**
+With *Settings › web › Record server certificates without inspecting* on,
+a device that no inspecting policy matches was handed a certificate signed
+by the FlowSight inspection CA whenever the firewall could not verify a
+server's certificate itself (expired, self-signed, an unknown root, or
+simply a server that leaves out its intermediate certificate). A phone or
+appliance that does not trust the CA rejected it, and its apps retried
+the connection over and over. The proxy now refuses bad server
+certificates only for inspected devices, which still get the proxy's error
+page for them; every other device receives the server's certificate
+untouched and judges it itself. Nothing to do: the fix applies with the
+next policy apply after the update. With the setting off (the default)
+nothing changes. How the scoping works, and how to check which certificate
+a device receives: `docs/INTERCEPTION.md`.
+
 ## 0.9.8r202609270550
 
 **Pi-hole changes reach devices that already asked.** Pi-hole remembers its
