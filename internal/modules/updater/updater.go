@@ -243,7 +243,7 @@ func (m *Module) fetchManifest() (*Manifest, error) {
 		return nil, fmt.Errorf("HTTP %d", resp.StatusCode)
 	}
 
-	body, _ := io.ReadAll(resp.Body)
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, core.MaxResponse))
 	var manifest Manifest
 	if err := json.Unmarshal(body, &manifest); err != nil {
 		return nil, err
@@ -413,9 +413,18 @@ func (m *Module) downloadAndVerify(asset *Asset, dest string) error {
 		return fmt.Errorf("HTTP %d", resp.StatusCode)
 	}
 
-	body, err := io.ReadAll(resp.Body)
+	// A release binary is tens of megabytes; nothing larger is read, and a
+	// size the manifest states must match before the signature is checked.
+	const maxAsset = 512 << 20
+	body, err := io.ReadAll(io.LimitReader(resp.Body, maxAsset+1))
 	if err != nil {
 		return fmt.Errorf("read failed: %v", err)
+	}
+	if len(body) > maxAsset {
+		return fmt.Errorf("download larger than %d MB, refused", maxAsset>>20)
+	}
+	if asset.Size > 0 && int64(len(body)) != asset.Size {
+		return fmt.Errorf("download is %d bytes, the manifest says %d", len(body), asset.Size)
 	}
 
 	// Verify sha256

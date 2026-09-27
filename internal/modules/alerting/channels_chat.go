@@ -11,6 +11,8 @@ import (
 	"net/url"
 	"strings"
 	"time"
+
+	"github.com/grioghar/flowsight/internal/core"
 )
 
 // SlackChannel sends notifications to Slack via incoming webhook or Bot token.
@@ -423,6 +425,7 @@ func (m *MatrixChannel) Send(ctx context.Context, ch *Channel, msg *Message) (in
 	client := &http.Client{
 		Timeout: 15 * time.Second,
 		Transport: &http.Transport{
+			DialContext:     core.GuardedDial,
 			TLSClientConfig: &tls.Config{InsecureSkipVerify: !tlsVerify},
 		},
 	}
@@ -438,7 +441,7 @@ func (m *MatrixChannel) Send(ctx context.Context, ch *Channel, msg *Message) (in
 	defer resp.Body.Close()
 
 	if resp.StatusCode >= 400 {
-		respBody, _ := io.ReadAll(resp.Body)
+		respBody, _ := io.ReadAll(io.LimitReader(resp.Body, core.MaxResponse))
 		return time.Since(start).Milliseconds(), fmt.Errorf("matrix returned %d: %s", resp.StatusCode, string(respBody))
 	}
 
@@ -498,6 +501,7 @@ func (m *MattermostChannel) Send(ctx context.Context, ch *Channel, msg *Message)
 	client := &http.Client{
 		Timeout: 15 * time.Second,
 		Transport: &http.Transport{
+			DialContext:     core.GuardedDial,
 			TLSClientConfig: &tls.Config{InsecureSkipVerify: !tlsVerify},
 		},
 	}
@@ -512,7 +516,7 @@ func (m *MattermostChannel) Send(ctx context.Context, ch *Channel, msg *Message)
 	defer resp.Body.Close()
 
 	if resp.StatusCode >= 400 {
-		respBody, _ := io.ReadAll(resp.Body)
+		respBody, _ := io.ReadAll(io.LimitReader(resp.Body, core.MaxResponse))
 		return time.Since(start).Milliseconds(), fmt.Errorf("mattermost returned %d: %s", resp.StatusCode, string(respBody))
 	}
 
@@ -572,6 +576,7 @@ func (r *RocketChatChannel) Send(ctx context.Context, ch *Channel, msg *Message)
 	client := &http.Client{
 		Timeout: 15 * time.Second,
 		Transport: &http.Transport{
+			DialContext:     core.GuardedDial,
 			TLSClientConfig: &tls.Config{InsecureSkipVerify: !tlsVerify},
 		},
 	}
@@ -586,7 +591,7 @@ func (r *RocketChatChannel) Send(ctx context.Context, ch *Channel, msg *Message)
 	defer resp.Body.Close()
 
 	if resp.StatusCode >= 400 {
-		respBody, _ := io.ReadAll(resp.Body)
+		respBody, _ := io.ReadAll(io.LimitReader(resp.Body, core.MaxResponse))
 		return time.Since(start).Milliseconds(), fmt.Errorf("rocketchat returned %d: %s", resp.StatusCode, string(respBody))
 	}
 
@@ -672,7 +677,7 @@ func (g *GoogleChatChannel) Send(ctx context.Context, ch *Channel, msg *Message)
 	defer resp.Body.Close()
 
 	if resp.StatusCode >= 400 {
-		respBody, _ := io.ReadAll(resp.Body)
+		respBody, _ := io.ReadAll(io.LimitReader(resp.Body, core.MaxResponse))
 		return time.Since(start).Milliseconds(), fmt.Errorf("google_chat returned %d: %s", resp.StatusCode, string(respBody))
 	}
 
@@ -751,7 +756,7 @@ func (p *PushoverChannel) Send(ctx context.Context, ch *Channel, msg *Message) (
 	defer resp.Body.Close()
 
 	if resp.StatusCode >= 400 {
-		respBody, _ := io.ReadAll(resp.Body)
+		respBody, _ := io.ReadAll(io.LimitReader(resp.Body, core.MaxResponse))
 		return time.Since(start).Milliseconds(), fmt.Errorf("pushover returned %d: %s", resp.StatusCode, string(respBody))
 	}
 
@@ -812,7 +817,7 @@ func (p *PushbulletChannel) Send(ctx context.Context, ch *Channel, msg *Message)
 	defer resp.Body.Close()
 
 	if resp.StatusCode >= 400 {
-		respBody, _ := io.ReadAll(resp.Body)
+		respBody, _ := io.ReadAll(io.LimitReader(resp.Body, core.MaxResponse))
 		return time.Since(start).Milliseconds(), fmt.Errorf("pushbullet returned %d: %s", resp.StatusCode, string(respBody))
 	}
 
@@ -891,6 +896,7 @@ func (g *GotifyChannel) Send(ctx context.Context, ch *Channel, msg *Message) (in
 	client := &http.Client{
 		Timeout: 15 * time.Second,
 		Transport: &http.Transport{
+			DialContext:     core.GuardedDial,
 			TLSClientConfig: &tls.Config{InsecureSkipVerify: !tlsVerify},
 		},
 	}
@@ -905,7 +911,7 @@ func (g *GotifyChannel) Send(ctx context.Context, ch *Channel, msg *Message) (in
 	defer resp.Body.Close()
 
 	if resp.StatusCode >= 400 {
-		respBody, _ := io.ReadAll(resp.Body)
+		respBody, _ := io.ReadAll(io.LimitReader(resp.Body, core.MaxResponse))
 		return time.Since(start).Milliseconds(), fmt.Errorf("gotify returned %d: %s", resp.StatusCode, string(respBody))
 	}
 
@@ -974,6 +980,7 @@ func (h *HomeAssistantChannel) Send(ctx context.Context, ch *Channel, msg *Messa
 	client := &http.Client{
 		Timeout: 15 * time.Second,
 		Transport: &http.Transport{
+			DialContext:     core.GuardedDial,
 			TLSClientConfig: &tls.Config{InsecureSkipVerify: !tlsVerify},
 		},
 	}
@@ -988,7 +995,7 @@ func (h *HomeAssistantChannel) Send(ctx context.Context, ch *Channel, msg *Messa
 	defer resp.Body.Close()
 
 	if resp.StatusCode >= 400 {
-		respBody, _ := io.ReadAll(resp.Body)
+		respBody, _ := io.ReadAll(io.LimitReader(resp.Body, core.MaxResponse))
 		return time.Since(start).Milliseconds(), fmt.Errorf("homeassistant returned %d: %s", resp.StatusCode, string(respBody))
 	}
 
@@ -1061,7 +1068,7 @@ func (s *SignalChannel) Send(ctx context.Context, ch *Channel, msg *Message) (in
 	defer resp.Body.Close()
 
 	if resp.StatusCode >= 400 {
-		respBody, _ := io.ReadAll(resp.Body)
+		respBody, _ := io.ReadAll(io.LimitReader(resp.Body, core.MaxResponse))
 		return time.Since(start).Milliseconds(), fmt.Errorf("signal returned %d: %s", resp.StatusCode, string(respBody))
 	}
 

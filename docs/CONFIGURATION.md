@@ -13,6 +13,11 @@ Every save of `flowsight.json` first keeps the previous contents as `flowsight.j
 | `site_name` | hostname | Shown in the UI header and in reports. |
 | `bind` / `port` | `127.0.0.1` / `8080` | Where the API and UI listen. On OPNsense the GUI proxies to it; elsewhere put a reverse proxy in front or bind to a LAN address and rely on the token. |
 | `api_token` | generated on Linux, empty on OPNsense | Required for writes from anything that is not the OPNsense GUI or loopback. |
+| `api_tokens` | `[]` | Named tokens: `{"name","token","scope"}`. `scope` is `admin` (default) or `read`: a read token, and any session opened with it, reads everything and changes nothing. |
+| `api_token_local_only` | `false` | Accept the unnamed `api_token` (the one the OPNsense plugin reads) only from loopback, so a copy of it is useless elsewhere. Give other clients named tokens. |
+| `api_allow` | `[]` | Addresses and networks that may reach the web interface and API at all; empty means any. Loopback is always allowed, so the OPNsense GUI route can never be locked out. Category feeds (`/feeds/`) are exempt; their key protects them. |
+| `https_port` | `8443` | Serve the interface and API over HTTPS too (0: off), with a certificate from the inspection CA when there is one (trusted wherever the CA is installed), otherwise self-signed. The certificate covers the host's names and addresses and renews itself. |
+| `http_local_only` | `false` | With HTTPS on, serve plain HTTP only to loopback (the GUI proxy) and the category feeds; other clients are redirected to HTTPS. |
 | `data_dir` | `/var/db/flowsight` (OPNsense/FreeBSD), `/var/lib/flowsight` (Linux) | The SQLite store, caches, the country database and the TLS material. |
 | `log_level` | `info` | `debug`, `info`, `warn`, `error`. |
 | `memory_limit_mb` | `256` | Soft limit handed to the Go runtime; the daemon trims caches and collects earlier as it nears it. |

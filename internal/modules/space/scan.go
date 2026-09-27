@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 
@@ -66,7 +67,7 @@ func (m *Module) apiPostScan(r *core.Req) (any, error) {
 	}
 
 	// Determine filename from query or multipart name
-	filename := r.Q("name", "scan")
+	filename := safeScanName(r.Q("name", "scan"))
 	if !strings.Contains(filename, ".") {
 		// Guess extension from magic bytes
 		if bytes.HasPrefix(rawBody, []byte{0x67, 0x6c, 0x54, 0x46}) { // glTF magic
@@ -313,4 +314,22 @@ func contentTypeForFormat(format string) string {
 	default:
 		return "application/octet-stream"
 	}
+}
+
+var scanNameRe = regexp.MustCompile(`[^A-Za-z0-9._-]+`)
+
+// safeScanName keeps a client-supplied file name inside the scan folder: the
+// base name only, and only letters, digits, dot, dash and underscore. A name
+// like "../../etc/x" would otherwise leave the folder, written as root.
+func safeScanName(name string) string {
+	name = filepath.Base(strings.ReplaceAll(name, "\\", "/"))
+	name = scanNameRe.ReplaceAllString(name, "_")
+	name = strings.TrimLeft(name, ".")
+	if len(name) > 80 {
+		name = name[len(name)-80:]
+	}
+	if name == "" || name == "_" {
+		name = "scan"
+	}
+	return name
 }

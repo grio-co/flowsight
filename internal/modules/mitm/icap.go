@@ -24,6 +24,8 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/url"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -84,7 +86,7 @@ func (m *Module) icapMod(w io.Writer, req *icapRequest) {
 	rec := Request{TS: time.Now().Unix(), Client: req.ClientIP()}
 	if req.HTTPRequest != nil {
 		rec.Method = req.HTTPRequest.Method
-		rec.URL = req.HTTPRequest.URL.String()
+		rec.URL = redactURL(req.HTTPRequest.URL)
 		rec.Host = req.HTTPRequest.Host
 		if rec.Host == "" {
 			rec.Host = req.HTTPRequest.URL.Host
@@ -285,4 +287,36 @@ func safeHeaders(h http.Header) map[string]string {
 		}
 	}
 	return out
+}
+
+// redactURL keeps what a request was for and drops what it carried: the
+// scheme, host and path stay, the names of query parameters stay (so
+// "?token=…&page=…" still says which endpoint was called), and every value,
+// any user:password and the fragment go. Query strings routinely carry API
+// keys, session ids and one-time codes, and inspection must not become a
+// store of them.
+func redactURL(u *url.URL) string {
+	if u == nil {
+		return ""
+	}
+	c := *u
+	c.User = nil
+	c.Fragment, c.RawFragment = "", ""
+	if c.RawQuery != "" {
+		q, err := url.ParseQuery(c.RawQuery)
+		keys := make([]string, 0, len(q))
+		for k := range q {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
+		parts := make([]string, 0, len(keys))
+		for _, k := range keys {
+			parts = append(parts, url.QueryEscape(k)+"=…")
+		}
+		if err != nil || len(parts) == 0 {
+			parts = []string{"…"}
+		}
+		c.RawQuery = strings.Join(parts, "&")
+	}
+	return c.String()
 }

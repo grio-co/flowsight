@@ -223,7 +223,30 @@ func OpenStore(dir string) (*Store, error) {
 		db.Close()
 		return nil, err
 	}
+	tightenDataDir(dir)
 	return s, nil
+}
+
+// tightenDataDir makes the store and the other files at the top of the data
+// directory readable by root only. The store holds the network's whole
+// history (DNS, web, devices); SQLite gives its -wal and -shm files the
+// database file's mode, so fixing the database fixes those from then on.
+// Subdirectories (squid's certificate store, captures) keep their own modes:
+// other services own some of them.
+func tightenDataDir(dir string) {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return
+	}
+	for _, e := range entries {
+		if !e.Type().IsRegular() {
+			continue
+		}
+		p := filepath.Join(dir, e.Name())
+		if st, err := os.Stat(p); err == nil && st.Mode().Perm()&0o077 != 0 {
+			_ = os.Chmod(p, 0o600)
+		}
+	}
 }
 
 func (s *Store) migrate() error {

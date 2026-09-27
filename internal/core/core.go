@@ -290,6 +290,20 @@ func (c *Core) Run(stop <-chan struct{}) error {
 	if err != nil {
 		return err
 	}
+	// HTTPS beside HTTP. A failure here is logged, not fatal: the GUI route
+	// over loopback keeps working whatever happens to the certificate.
+	var srvTLS *http.Server
+	if cs.HTTPSPort > 0 {
+		if err := c.ensureAPICert(); err != nil {
+			c.Log.Error("api certificate", "error", err.Error())
+		} else if s, err := c.API.ListenTLS(cs.Bind, cs.HTTPSPort); err != nil {
+			c.Log.Error("https listener", "error", err.Error())
+		} else {
+			srvTLS = s
+		}
+		c.Scheduler.Add(&Job{Name: "api-cert", Module: "core", Every: 12 * time.Hour,
+			Fn: c.ensureAPICert, nextRun: time.Now().Add(12 * time.Hour)})
+	}
 	<-stop
 	c.Log.Info("stopping")
 	c.Scheduler.Stop()
@@ -303,7 +317,13 @@ func (c *Core) Run(stop <-chan struct{}) error {
 	ctxTimeout := 5 * time.Second
 	srv.SetKeepAlivesEnabled(false)
 	done := make(chan struct{})
-	go func() { _ = srv.Close(); close(done) }()
+	go func() {
+		_ = srv.Close()
+		if srvTLS != nil {
+			_ = srvTLS.Close()
+		}
+		close(done)
+	}()
 	select {
 	case <-done:
 	case <-time.After(ctxTimeout):

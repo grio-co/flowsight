@@ -144,8 +144,11 @@ FS.cc = (cc, opts) => {
   const code = String(cc).toUpperCase();
   const title = FS.esc(FS.countryName(code) + (opts.title ? ' — ' + opts.title : ''));
   const cls = opts.cls === undefined ? 'pill' : opts.cls;
-  const body = FS.esc(code) + (opts.suffix ? ' ' + opts.suffix : '');
-  return opts.href ? `<a class="${cls}" href="${opts.href}" title="${title}">${body}</a>` : `<span class="${cls}" title="${title}">${body}</span>`;
+  const body = FS.esc(code) + (opts.suffix ? ' ' + FS.esc(opts.suffix) : '');
+  // Only in-app links: a value that reached here from the network can never
+  // become a javascript: or off-site href.
+  const href = typeof opts.href === 'string' && /^(#|\/(?!\/))/.test(opts.href) ? opts.href : '';
+  return href ? `<a class="${FS.esc(cls)}" href="${FS.esc(href)}" title="${title}">${body}</a>` : `<span class="${FS.esc(cls)}" title="${title}">${body}</span>`;
 };
 FS.flag = (cc) => cc && /^[A-Z]{2}$/.test(cc) ? `<span class="cc" title="${FS.esc(FS.countryName(cc))}">${String.fromCodePoint(...[...cc].map(c => 0x1F1E6 + c.charCodeAt(0) - 65))} ${cc}</span>` : '';
 FS.enrichCache = {}; FS.enrichOn = null;

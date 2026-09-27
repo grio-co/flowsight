@@ -15,6 +15,8 @@ import (
 	"net/url"
 	"strings"
 	"time"
+
+	"github.com/grioghar/flowsight/internal/core"
 )
 
 // ==================== EMAIL CHANNELS ====================
@@ -331,7 +333,7 @@ func (m *MailgunChannel) Send(ctx context.Context, ch *Channel, msg *Message) (i
 	defer resp.Body.Close()
 
 	if resp.StatusCode >= 400 {
-		body, _ := io.ReadAll(resp.Body)
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, core.MaxResponse))
 		return time.Since(start).Milliseconds(), fmt.Errorf("mailgun returned %d: %s", resp.StatusCode, string(body))
 	}
 
@@ -426,7 +428,7 @@ func (a *AmazonSESChannel) Send(ctx context.Context, ch *Channel, msg *Message) 
 	defer resp.Body.Close()
 
 	if resp.StatusCode >= 400 {
-		body, _ := io.ReadAll(resp.Body)
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, core.MaxResponse))
 		return time.Since(start).Milliseconds(), fmt.Errorf("ses returned %d: %s", resp.StatusCode, string(body))
 	}
 
@@ -502,7 +504,7 @@ func (p *PostmarkChannel) Send(ctx context.Context, ch *Channel, msg *Message) (
 	defer resp.Body.Close()
 
 	if resp.StatusCode >= 400 {
-		body, _ := io.ReadAll(resp.Body)
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, core.MaxResponse))
 		return time.Since(start).Milliseconds(), fmt.Errorf("postmark returned %d: %s", resp.StatusCode, string(body))
 	}
 
@@ -579,7 +581,7 @@ func (t *TwilioChannel) Send(ctx context.Context, ch *Channel, msg *Message) (in
 	defer resp.Body.Close()
 
 	if resp.StatusCode >= 400 {
-		body, _ := io.ReadAll(resp.Body)
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, core.MaxResponse))
 		return time.Since(start).Milliseconds(), fmt.Errorf("twilio returned %d: %s", resp.StatusCode, string(body))
 	}
 
@@ -612,7 +614,7 @@ func (t *TwilioChannel) sendVoice(ctx context.Context, client *http.Client, ch *
 	defer resp.Body.Close()
 
 	if resp.StatusCode >= 400 {
-		body, _ := io.ReadAll(resp.Body)
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, core.MaxResponse))
 		return time.Since(start).Milliseconds(), fmt.Errorf("twilio voice returned %d: %s", resp.StatusCode, string(body))
 	}
 
@@ -675,7 +677,7 @@ func (v *VonageChannel) Send(ctx context.Context, ch *Channel, msg *Message) (in
 	defer resp.Body.Close()
 
 	if resp.StatusCode >= 400 {
-		body, _ := io.ReadAll(resp.Body)
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, core.MaxResponse))
 		return time.Since(start).Milliseconds(), fmt.Errorf("vonage returned %d: %s", resp.StatusCode, string(body))
 	}
 
@@ -737,7 +739,7 @@ func (t *TelnyxChannel) Send(ctx context.Context, ch *Channel, msg *Message) (in
 	defer resp.Body.Close()
 
 	if resp.StatusCode >= 400 {
-		body, _ := io.ReadAll(resp.Body)
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, core.MaxResponse))
 		return time.Since(start).Milliseconds(), fmt.Errorf("telnyx returned %d: %s", resp.StatusCode, string(body))
 	}
 
@@ -812,7 +814,7 @@ func (a *AWSSNSChannel) Send(ctx context.Context, ch *Channel, msg *Message) (in
 	defer resp.Body.Close()
 
 	if resp.StatusCode >= 400 {
-		body, _ := io.ReadAll(resp.Body)
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, core.MaxResponse))
 		return time.Since(start).Milliseconds(), fmt.Errorf("sns returned %d: %s", resp.StatusCode, string(body))
 	}
 
@@ -874,7 +876,7 @@ func (p *PlivoChannel) Send(ctx context.Context, ch *Channel, msg *Message) (int
 	defer resp.Body.Close()
 
 	if resp.StatusCode >= 400 {
-		body, _ := io.ReadAll(resp.Body)
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, core.MaxResponse))
 		return time.Since(start).Milliseconds(), fmt.Errorf("plivo returned %d: %s", resp.StatusCode, string(body))
 	}
 
@@ -934,7 +936,7 @@ func (m *MessageBirdChannel) Send(ctx context.Context, ch *Channel, msg *Message
 	defer resp.Body.Close()
 
 	if resp.StatusCode >= 400 {
-		body, _ := io.ReadAll(resp.Body)
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, core.MaxResponse))
 		return time.Since(start).Milliseconds(), fmt.Errorf("messagebird returned %d: %s", resp.StatusCode, string(body))
 	}
 
@@ -1004,7 +1006,7 @@ func (c *ClickSendChannel) Send(ctx context.Context, ch *Channel, msg *Message) 
 	defer resp.Body.Close()
 
 	if resp.StatusCode >= 400 {
-		body, _ := io.ReadAll(resp.Body)
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, core.MaxResponse))
 		return time.Since(start).Milliseconds(), fmt.Errorf("clicksend returned %d: %s", resp.StatusCode, string(body))
 	}
 
@@ -1081,7 +1083,7 @@ func (p *PagerDutyChannel) Send(ctx context.Context, ch *Channel, msg *Message) 
 	defer resp.Body.Close()
 
 	if resp.StatusCode >= 400 {
-		body, _ := io.ReadAll(resp.Body)
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, core.MaxResponse))
 		return time.Since(start).Milliseconds(), fmt.Errorf("pagerduty returned %d: %s", resp.StatusCode, string(body))
 	}
 
@@ -1180,7 +1182,7 @@ func (o *OpsgenieChannel) Send(ctx context.Context, ch *Channel, msg *Message) (
 	defer resp.Body.Close()
 
 	if resp.StatusCode >= 400 {
-		body, _ := io.ReadAll(resp.Body)
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, core.MaxResponse))
 		return time.Since(start).Milliseconds(), fmt.Errorf("opsgenie returned %d: %s", resp.StatusCode, string(body))
 	}
 
@@ -1260,7 +1262,7 @@ func (s *SplunkOnCallChannel) Send(ctx context.Context, ch *Channel, msg *Messag
 	defer resp.Body.Close()
 
 	if resp.StatusCode >= 400 {
-		body, _ := io.ReadAll(resp.Body)
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, core.MaxResponse))
 		return time.Since(start).Milliseconds(), fmt.Errorf("splunk oncall returned %d: %s", resp.StatusCode, string(body))
 	}
 
@@ -1335,7 +1337,7 @@ func (s *SquadcastChannel) Send(ctx context.Context, ch *Channel, msg *Message) 
 	defer resp.Body.Close()
 
 	if resp.StatusCode >= 400 {
-		body, _ := io.ReadAll(resp.Body)
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, core.MaxResponse))
 		return time.Since(start).Milliseconds(), fmt.Errorf("squadcast returned %d: %s", resp.StatusCode, string(body))
 	}
 
@@ -1400,7 +1402,7 @@ func (i *IncidentIOChannel) Send(ctx context.Context, ch *Channel, msg *Message)
 	defer resp.Body.Close()
 
 	if resp.StatusCode >= 400 {
-		body, _ := io.ReadAll(resp.Body)
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, core.MaxResponse))
 		return time.Since(start).Milliseconds(), fmt.Errorf("incident.io returned %d: %s", resp.StatusCode, string(body))
 	}
 
@@ -1463,7 +1465,7 @@ func (x *XMattersChannel) Send(ctx context.Context, ch *Channel, msg *Message) (
 	defer resp.Body.Close()
 
 	if resp.StatusCode >= 400 {
-		body, _ := io.ReadAll(resp.Body)
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, core.MaxResponse))
 		return time.Since(start).Milliseconds(), fmt.Errorf("xmatters returned %d: %s", resp.StatusCode, string(body))
 	}
 
@@ -1525,7 +1527,7 @@ func (z *ZendutySChannel) Send(ctx context.Context, ch *Channel, msg *Message) (
 	defer resp.Body.Close()
 
 	if resp.StatusCode >= 400 {
-		body, _ := io.ReadAll(resp.Body)
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, core.MaxResponse))
 		return time.Since(start).Milliseconds(), fmt.Errorf("zenduty returned %d: %s", resp.StatusCode, string(body))
 	}
 
@@ -1603,7 +1605,7 @@ func (b *BetterStackChannel) Send(ctx context.Context, ch *Channel, msg *Message
 	defer resp.Body.Close()
 
 	if resp.StatusCode >= 400 {
-		body, _ := io.ReadAll(resp.Body)
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, core.MaxResponse))
 		return time.Since(start).Milliseconds(), fmt.Errorf("betterstack returned %d: %s", resp.StatusCode, string(body))
 	}
 

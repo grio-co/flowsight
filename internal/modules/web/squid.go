@@ -80,6 +80,7 @@ func (p squidParams) render() (string, map[string]string) {
 	w("maximum_object_size_in_memory 0 KB")
 	w("memory_pools off")
 	w("via off")
+	w("strip_query_terms on") // query strings carry tokens; the log keeps the path only
 	w("forwarded_for delete")
 	w("follow_x_forwarded_for deny all")
 	w("request_header_access X-Forwarded-For deny all")

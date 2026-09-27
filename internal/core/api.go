@@ -44,6 +44,7 @@ type API struct {
 
 type session struct {
 	user    string
+	scope   string
 	expires time.Time
 }
 
@@ -675,6 +676,11 @@ func (a *API) anyToken() bool {
 // trusted: that is the OPNsense case, where the GUI has already authenticated
 // and proxies over 127.0.0.1. Anywhere else a token or session is required.
 func (a *API) authenticate(r *http.Request, client string) (bool, string) {
+	ok, user, _ := a.authenticateScoped(r, client)
+	return ok, user
+}
+
+func (a *API) authenticateScoped(r *http.Request, client string) (bool, string, string) {
 	tok := a.token()
 	presented := r.Header.Get("X-Flowsight-Token")
 	if h := r.Header.Get("Authorization"); strings.HasPrefix(strings.ToLower(h), "bearer ") {
@@ -686,30 +692,44 @@ func (a *API) authenticate(r *http.Request, client string) (bool, string) {
 		s, ok := a.sessions[c.Value]
 		a.sessMu.Unlock()
 		if ok && s.expires.After(time.Now()) {
-			return true, s.user
+			scope := s.scope
+			if scope == "" {
+				scope = ScopeAdmin
+			}
+			return true, s.user, scope
 		}
 	}
-	if name := a.tokenName(presented); name != "" {
+	name := a.tokenName(presented)
+	if name == "token" && a.core.Config.Core().APITokenLocalOnly && !loopback {
+		name = "" // the GUI's token is good only on this machine
+	}
+	if presented != "" && name == "" {
+		failed(client)
+	}
+	if name != "" {
 		// The OPNsense plugin proxies over loopback with the token and
 		// says which GUI user is acting; the audit log names the person and
 		// keeps the token beside them.
 		if u := r.Header.Get("X-Flowsight-User"); u != "" && loopback {
-			return true, u + " (gui, " + name + ")"
+			return true, u + " (gui, " + name + ")", a.scopeOf(name)
 		}
-		return true, name
+		return true, name, a.scopeOf(name)
 	}
 	if !a.anyToken() && loopback {
 		if u := r.Header.Get("X-Flowsight-User"); u != "" {
-			return true, u + " (gui)"
+			return true, u + " (gui)", ScopeAdmin
 		}
-		return true, "local"
+		return true, "local", ScopeAdmin
 	}
 	_ = tok
-	return false, ""
+	return false, "", ""
 }
 
-func (a *API) login(token string) (string, bool) {
+func (a *API) login(token, client string) (string, bool) {
 	name := a.tokenName(token)
+	if name == "token" && a.core.Config.Core().APITokenLocalOnly && !isLoopback(client) {
+		name = ""
+	}
 	if name == "" {
 		return "", false
 	}
@@ -736,7 +756,7 @@ func (a *API) login(token string) (string, bool) {
 		}
 		delete(a.sessions, oldest)
 	}
-	a.sessions[sid] = session{user: "session (" + name + ")", expires: now.Add(12 * time.Hour)}
+	a.sessions[sid] = session{user: "session (" + name + ")", scope: a.scopeOf(name), expires: now.Add(12 * time.Hour)}
 	a.sessMu.Unlock()
 	return sid, true
 }
@@ -785,6 +805,32 @@ func (a *API) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 	}()
 
+	// Subscription feeds authenticate by their own key (feed.go); Pi-holes
+	// fetch them over plain HTTP from wherever they are.
+	if (r.Method == http.MethodGet || r.Method == http.MethodHead) && strings.HasPrefix(p, "/feeds/") {
+		a.serveFeed(w, r, p)
+		return
+	}
+	// Who may reach the interface at all (netsec.go).
+	if !a.allowed(client) {
+		a.writeJSON(w, 403, map[string]any{"error": "this address may not reach FlowSight; see api_allow"})
+		return
+	}
+	cs := a.core.Config.Core()
+	if r.TLS == nil && cs.HTTPLocalOnly && cs.HTTPSPort > 0 && !isLoopback(client) {
+		if r.Method == http.MethodGet || r.Method == http.MethodHead {
+			http.Redirect(w, r, a.httpsURL(r), http.StatusMovedPermanently)
+			return
+		}
+		a.writeJSON(w, 403, map[string]any{"error": "use HTTPS: " + a.httpsURL(r)})
+		return
+	}
+	if limited, wait := throttled(client); limited {
+		w.Header().Set("Retry-After", strconv.Itoa(int(wait.Seconds())+1))
+		a.writeJSON(w, 429, map[string]any{"error": "too many failed attempts from this address; try again later"})
+		return
+	}
+
 	// Static UI, no auth: it is public HTML that reveals nothing.
 	if r.Method == http.MethodGet || r.Method == http.MethodHead {
 		if p == "/" || p == "/index.html" {
@@ -802,13 +848,7 @@ func (a *API) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Subscription feeds authenticate by their own key (feed.go).
-	if (r.Method == http.MethodGet || r.Method == http.MethodHead) && strings.HasPrefix(p, "/feeds/") {
-		a.serveFeed(w, r, p)
-		return
-	}
-
-	ok, user := a.authenticate(r, client)
+	ok, user, scope := a.authenticateScoped(r, client)
 
 	if p == "/api/login" && r.Method == http.MethodPost {
 		body, _ := io.ReadAll(io.LimitReader(r.Body, 4096))
@@ -816,19 +856,29 @@ func (a *API) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			Token string `json:"token"`
 		}
 		_ = json.Unmarshal(body, &in)
-		sid, good := a.login(in.Token)
+		sid, good := a.login(in.Token, client)
 		if !good {
+			failed(client)
 			time.Sleep(500 * time.Millisecond)
 			a.writeJSON(w, 401, map[string]any{"error": "invalid token"})
 			return
 		}
-		http.SetCookie(w, &http.Cookie{Name: "fs_session", Value: sid, HttpOnly: true,
+		succeeded(client)
+		http.SetCookie(w, &http.Cookie{Name: "fs_session", Value: sid, HttpOnly: true, Secure: r.TLS != nil,
 			SameSite: http.SameSiteStrictMode, Path: "/", MaxAge: 12 * 3600})
 		a.writeJSON(w, 200, map[string]any{"ok": true})
 		return
 	}
 	if !ok {
 		a.writeJSON(w, 401, map[string]any{"error": "authentication required"})
+		return
+	}
+	// Logging out ends the session here, not only in the browser.
+	if p == "/api/system/logout" {
+		a.dropSession(r)
+		http.SetCookie(w, &http.Cookie{Name: "fs_session", Value: "", HttpOnly: true, Secure: r.TLS != nil,
+			SameSite: http.SameSiteStrictMode, Path: "/", MaxAge: -1})
+		a.writeJSON(w, 200, map[string]any{"ok": true})
 		return
 	}
 
@@ -849,6 +899,11 @@ func (a *API) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// A read-only token (or a session it opened) changes nothing.
+	if scope == ScopeRead && (route.Write || (r.Method != http.MethodGet && r.Method != http.MethodHead)) {
+		a.writeJSON(w, 403, map[string]any{"error": "this token is read-only"})
+		return
+	}
 	req := &Req{Request: r, User: user, Client: client, Params: params}
 	if r.Method != http.MethodGet && r.Method != http.MethodHead {
 		if r.ContentLength > maxBody {

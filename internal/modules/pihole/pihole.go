@@ -51,6 +51,7 @@ type Module struct {
 	identity core.Identity
 	client   *http.Client
 	insecure *http.Client
+	pinned   *http.Client
 
 	mu      sync.Mutex
 	servers map[string]*serverState
@@ -64,14 +65,15 @@ func (m *Module) Info() core.ModuleInfo {
 		Description: "Pulls the query log from Pi-hole servers into the DNS history: queries, blocks and the lists that blocked them, per client.",
 		After:       []string{"identity"},
 		Defaults: map[string]any{
-			"enabled":       true,
-			"servers":       []string{},
-			"password":      "",
-			"verify_tls":    false,
-			"poll_seconds":  30,
-			"history_hours": 24,
-			"import_names":  true,
-			"skip_local":    true,
+			"enabled":          true,
+			"servers":          []string{},
+			"password":         "",
+			"verify_tls":       false,
+			"pin_certificates": true,
+			"poll_seconds":     30,
+			"history_hours":    24,
+			"import_names":     true,
+			"skip_local":       true,
 		},
 		Schema: []core.SettingField{
 			{Key: "servers", Label: "Pi-hole servers", Type: "list",
@@ -80,6 +82,8 @@ func (m *Module) Info() core.ModuleInfo {
 				Help: "Pi-hole v6: an app password (Settings › Web interface / API › Configure app password) or the web password. Pi-hole v5: the API token or the web password. Shared by every server listed."},
 			{Key: "verify_tls", Label: "Verify TLS certificates", Type: "bool",
 				Help: "Off by default because Pi-hole v6 serves a self-signed certificate. Turn on when yours has a real one."},
+			{Key: "pin_certificates", Label: "Pin each Pi-hole's certificate", Type: "bool",
+				Help: "With verification off, remember each Pi-hole's certificate on first contact and refuse a different one later, so nobody in between can read the app password. Re-pin from DNS › Pi-hole after replacing a certificate."},
 			{Key: "poll_seconds", Label: "Poll interval (s)", Type: "int"},
 			{Key: "history_hours", Label: "History to import on first contact (hours)", Type: "int"},
 			{Key: "import_names", Label: "Use Pi-hole client names", Type: "bool",
@@ -95,6 +99,7 @@ func (m *Module) Setup(ctx *core.Context) error {
 	m.identity, _ = ctx.Service("identity").(core.Identity)
 	m.client = &http.Client{Timeout: 30 * time.Second}
 	m.insecure = &http.Client{Timeout: 30 * time.Second, Transport: &http.Transport{TLSClientConfig: &tls.Config{InsecureSkipVerify: true}}}
+	m.pinned = m.pinnedClient()
 	m.servers = map[string]*serverState{}
 	ctx.Store.KVGet("pihole.servers", &m.servers)
 	for k, s := range m.servers {
@@ -115,6 +120,10 @@ func (m *Module) Setup(ctx *core.Context) error {
 	}))
 	ctx.Route("POST", "/api/pihole/pull", m.apiPull, core.Write(), core.Doc("Pull from every server now"), core.Returns("Success", map[string]any{"ok": true}))
 	m.registerConfigRoutes(ctx)
+	ctx.Route("POST", "/api/pihole/pins/clear", m.apiClearPin, core.Write(),
+		core.Doc("Forget the pinned certificate of one or every Pi-hole, so the next connection pins its current certificate"),
+		core.Body(core.Fld("server", "string", false, "A Pi-hole's host or URL; empty or \"all\" for every one", "192.168.1.53")),
+		core.Returns("Cleared", map[string]any{"ok": true, "cleared": []string{"192.168.1.53:443"}}))
 	ctx.Publish("pihole", m)
 	return nil
 }
@@ -155,6 +164,9 @@ func (m *Module) OnConfigChange(settings map[string]any) error {
 func (m *Module) httpClient() *http.Client {
 	if core.Bool(m.ctx.Settings(), "verify_tls", false) {
 		return m.client
+	}
+	if core.Bool(m.ctx.Settings(), "pin_certificates", true) {
+		return m.pinned
 	}
 	return m.insecure
 }
@@ -681,6 +693,18 @@ func (m *Module) apiStatus(r *core.Req) (any, error) {
 	for _, u := range m.serverURLs() {
 		if s := m.servers[u]; s != nil && s.Version == "v6" && s.LastPull > 0 && s.LastError == "" {
 			connected++
+		}
+	}
+	pins := m.pins()
+	for _, row := range out {
+		if u, err := url.Parse(fmt.Sprint(row["url"])); err == nil {
+			port := u.Port()
+			if port == "" {
+				port = "443"
+			}
+			if p := pins[net.JoinHostPort(u.Hostname(), port)]; p != "" {
+				row["pin"] = p[:16]
+			}
 		}
 	}
 	return map[string]any{"servers": out, "configured": len(urls), "connected": connected,

@@ -90,8 +90,8 @@ func (m *Module) Setup(ctx *core.Context) error {
 		),
 		core.Returns("Test result", map[string]any{"ok": true}))
 	ctx.Route("POST", "/api/setup/reset", m.apiReset, core.Write(),
-		core.Doc("Reset setup wizard progress to initial state"),
-		core.Body(),
+		core.Doc("Reset setup wizard progress to initial state; once setup is complete this needs reconfigure: true"),
+		core.Body(core.Fld("reconfigure", "boolean", false, "Required once setup is complete", true)),
 		core.Returns("Reset result", map[string]any{"ok": true}))
 	ctx.Panel(core.Panel{ID: "setup", Title: "Setup wizard", Group: "Administration", Order: 195, Icon: "setup"})
 	return nil
@@ -112,7 +112,22 @@ func (m *Module) apiState(r *core.Req) (any, error) {
 	return state, nil
 }
 
+// reconfiguring guards the wizard once setup is complete: it can change
+// tokens, resolvers, credentials and the update source, so after completion
+// a request must say it means to reconfigure.
+func (m *Module) reconfiguring(r *core.Req) error {
+	var completed bool
+	m.ctx.Store.KVGet("setup.completed", &completed)
+	if completed && r.Body()["reconfigure"] != true {
+		return &core.Error{Status: 409, Message: "setup is complete; to run the wizard again, reset it with reconfigure: true"}
+	}
+	return nil
+}
+
 func (m *Module) apiApply(r *core.Req) (any, error) {
+	if err := m.reconfiguring(r); err != nil {
+		return nil, err
+	}
 	step, ok := r.Body()["step"].(float64)
 	if !ok {
 		return nil, core.BadRequest("step is required")
@@ -232,6 +247,9 @@ func (m *Module) apiApply(r *core.Req) (any, error) {
 }
 
 func (m *Module) apiTest(r *core.Req) (any, error) {
+	if err := m.reconfiguring(r); err != nil {
+		return nil, err
+	}
 	step, ok := r.Body()["step"].(float64)
 	if !ok {
 		return nil, core.BadRequest("step is required")
@@ -264,6 +282,9 @@ func (m *Module) apiTest(r *core.Req) (any, error) {
 }
 
 func (m *Module) apiReset(r *core.Req) (any, error) {
+	if err := m.reconfiguring(r); err != nil {
+		return nil, err
+	}
 	m.ctx.Store.KVSet("setup.completed", false)
 	m.ctx.Store.KVSet("setup.completed_at", int64(0))
 	return map[string]any{"ok": true}, nil

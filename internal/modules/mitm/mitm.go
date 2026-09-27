@@ -106,6 +106,7 @@ func (m *Module) Info() core.ModuleInfo {
 
 func (m *Module) Setup(ctx *core.Context) error {
 	m.ctx = ctx
+	ctx.Every("scrub-urls", 24*time.Hour, m.scrubStoredURLs, core.Delayed())
 	ctx.Route("GET", "/api/mitm/status", m.apiStatus, core.Doc("Check if deep packet inspection is listening and retrieve decoded traffic statistics"),
 		core.Returns("Inspection status", map[string]any{
 			"active": true, "licensed": true, "listening": true, "port": 1344,

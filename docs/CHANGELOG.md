@@ -12,6 +12,48 @@ name, and every release's assets carry that string in their file names.
 
 The newest entry is first.
 
+## 0.9.8r202609272052
+
+**Security hardening from the 2026-09-27 audit.**
+
+- **Scan uploads stay in their folder.** The name given to an uploaded 3D
+  scan went into the file path as it was, so `../` could write anywhere, as
+  root. It is now reduced to a base name of safe characters.
+- **Who may reach FlowSight.** New `api_allow` (addresses and networks
+  allowed at all; loopback always), `https_port` (HTTPS, 8443 by default,
+  certificate from the inspection CA or self-signed, renewed automatically)
+  and `http_local_only` (plain HTTP for loopback and feeds only, everything
+  else redirected to HTTPS). Session cookies are Secure over HTTPS.
+- **Token scopes.** Named tokens take `scope: read` (reads everything,
+  changes nothing) or `admin`. `api_token_local_only` makes the unnamed
+  token the OPNsense plugin reads work only from loopback.
+- **Guessing is throttled; logout is real.** Eight failures from one
+  address in fifteen minutes lock it out for a minute, doubling to an hour;
+  loopback is never locked out. Logging out ends the session on the server,
+  and the menu has a *Log out* link; the token field is masked.
+- **Private data files.** The store and the other files at the top of the
+  data directory are made readable by root only whenever the store opens.
+- **Decrypted URLs lose their secrets.** Inspection stores URLs without
+  query values, credentials or fragments (parameter names stay), and
+  already-stored URLs are scrubbed once in the background. The proxy config
+  now says `strip_query_terms on` explicitly.
+- **Pi-hole certificates are pinned** on first contact
+  (`pin_certificates`, on by default); a changed certificate is refused.
+  `POST /api/pihole/pins/clear` re-pins.
+- **Outbound limits.** No outbound request reaches link-local (cloud
+  metadata), multicast or unspecified addresses, checked after DNS; webhook
+  replies and update manifests are read up to 1 MB, binaries up to 512 MB
+  and must match the manifest's size.
+- **The setup wizard locks once complete**: its apply, test and reset need
+  `reconfigure: true`, and *Run again* asks first.
+- A UI helper that could have put an unescaped link into a page now allows
+  only in-app links and escapes its text.
+
+Nothing changes until the new core keys are set in `flowsight.json`
+(except the scan fix, file modes, URL redaction, pinning and outbound
+limits, which apply at once). See `docs/SECURITY.md` and
+`docs/CONFIGURATION.md`.
+
 ## 0.9.8r202609271704
 
 **Device names reach the DHCP server.** A name given in FlowSight now also

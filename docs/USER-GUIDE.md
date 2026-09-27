@@ -1671,6 +1671,13 @@ headers are supported in addition to session cookies.
 
 ## Keyboard and browser notes
 
+**Signing in and out.** Outside the OPNsense GUI, FlowSight asks for an API
+token and opens a 12-hour session; *Log out* under the version in the menu
+ends it on the server. Repeated wrong tokens from one address lock that
+address out for a while. Where HTTPS is on (`https_port`, 8443 by default),
+use `https://<gateway>:8443/`; with `http_local_only` plain HTTP redirects
+there.
+
 **Search.** `/` focuses SmartSearch from anywhere; `↑`/`↓` and Enter pick a
 result; Esc closes the dropdown, and Esc again clears the search.
 

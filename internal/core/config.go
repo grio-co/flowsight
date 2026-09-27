@@ -37,9 +37,20 @@ type CoreSettings struct {
 	// APITokens are named tokens beside APIToken: the audit log records
 	// which one acted. Each is {"name": "...", "token": "..."}.
 	APITokens []NamedToken `json:"api_tokens"`
-	LogLevel  string       `json:"log_level"`
-	DataDir   string       `json:"data_dir"`
-	Workers   int          `json:"workers"`
+	// APITokenLocalOnly accepts the unnamed api_token only from loopback
+	// (the OPNsense plugin's proxy), so a copy of it is useless elsewhere.
+	APITokenLocalOnly bool `json:"api_token_local_only"`
+	// APIAllow lists the addresses and networks that may reach the web
+	// interface and API; empty means any. Loopback is always allowed.
+	APIAllow []string `json:"api_allow"`
+	// HTTPSPort serves the API over HTTPS too (0: off).
+	HTTPSPort int `json:"https_port"`
+	// HTTPLocalOnly serves plain HTTP to loopback only (and the category
+	// feeds); anything else is sent to HTTPS.
+	HTTPLocalOnly bool   `json:"http_local_only"`
+	LogLevel      string `json:"log_level"`
+	DataDir       string `json:"data_dir"`
+	Workers       int    `json:"workers"`
 	// MemoryLimitMB is the Go soft memory limit (default 256).
 	MemoryLimitMB int       `json:"memory_limit_mb"`
 	Retention     Retention `json:"retention"`
@@ -58,7 +69,7 @@ type Retention struct {
 
 func defaultCore() CoreSettings {
 	return CoreSettings{
-		Bind: "127.0.0.1", Port: 8080, LogLevel: "info", Workers: 4,
+		Bind: "127.0.0.1", Port: 8080, HTTPSPort: 8443, LogLevel: "info", Workers: 4,
 		Retention: Retention{FlowsDays: 7, DNSDays: 7, AlertsDays: 30, EventsDays: 30,
 			RollupDays: 400, TLSDays: 90},
 	}
@@ -364,4 +375,7 @@ func commented(t string) bool {
 type NamedToken struct {
 	Name  string `json:"name"`
 	Token string `json:"token"`
+	// Scope is "admin" (the default) or "read": a read token can read
+	// everything and change nothing.
+	Scope string `json:"scope,omitempty"`
 }

@@ -13,6 +13,28 @@ as the main one; the difference is the audit log, which records
 OPNsense plugin acts for a logged-in GUI user. Rotate a token by replacing
 its value in the file; the daemon reads the file at start.
 
+## Who can reach FlowSight, and how
+
+- **Addresses.** `api_allow` in `flowsight.json` lists the addresses and
+  networks allowed to reach the interface and API. Everything else gets 403
+  before authentication is even tried. Loopback is always allowed: that is
+  the OPNsense GUI's route, so a mistake in the list never locks anyone out
+  of the GUI. Pi-holes fetch category feeds from anywhere; the feed key
+  protects those.
+- **Encryption.** `https_port` (8443 by default) serves everything over
+  HTTPS with a certificate from the inspection CA, so a device that trusts
+  the CA sees no warning. With `http_local_only`, plain HTTP is served only
+  to loopback and the feeds; a browser on the LAN is redirected to HTTPS.
+  Session cookies are marked Secure over HTTPS.
+- **Tokens.** Named tokens carry a scope: `admin` or `read`. Use `read` for
+  anything that only looks (dashboards, the assistant's MCP token). With
+  `api_token_local_only`, the unnamed token the OPNsense plugin reads works
+  only from loopback.
+- **Guessing.** Eight failed logins or bad tokens from one address within
+  fifteen minutes lock that address out for a minute, doubling on each
+  further failure up to an hour. Loopback is never locked out.
+- **Logging out** ends the session on the server.
+
 ## Attack surface
 
 - **The daemon listens on loopback only** (`127.0.0.1:8080`) unless `bind`
@@ -69,6 +91,10 @@ runs as its own unprivileged user.
   door. Rotate by editing the file and restarting.
 
 ## Data kept, and what leaves the box
+
+The store (`flowsight.db`, with its `-wal` and `-shm` files) and the other
+files at the top of the data directory are readable by root only; the daemon
+sets that each time it opens the store.
 
 FlowSight keeps, in one SQLite file on the gateway: hosts (addresses,
 MACs, names, vendors), flows (who talked to what, how much, which
@@ -243,6 +269,23 @@ FlowSight enforces policy only on traffic the OPNsense ruleset already forwards.
 Write to <flowsight@grio.co>. Please include the version (System page),
 the platform, and steps to reproduce. Fixes ship as signed releases and
 the release notes name the issue once a fix is out.
+
+## Outbound connections
+
+Every request the daemon makes through Go's default transport, and every
+alerting channel, refuses link-local (including the cloud metadata address
+169.254.169.254), multicast and unspecified destinations. The check runs on
+the address actually dialled, after DNS. Webhook replies are read up to 1 MB,
+update manifests up to 1 MB, and release binaries up to 512 MB, and a
+binary must match the size its signed manifest states.
+
+Pi-holes serve self-signed certificates, so FlowSight pins each one on
+first contact (`pin_certificates`, on by default) and refuses a different
+certificate later; `POST /api/pihole/pins/clear` re-pins after a planned
+replacement.
+
+Decrypted URLs are stored without their query values, credentials or
+fragments (the parameter names stay), and the proxy log keeps paths only.
 
 ## Fetching operator-supplied URLs
 
@@ -483,8 +526,10 @@ The space module stores uploaded scan files and layout blueprints.
 
 - **Scan uploads are size-capped** at 96 MB per file and capped at 4 files
   kept simultaneously; the oldest are removed to make room for new ones.
-  Files are stored under `<data>/space/` with fixed names and timestamps,
-  never executed, and validated by format (GLB, OBJ, PLY, RoomPlan JSON).
+  Files are stored under `<data>/space/` with a timestamp and the client's
+  name reduced to its base name and letters, digits, dot, dash and
+  underscore, so a name can never leave that folder; never executed, and
+  validated by format (GLB, OBJ, PLY, RoomPlan JSON).
   Content is sniffed to detect format from magic bytes, not file extensions.
 - **Outbound calls** for address records (geocoding, elevation, footprints,
   broadband data) go only to census.gov (US Census Geocoder), nationalmap.gov

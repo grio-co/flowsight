@@ -109,8 +109,8 @@
 
   FS.needLogin = function () {
     if ($('#login')) return;
-    $('#view').innerHTML = `<div class="card login" id="login"><h2>Sign in</h2><p class="small muted">This FlowSight instance requires its API token.</p><form class="f"><label>API token</label><input type="text" name="token" autocomplete="off" autofocus><div class="actions"><button class="btn primary">Sign in</button></div></form></div>`;
-    $('#login form').onsubmit = async (e) => { e.preventDefault(); const r = await fetch('/api/login', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'Flowsight' }, body: JSON.stringify({ token: e.target.token.value }) }); if (r.ok) { location.reload(); } else FS.toast('Invalid token', true); };
+    $('#view').innerHTML = `<div class="card login" id="login"><h2>Sign in</h2><p class="small muted">This FlowSight instance requires its API token.</p><form class="f"><label>API token</label><input type="password" name="token" autocomplete="off" autofocus><div class="actions"><button class="btn primary">Sign in</button></div></form></div>`;
+    $('#login form').onsubmit = async (e) => { e.preventDefault(); const r = await fetch('/api/login', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'Flowsight' }, body: JSON.stringify({ token: e.target.token.value }) }); if (r.ok) { location.reload(); } else if (r.status === 429) FS.toast('Too many failed attempts from this address; wait a while and try again', true); else if (r.status === 403) FS.toast('This address may not reach FlowSight', true); else FS.toast('Invalid token', true); };
   };
 
   FS.render = async function () {
@@ -168,6 +168,13 @@
     pauseBtn.onclick = () => { FS.setAutoRefresh(!FS.autoRefresh); paint(); if (FS.autoRefresh) FS.render(); };
   }
   $('#navtoggle').onclick = () => $('#nav').classList.toggle('open');
+  // Logging out ends the session on the server. Inside the OPNsense GUI
+  // there is no FlowSight session to end: the GUI's own login is the one.
+  const lo = $('#logout');
+  if (lo) {
+    if (FS.embedded) lo.hidden = true;
+    else lo.onclick = async (e) => { e.preventDefault(); await fetch('/api/system/logout', { headers: { 'X-Requested-With': 'Flowsight' } }); location.reload(); };
+  }
   // SmartSearch (smartsearch.js) owns the box at the top.
   if (FS.smart) FS.smart.init();
   document.addEventListener('keydown', (e) => { if (e.key === 'Escape') FS.closeModal(); });

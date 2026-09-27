@@ -391,7 +391,8 @@
             }
           },
           'run-again': async () => {
-            await post('/api/setup/reset', {});
+            if (!await FS.confirm('Run the setup wizard again?\n\nIts steps can change tokens, resolvers, credentials and the update source.')) return;
+            await post('/api/setup/reset', { reconfigure: true });
             currentStep = 1;
             state.completed = false;
             renderCurrentStep();
@@ -412,7 +413,8 @@
           const action = btn.dataset.action;
           if (action === 'run-again') {
             btn.addEventListener('click', async () => {
-              await post('/api/setup/reset', {});
+              if (!await FS.confirm('Run the setup wizard again?\n\nIts steps can change tokens, resolvers, credentials and the update source.')) return;
+              await post('/api/setup/reset', { reconfigure: true });
               currentStep = 1;
               state.completed = false;
               renderCurrentStep();
