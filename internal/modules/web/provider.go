@@ -138,7 +138,7 @@ func (p *provider) Compile(doc *core.PolicyDoc) (core.Artifact, error) {
 	}
 	params := squidParams{
 		HTTPPort: core.Int(s, "http_port", 3128), HTTPSPort: core.Int(s, "https_port", 3129),
-		Dir: m.dir, LogDir: m.logDir, RunDir: m.runDir, User: core.Str(s, "squid_user", "squid"),
+		Dir: m.dir, LogDir: m.logDir, RunDir: m.runDir, User: m.squidUser(),
 		Group:     pfGroup(m.ctx.Platform),
 		LocalNets: nets, CAPath: caPath, CertDB: filepath.Join(m.ctx.Platform.DataDir, "ssl_db"),
 		CertgenBin: m.certgenBin(), BlockPageURL: firstNonEmpty(doc.Options.BlockPageURL, m.blockPageURL()),

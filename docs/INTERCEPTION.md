@@ -83,6 +83,12 @@ LAN address that appears after the proxy was configured fails the probe and
 withdraws interception until the next apply, rather than sending traffic to
 an address nothing listens on.
 
+Squid runs as the user its package created: `squid` on FreeBSD and Red Hat,
+`proxy` on Debian and Ubuntu (the hidden `squid_user` setting overrides
+it). Squid verifies that an intercepted server name resolves to the address
+the client connected to, so the gateway's own resolver must answer the
+names its clients look up, as it does on any gateway that serves their DNS.
+
 Because the proxy's ports are now open on the LAN, FlowSight's `input` chain
 (`fs_web_in`) turns away any connection to them that did not arrive through
 a redirect: a client aiming at the proxy directly is reset. Loopback passes,

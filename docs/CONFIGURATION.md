@@ -489,7 +489,7 @@ Transparent proxy: server names on every web session, inline blocking at the TLS
 |---|---|---|---|---|
 | `intercept` | Intercept web traffic | bool | `true` | Redirect port 80 and 443 from the local networks through the proxy. Off: the proxy runs but sees nothing. |
 | `networks` | Networks to intercept | list | `[]` | CIDRs. Empty: every local network. |
-| `interfaces` | Interfaces | list | `[]` | pf interface names (vtnet0, igb1). Empty: any. |
+| `interfaces` | Interfaces | list | `[]` | Interface names (vtnet0, igb1 on OPNsense; eth1, lan0 on Linux). Empty: any on pf; on Linux, the interfaces holding the intercepted networks, never the WAN. |
 | `http_port` | HTTP listener port | int | `3128` |  |
 | `https_port` | HTTPS listener port | int | `3129` |  |
 | `peek_server_cert` | Record server certificates without inspecting | bool | `false` | Peeks one step further into the handshake to log the server certificate, then splices. The device still receives the server's own certificate and judges it itself, even one the firewall cannot verify; only inspected devices get the proxy's error page for a bad certificate. A few servers dislike it. |

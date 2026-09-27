@@ -25,6 +25,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"os/user"
 	"path/filepath"
 	"regexp"
 	"sort"
@@ -68,7 +69,7 @@ func (m *Module) Info() core.ModuleInfo {
 		Description:  "Transparent proxy: server names on every web session, inline blocking at the TLS handshake, optional inspection.",
 		Capabilities: []string{core.CapWebObserve, core.CapTLSObserve},
 		Requires:     []string{"squid", "pf"},
-		After:        []string{"identity", "firewall", "categories", "tls"},
+		After:        []string{"identity", "firewall", "nftables", "categories", "tls"},
 		Defaults: map[string]any{
 			"enabled":               true,
 			"intercept":             false,
@@ -84,13 +85,13 @@ func (m *Module) Info() core.ModuleInfo {
 			"ipv6_listener":         "",
 			"block_page_port":       8082,
 			"workers":               1,
-			"squid_user":            "squid",
+			"squid_user":            "",
 		},
 		Schema: []core.SettingField{
 			{Key: "intercept", Label: "Intercept web traffic", Type: "bool",
 				Help: "Redirect port 80 and 443 from the local networks through the proxy. Off: the proxy runs but sees nothing."},
 			{Key: "networks", Label: "Networks to intercept", Type: "list", Help: "CIDRs. Empty: every local network."},
-			{Key: "interfaces", Label: "Interfaces", Type: "list", Help: "pf interface names (vtnet0, igb1). Empty: any."},
+			{Key: "interfaces", Label: "Interfaces", Type: "list", Help: "Interface names (vtnet0, igb1 on OPNsense; eth1, lan0 on Linux). Empty: any on pf; on Linux, the interfaces holding the intercepted networks, never the WAN."},
 			{Key: "http_port", Label: "HTTP listener port", Type: "int"},
 			{Key: "https_port", Label: "HTTPS listener port", Type: "int"},
 			{Key: "peek_server_cert", Label: "Record server certificates without inspecting", Type: "bool",
@@ -219,6 +220,21 @@ func (m *Module) pidPath() string  { return filepath.Join(m.runDir, "squid.pid")
 // squidFallbacks is where squid is looked for when the platform's path does
 // not exist.
 var squidFallbacks = []string{"/usr/local/sbin/squid", "/usr/sbin/squid"}
+
+// squidUser is who squid runs as: the squid_user setting, or else the user
+// the platform's squid package created (squid on FreeBSD and Red Hat,
+// proxy on Debian and Ubuntu).
+func (m *Module) squidUser() string {
+	if u := core.Str(m.ctx.Settings(), "squid_user", ""); u != "" {
+		return u
+	}
+	for _, u := range []string{"squid", "proxy"} {
+		if _, err := user.Lookup(u); err == nil {
+			return u
+		}
+	}
+	return "squid"
+}
 
 func (m *Module) squidBin() string {
 	if b := m.ctx.Platform.SquidBin; b != "" {
@@ -392,10 +408,10 @@ func (m *Module) startSquid() error {
 		db := filepath.Join(m.ctx.Platform.DataDir, "ssl_db")
 		if _, err := os.Stat(db); err != nil {
 			_, _ = core.Run(60*time.Second, cg, "-c", "-s", db, "-M", "16MB")
-			_, _ = core.Run(10*time.Second, "chown", "-R", core.Str(m.ctx.Settings(), "squid_user", "squid"), db)
+			_, _ = core.Run(10*time.Second, "chown", "-R", m.squidUser(), db)
 		}
 	}
-	_, _ = core.Run(10*time.Second, "chown", "-R", core.Str(m.ctx.Settings(), "squid_user", "squid"), m.logDir, m.runDir)
+	_, _ = core.Run(10*time.Second, "chown", "-R", m.squidUser(), m.logDir, m.runDir)
 	if out, err := core.Run(60*time.Second, bin, "-k", "parse", "-f", m.confPath(), "-n", "flowsight"); err != nil {
 		return fmt.Errorf("squid rejected the configuration: %s", tailLines(out, 4))
 	}
@@ -484,7 +500,7 @@ func (m *Module) ensurePlaceholderCert() error {
 	defer f.Close()
 	_ = pem.Encode(f, &pem.Block{Type: "CERTIFICATE", Bytes: der})
 	_ = pem.Encode(f, &pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(key)})
-	_, _ = core.Run(5*time.Second, "chown", core.Str(m.ctx.Settings(), "squid_user", "squid"), path)
+	_, _ = core.Run(5*time.Second, "chown", m.squidUser(), path)
 	return nil
 }
 

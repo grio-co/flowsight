@@ -115,6 +115,10 @@ incoming connections by default (ufw, firewalld), allow ports 3128 and 3129
 from the LAN before turning interception on; the nftables module's health
 warns you when it would be needed. Nothing changes on OPNsense.
 
+warns you when it would be needed. Squid now runs as the user your
+distribution's squid package created (`proxy` on Debian and Ubuntu) instead
+of always `squid`. Nothing changes on OPNsense.
+
 ## 0.9.8r202609271458
 
 **A device no longer inherits the device that held its address before.**
