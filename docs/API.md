@@ -151,7 +151,7 @@ Download the full OpenAPI 3.0 specification at `GET /api/openapi.json` for use w
 **Other operations**
 | Method | Path | What | Parameters |
 |---|---|---|---|
-| GET | `/api/egress/events` | Connection lifecycle events from the firewall connection table | limit |
+| GET | `/api/egress/events` | Transfers that crossed a threshold (volume, rate, ratio, first use, unnamed, tunnel), each with the enriched transfer: application, payload, place, network and device | limit |
 | GET | `/api/egress/live` | Show live connections carrying data with rates and traffic totals by device | group, min_kb |
 | POST | `/api/egress/stop` | Terminate an active outbound transfer connection at the firewall gateway | none |
 | GET | `/api/egress/summary` | Total outbound traffic aggregated by device and destination group | none |
@@ -339,6 +339,7 @@ Download the full OpenAPI 3.0 specification at `GET /api/openapi.json` for use w
 | GET | `/api/paths/path` | Retrieve complete hop-by-hop path to a destination with geolocation and latency data | dst, device, hours |
 | GET | `/api/paths/shodan` | Retrieve Shodan/InternetDB data for a network hop including services and vulnerabilities | ip, now |
 | GET | `/api/paths/status` | Get current tracing status including destination count and last trace time | none |
+| POST | `/api/paths/trace` | Trace one destination now, ahead of the timer: used when a route is asked for that has not been measured yet. Returns at once; poll /api/paths/path for the result. | none |
 
 ### pihole
 

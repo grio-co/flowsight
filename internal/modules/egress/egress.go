@@ -49,6 +49,10 @@ type Module struct {
 	enf      core.Enforcer
 	states   core.StateReader
 	rdns     reverseLookup
+	apps     core.AppCatalog
+	cats     core.Categories
+	anycast  core.AnycastLookup
+	intel    *intelCache
 
 	mu       sync.Mutex
 	prev     map[string]State     // the previous sample, for rates
@@ -86,6 +90,12 @@ type Transfer struct {
 	Serving bool     `json:"serving"`
 	Flags   []string `json:"flags,omitempty"`
 	Since   int64    `json:"since"`
+	// Sub splits the catch-all: "other:app:cloud" with the title a person
+	// reads. Empty for every group but other.
+	Sub      string `json:"sub,omitempty"`
+	SubTitle string `json:"sub_title,omitempty"`
+	// Intel is what else is known: application, name, payload, place, network, device.
+	Intel *Intel `json:"intel,omitempty"`
 }
 
 // Event is what this module publishes when a transfer crosses a line. Later
@@ -97,6 +107,8 @@ type Event struct {
 	Severity string   `json:"severity"`
 	Transfer Transfer `json:"transfer"`
 	Message  string   `json:"message"`
+	// Detail is the sentence the finding carries: how much, for how long, to what.
+	Detail string `json:"detail,omitempty"`
 }
 
 func (m *Module) Info() core.ModuleInfo {
@@ -154,6 +166,10 @@ func (m *Module) Setup(ctx *core.Context) error {
 	m.enf, _ = ctx.Service(core.ServiceEnforcer).(core.Enforcer)
 	m.states, _ = ctx.Service(core.ServiceConnStates).(core.StateReader)
 	m.rdns, _ = ctx.Service("enrich").(reverseLookup)
+	m.apps, _ = ctx.Service("app_catalog").(core.AppCatalog)
+	m.cats, _ = ctx.Service("categories").(core.Categories)
+	m.anycast, _ = ctx.Service("anycast").(core.AnycastLookup)
+	m.intel = newIntelCache()
 	m.prev = map[string]State{}
 	m.live = map[string]*Transfer{}
 	m.names = map[string]string{}
@@ -171,13 +187,15 @@ func (m *Module) Setup(ctx *core.Context) error {
 	// them in one job made a five-second sampler take twelve seconds.
 	ctx.Every("watch", every, m.sweep)
 	ctx.Every("names", 60*time.Second, m.refreshNames)
+	ctx.Every("intel", 45*time.Second, func() error { m.refreshIntel(); return nil }, core.Delayed())
 	ctx.Route("GET", "/api/egress/live", m.apiLive, core.Needs("egress.watch"),
 		core.Doc("Show live connections carrying data with rates and traffic totals by device"),
-		core.Query("group", "string", "Filter by destination group name", false, "workload"),
+		core.Query("group", "string", "Filter by destination group key, or by a sub-key that splits Other (other:app:cloud, other:web:ads, other:as:16509, other:port:https)", false, "cloud-storage"),
 		core.Query("min_kb", "integer", "Minimum traffic in kilobytes to show", false, 0),
 		core.Returns("Live transfers", map[string]any{
 			"transfers": []map[string]any{
-				{"local": "192.168.1.10", "group": "workload", "out": 1000000, "in": 500000, "rate_out": 100.5},
+				{"local": "192.168.1.10", "local_name": "MacBook", "peer": "162.125.21.2", "peer_name": "dropbox.com", "peer_port": 443, "proto": "tcp", "group": "cloud-storage", "out": 1000000, "in": 500000, "rate_out": 100.5,
+					"intel": map[string]any{"app": "TLS.Dropbox", "app_category": "Cloud", "sni": "content.dropboxapi.com", "visibility": "sni", "payload": "Encrypted web (TLS, name seen)", "country": "US", "city": "San Jose", "asn": "19679", "as_name": "Dropbox, Inc.", "mac": "aa:bb:cc:dd:ee:ff", "vendor": "Apple"}},
 			},
 			"sampled": 1790376243, "error": "",
 		}))
@@ -185,15 +203,15 @@ func (m *Module) Setup(ctx *core.Context) error {
 		core.Doc("Total outbound traffic aggregated by device and destination group"),
 		core.Returns("Egress summary", map[string]any{
 			"devices":   []map[string]any{{"key": "192.168.1.10", "name": "MacBook", "out": 5000000}},
-			"groups":    []map[string]any{{"key": "workload", "title": "Work", "out": 5000000}},
+			"groups":    []map[string]any{{"key": "cloud-storage", "title": "Cloud storage", "out": 5000000}, {"key": "other:app:software-update", "title": "Other · Software update", "out": 400000}},
 			"total_out": 5000000, "total_in": 2500000, "rate_out": 250.0,
 		}))
 	ctx.Route("GET", "/api/egress/events", m.apiEvents, core.Needs("egress.watch"),
-		core.Doc("Connection lifecycle events from the firewall connection table"),
+		core.Doc("Transfers that crossed a threshold (volume, rate, ratio, first use, unnamed, tunnel), each with the enriched transfer: application, payload, place, network and device"),
 		core.Query("limit", "integer", "Maximum results to return", false, 200),
 		core.Returns("Connection events", map[string]any{
 			"events": []map[string]any{
-				{"ts": 1790376243, "type": "start", "local": "192.168.1.10", "remote": "8.8.8.8", "bytes": 100000},
+				{"ts": 1790376243, "kind": "volume", "severity": "medium", "message": "MacBook has sent 255 MB to dropbox.com", "detail": "MacBook has sent 255 MB and received 1.2 MB over 4m, to dropbox.com at 162.125.21.2 port 443.", "transfer": map[string]any{"local": "192.168.1.10", "peer": "162.125.21.2", "group": "cloud-storage", "out": 267386880, "intel": map[string]any{"payload": "Encrypted web (TLS, name seen)", "country": "US", "as_name": "Dropbox, Inc."}}},
 			},
 		}))
 	ctx.Route("POST", "/api/egress/stop", m.apiStop, core.Write(), core.Needs("egress.watch"),
@@ -282,6 +300,10 @@ func (m *Module) sweep() error {
 		if m.identity != nil {
 			t.LocalName = m.identity.Name(s.Local)
 		}
+		t.Intel = m.intelFor(t)
+		if group == "other" {
+			t.Sub, t.SubTitle = subgroup(t.Intel, s.PeerPort, s.Proto)
+		}
 		if p, ok := prev[s.Key()]; ok {
 			if d := s.Out - p.Out; d > 0 {
 				t.RateOut = float64(d) / gap
@@ -348,7 +370,7 @@ func (m *Module) evaluate(t *Transfer, now time.Time) []Event {
 			sev = raise(sev)
 		}
 		t.Flags = append(t.Flags, kind)
-		e := Event{TS: now.Unix(), Kind: kind, Severity: sev, Transfer: *t, Message: msg}
+		e := Event{TS: now.Unix(), Kind: kind, Severity: sev, Transfer: *t, Message: msg, Detail: m.detail(t)}
 		out = append(out, e)
 		m.ctx.Event("egress", msg, map[string]any{
 			"device": t.Local, "peer": t.Peer, "name": t.PeerName, "group": t.Group,
@@ -630,7 +652,7 @@ func (m *Module) apiLive(r *core.Req) (any, error) {
 	m.mu.Lock()
 	rows := make([]Transfer, 0, len(m.live))
 	for _, t := range m.live {
-		if group != "" && t.Group != group {
+		if group != "" && t.Group != group && t.Sub != group {
 			continue
 		}
 		if t.Out+t.In < minKB {
@@ -660,6 +682,7 @@ func (m *Module) apiSummary(r *core.Req) (any, error) {
 		In      int64   `json:"in"`
 		RateOut float64 `json:"rate_out"`
 		Flows   int     `json:"flows"`
+		Desc    string  `json:"desc,omitempty"`
 	}
 	byDevice := map[string]*agg{}
 	byGroup := map[string]*agg{}
@@ -672,10 +695,14 @@ func (m *Module) apiSummary(r *core.Req) (any, error) {
 			d = &agg{Key: t.Local, Name: t.LocalName}
 			byDevice[t.Local] = d
 		}
-		g := byGroup[t.Group]
+		gk, gt := t.Group, t.GroupName
+		if t.Sub != "" {
+			gk, gt = t.Sub, t.SubTitle
+		}
+		g := byGroup[gk]
 		if g == nil {
-			g = &agg{Key: t.Group, Title: t.GroupName}
-			byGroup[t.Group] = g
+			g = &agg{Key: gk, Title: gt, Desc: groupDesc(gk)}
+			byGroup[gk] = g
 		}
 		for _, a := range []*agg{d, g} {
 			a.Out += t.Out

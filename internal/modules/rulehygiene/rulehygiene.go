@@ -35,6 +35,12 @@ type Module struct {
 	lastRun  time.Time
 	platform string
 	rules    core.RuleReader
+	// The ruleset as last analysed, counters and all, and which open
+	// findings each rule carries. The rules endpoint serves this: the page
+	// promises "rules with live counters", and reconstructing them from the
+	// findings table gave it nothing when there were no findings.
+	lastRules    []Rule
+	lastFindings map[string][]string
 
 	// OPNsense config tracking
 	configPath     string
@@ -297,6 +303,15 @@ func (m *Module) analyse() error {
 
 	// Analyse for issues.
 	result := m.findIssues(rules, rulesetLoadedSec)
+	byRule := map[string][]string{}
+	for text, fs := range result.Findings {
+		for _, f := range fs {
+			byRule[text] = append(byRule[text], f.Title)
+		}
+	}
+	m.mu.Lock()
+	m.lastRules, m.lastFindings = rules, byRule
+	m.mu.Unlock()
 
 	// Record findings in the store.
 	keep := make(map[string]bool)
@@ -711,21 +726,30 @@ func (m *Module) apiSummary(r *core.Req) (any, error) {
 }
 
 func (m *Module) apiRules(r *core.Req) (any, error) {
-	// Get all rules from the latest analysis (from the findings table).
-	// For simplicity, we'll reconstruct from findings.
-	findings, _ := m.ctx.Store.Rows(
-		`SELECT DISTINCT subject FROM findings WHERE module='rulehygiene' AND resolved_ts IS NULL`,
-	)
-
-	var rules []map[string]any
-	for _, f := range findings {
-		subject, _ := f["subject"].(string)
-		rules = append(rules, map[string]any{
-			"subject": subject,
+	m.mu.Lock()
+	rules, byRule := m.lastRules, m.lastFindings
+	m.mu.Unlock()
+	out := make([]map[string]any, 0, len(rules))
+	for _, x := range rules {
+		out = append(out, map[string]any{
+			"index": x.Index, "rule": x.Text, "label": x.Label, "interface": ruleInterface(x.Text),
+			"evaluations": x.Evaluations, "packets": x.Packets, "bytes": x.Bytes, "states": x.States,
+			"description": x.Description, "findings": byRule[x.Text],
 		})
 	}
+	return map[string]any{"rules": out, "count": len(out)}, nil
+}
 
-	return map[string]any{"rules": rules}, nil
+var onIfaceRe = regexp.MustCompile(`\bon (!?[A-Za-z0-9_.:{}, -]+?)(?: inet6?| proto | from | to | all|$)`)
+
+// ruleInterface reads the interface a pf rule is bound to, "" for a rule on
+// every interface.
+func ruleInterface(text string) string {
+	m := onIfaceRe.FindStringSubmatch(text)
+	if m == nil {
+		return ""
+	}
+	return strings.TrimSpace(m[1])
 }
 
 func (m *Module) apiFindings(r *core.Req) (any, error) {

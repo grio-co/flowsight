@@ -577,6 +577,24 @@ func (c *Core) apiModules(r *Req) (any, error) {
 var lockedKeys = map[string]bool{"bind": true, "port": true, "api_token": true, "data_dir": true,
 	"workers": true, "paths": true}
 
+// lockedSetting says whether a key in a module save must be refused. The
+// locked names are the daemon's own (its bind address and port, its token,
+// its data directory), which no module declares. A module that declares a
+// setting called "port" in its schema means its own listener (the decoder's
+// loopback port, the captive portal's), and saving it is what its settings
+// page is for; refusing it made "enable stateful inspection" fail with a
+// message about the API. Anything naming a binary stays refused.
+func lockedSetting(key string, declared bool) bool {
+	if strings.Contains(key, "_bin") || strings.Contains(key, "binary") {
+		return true
+	}
+	switch key {
+	case "port", "bind":
+		return !declared // a module's own listener when its schema names it
+	}
+	return lockedKeys[key]
+}
+
 func (c *Core) apiModuleSave(r *Req) (any, error) {
 	var in struct {
 		Module   string         `json:"module"`
@@ -600,10 +618,10 @@ func (c *Core) apiModuleSave(r *Req) (any, error) {
 		schema[f.Key] = f
 	}
 	for k, v := range in.Settings {
-		if lockedKeys[k] || strings.Contains(k, "_bin") || strings.Contains(k, "binary") {
+		f, ok := schema[k]
+		if lockedSetting(k, ok) {
 			return nil, Forbidden("%q cannot be changed through the API", k)
 		}
-		f, ok := schema[k]
 		if !ok && k != "enabled" {
 			return nil, BadRequest("unknown setting %q", k)
 		}

@@ -4,6 +4,11 @@ const FS = window.FS = {};
 
 // --------------------------------------------------------------- API
 FS.base = window.FS_API_BASE || '';   // the OPNsense shim sets this to a proxy path
+// apiURL is the address of a daemon path as this page must reach it: through
+// the host's proxy when embedded, direct otherwise. Every href that points
+// at the API (a download, an export) goes through it; a bare /api/... link
+// inside the OPNsense GUI is answered by OPNsense, not by FlowSight.
+FS.apiURL = (path) => FS.base ? FS.base + encodeURIComponent(path) : path;
 FS.api = async function (path, opts) {
   opts = opts || {};
   const url = FS.base ? FS.base + encodeURIComponent(path) : path;
@@ -208,7 +213,10 @@ FS.bars = (rows, fmt) => {
   if (!rows || !rows.length) return FS.empty();
   const max = Math.max(...rows.map(r => Number(r.value) || 0), 1);
   fmt = fmt || FS.num;
-  return rows.map(r => `<div class="barrow"><span class="lab" title="${FS.esc(r.title || r.label)}">${r.href ? `<a href="${r.href}">${FS.esc(r.label)}</a>` : FS.esc(r.label)}${r.subHTML ? ` <span class="muted small">${r.subHTML}</span>` : r.sub ? ` <span class="muted small">${FS.esc(r.sub)}</span>` : ''}${r.extra || ''}</span><span class="num">${fmt(r.value)}</span><span class="bar"><i style="width:${Math.max(1, 100 * (Number(r.value) || 0) / max)}%"></i></span></div>`).join('');
+  // The whole row is the link, not only the label: a bar is the obvious thing
+  // to click and a click on it that did nothing read as a dead link. The
+  // stretched anchor sits under the label's own links so those still work.
+  return rows.map(r => `<div class="barrow${r.href ? ' linked' : ''}">${r.href ? `<a class="barlink" href="${r.href}" aria-label="${FS.esc(r.title || r.label)}" title="${FS.esc(r.title || r.label)}"></a>` : ''}<span class="lab" title="${FS.esc(r.title || r.label)}">${r.href ? `<a href="${r.href}">${FS.esc(r.label)}</a>` : FS.esc(r.label)}${r.subHTML ? ` <span class="muted small">${r.subHTML}</span>` : r.sub ? ` <span class="muted small">${FS.esc(r.sub)}</span>` : ''}${r.extra || ''}</span><span class="num">${fmt(r.value)}</span><span class="bar"><i style="width:${Math.max(1, 100 * (Number(r.value) || 0) / max)}%"></i></span></div>`).join('');
 };
 
 // Sortable table. cols: [{k, t, f(row), num, w}]
@@ -862,3 +870,58 @@ FS.readForm = (form, schema) => {
   return out;
 };
 FS.diffHtml = (d) => FS.esc(d || '').split('\n').map(l => l.startsWith('+') ? `<span class="add">${l}</span>` : l.startsWith('-') ? `<span class="del">${l}</span>` : l).join('\n');
+
+// --------------------------------------------------------------- host picker
+// A list of the network's devices to tick, feeding a members textarea. A
+// ticked device goes in as mac:<hardware address>, which the resolver
+// expands to every address the device holds on every interface, so a laptop
+// on Wi-Fi and Ethernet, or a phone rotating its IPv6, is one member and
+// stays covered. A device with no hardware address (a static host, a VM the
+// gateway only ever saw by address) goes in by each address instead.
+FS.hostPicker = (box, textarea) => {
+  const list = FS.$('#hp-list', box), q = FS.$('#hp-q', box), all = FS.$('#hp-all', box);
+  if (!list || !textarea) return;
+  const current = () => textarea.value.split(/\n|,/).map(x => x.trim()).filter(Boolean);
+  const setMembers = (arr) => { textarea.value = arr.join('\n'); };
+  const keyOf = (h) => h.mac ? 'mac:' + h.mac.toLowerCase() : null;
+  let hosts = [];
+  const shown = () => {
+    const needle = (q && q.value || '').trim().toLowerCase();
+    return hosts.filter(h => !needle || [h.name, h.ip, h.mac, h.vendor, h.zone].some(v => (v || '').toLowerCase().includes(needle)));
+  };
+  const paint = () => {
+    const have = new Set(current());
+    const rows = shown().slice(0, 300).map(h => {
+      const k = keyOf(h) || h.ip;
+      const on = have.has(k) || (h.addresses || []).some(a => have.has(a));
+      return `<label class="hprow"><input type="checkbox" data-k="${FS.esc(k)}" ${on ? 'checked' : ''}> <b>${FS.esc(h.name || h.ip)}</b> <span class="muted small">${FS.esc([h.vendor, h.ip, h.mac, h.zone ? 'zone ' + h.zone : ''].filter(Boolean).join(' \u00b7 '))}</span></label>`;
+    }).join('');
+    list.innerHTML = rows || '<div class="muted small">No device matches.</div>';
+    FS.$$('input[data-k]', list).forEach(cb => cb.onchange = () => {
+      const k = cb.dataset.k, h = hosts.find(x => (keyOf(x) || x.ip) === k);
+      const adds = h && !keyOf(h) && (h.addresses || []).length ? h.addresses : [k];
+      let m = current().filter(x => !adds.includes(x));
+      if (cb.checked) m = m.concat(adds.filter(a => !m.includes(a)));
+      setMembers(m);
+    });
+  };
+  if (q) q.oninput = paint;
+  if (all) all.onclick = () => {
+    let m = current();
+    shown().forEach(h => { const adds = keyOf(h) ? [keyOf(h)] : ((h.addresses || []).length ? h.addresses : [h.ip]); adds.forEach(a => { if (!m.includes(a)) m.push(a); }); });
+    setMembers(m); paint();
+  };
+  FS.get('/api/identity/hosts?hours=720').then(d => {
+    // One row per device: several addresses with one hardware address fold.
+    const byKey = {};
+    (d.hosts || []).forEach(h => {
+      const k = keyOf(h) || h.ip;
+      const e = byKey[k] || (byKey[k] = Object.assign({}, h, { addresses: [] }));
+      if (h.ip && !e.addresses.includes(h.ip)) e.addresses.push(h.ip);
+      (h.addresses || h.ips || []).forEach(a => { if (a && !e.addresses.includes(a)) e.addresses.push(a); });
+      if (!e.name && h.name) e.name = h.name;
+    });
+    hosts = Object.values(byKey).sort((a, b) => (a.name || a.ip).localeCompare(b.name || b.ip));
+    paint();
+  }).catch(() => { list.innerHTML = '<div class="muted small">The device list could not be loaded.</div>'; });
+};

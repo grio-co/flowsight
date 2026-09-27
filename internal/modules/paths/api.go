@@ -8,6 +8,7 @@ package paths
 // probe went out.
 
 import (
+	"context"
 	"fmt"
 	"math"
 	"sort"
@@ -1041,4 +1042,50 @@ func trimTrail(nodes []Node, dst string) (out []Node, reached bool, probedTo, la
 		lastAnswer = nodes[end-1].Index
 	}
 	return nodes[:end], false, probedTo, lastAnswer
+}
+
+// apiTraceNow traces one destination outside the timer. A reader who has
+// clicked "Map" beside an address wants the route to it, and the timer may
+// not reach that address for an hour; this runs it now, once, and the page
+// polls for the answer. One trace per destination at a time.
+func (m *Module) apiTraceNow(r *core.Req) (any, error) {
+	var in struct {
+		Dst string `json:"dst"`
+	}
+	if err := r.Decode(&in); err != nil {
+		return nil, err
+	}
+	dst := strings.TrimSpace(in.Dst)
+	if dst == "" || !looksLikeAddress(dst) {
+		return nil, core.BadRequest("dst must be an IP address")
+	}
+	if m.identity != nil && m.identity.IsLocal(dst) {
+		return nil, core.BadRequest("addresses on this network have no route worth tracing")
+	}
+	m.mu.Lock()
+	if m.tracingNow == nil {
+		m.tracingNow = map[string]bool{}
+	}
+	running := m.tracingNow[dst]
+	if !running {
+		m.tracingNow[dst] = true
+	}
+	m.mu.Unlock()
+	if running {
+		return map[string]any{"started": false, "already_running": true, "dst": dst}, nil
+	}
+	go func() {
+		defer func() {
+			m.mu.Lock()
+			delete(m.tracingNow, dst)
+			m.mu.Unlock()
+		}()
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+		defer cancel()
+		t := m.trace(ctx, dst, strings.Contains(dst, ":"))
+		if err := m.save(t); err != nil {
+			m.fail(err.Error())
+		}
+	}()
+	return map[string]any{"started": true, "already_running": false, "dst": dst}, nil
 }

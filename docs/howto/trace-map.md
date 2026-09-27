@@ -41,6 +41,8 @@ Find where a server or application really lives using the Map page: see the rout
    - **Data** (bottom, folded): tabs for the overview numbers, the data sources, your location, the physics tables, hops not on the map, every destination, the full route trail and the notes
    - Hovering any hop shows its address, place and round trip at the pointer; the **+ − ⌂** buttons bottom right zoom and reset
 
+   If the destination has never been traced, the Map starts a trace at once and says so in the toolbar; the route appears when it finishes, usually within a minute.
+
    Panels move: drag one by its title, and near an edge it docks. Double-click a title to send it home, fold it with the small button, close it with the cross, and use **Panels** in the toolbar to bring one back or reset them all. Your arrangement is remembered in this browser.
 
 3. **Understand the route.**

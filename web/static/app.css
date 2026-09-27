@@ -761,3 +761,21 @@ tr.flagged td:first-child { box-shadow: inset 3px 0 0 var(--warn); }
   .fspanel .fsph .grip, .fspanel .fspr { display: none; }
   .fspanel .fspb { max-height: 60vh; }
 }
+
+/* Device picker inside the group editor. */
+.hplist { max-height: 240px; overflow: auto; border: 1px solid var(--line); border-radius: 8px; padding: 4px 8px; }
+.hprow { display: flex; gap: 8px; align-items: baseline; padding: 4px 0; border-top: 1px solid var(--line); font-size: 13px; cursor: pointer; }
+.hprow:first-child { border-top: 0; }
+
+/* The DLP kinds legend. */
+.kindshelp > summary { cursor: pointer; font-size: 12px; color: var(--muted); }
+.kinds { display: grid; grid-template-columns: max-content 1fr; gap: 6px 10px; margin: 8px 0 4px; font-size: 12.5px; }
+.kinds dt { margin: 0; }
+.kinds dd { margin: 0; color: var(--ink); }
+
+/* A bar row that links: the stretched anchor takes the click anywhere on the row. */
+.barrow.linked { position: relative; cursor: pointer; }
+.barrow.linked:hover { background: color-mix(in srgb, var(--accent) 7%, transparent); }
+.barrow .barlink { position: absolute; inset: 0; z-index: 1; }
+.barrow .lab a, .barrow .lab .maplink, .barrow .num, .barrow .bar { position: relative; z-index: 2; }
+.barrow .num, .barrow .bar { pointer-events: none; }

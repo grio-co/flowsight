@@ -382,7 +382,7 @@
       el.innerHTML = `<div class="grid cols-1">
         ${card('Report Definitions', `<div class="actions"><button class="btn primary" id="new-def">New Definition</button></div>` + table(definitions, [{ t: 'Name', f: x => `<b>${esc(x.name)}</b>${x.read_only ? ' ' + pill('built-in', 'info') : ''}` }, { t: 'Sections', f: x => x.sections.length + ' selected' }, { t: 'Schedule', f: x => x.schedule && x.schedule.enabled ? esc(x.schedule.cadence + ' at ' + x.schedule.time_utc) : 'not scheduled' }, { t: '', f: x => `<button class="btn small" data-run="${esc(x.id)}">Run now</button> ${x.read_only ? '<button class="btn small" data-dup="${esc(x.id)}">Duplicate</button>' : `<button class="btn small" data-edit="${esc(x.id)}">Edit</button> <button class="btn small danger" data-del="${esc(x.id)}">Delete</button>`}` }], { empty: 'No definitions yet.' }))}
       </div>
-      <div style="margin-top:14px">${card('Recent Runs', table(runsList.slice(0, 20), [{ t: 'Definition', k: 'definition' }, { t: 'Status', f: x => pill(x.status, x.status === 'done' ? 'ok' : x.status === 'failed' ? 'bad' : 'info') }, { t: 'Started', f: x => when(x.started_at), sort: 'started_at' }, { t: 'Size', f: x => bytes(Object.values(x.sizes || {}).reduce((a,b)=>a+b,0)) }, { t: 'Formats', f: x => (x.formats || []).map(f => pill(f, 'info')).join(' ') }, { t: '', f: x => x.formats.map(f => `<a class="btn small" href="/api/reports/runs/${esc(x.id)}/download?format=${f}">${f}</a>`).join(' ') }], { empty: 'No runs yet.' }))}
+      <div style="margin-top:14px">${card('Recent Runs', table(runsList.slice(0, 20), [{ t: 'Definition', k: 'definition' }, { t: 'Status', f: x => pill(x.status, x.status === 'done' ? 'ok' : x.status === 'failed' ? 'bad' : 'info') }, { t: 'Started', f: x => when(x.started_at), sort: 'started_at' }, { t: 'Size', f: x => bytes(Object.values(x.sizes || {}).reduce((a,b)=>a+b,0)) }, { t: 'Formats', f: x => (x.formats || []).map(f => pill(f, 'info')).join(' ') }, { t: '', f: x => x.formats.map(f => `<a class="btn small" href="${esc(FS.apiURL('/api/reports/runs/' + x.id + '/download?format=' + f))}">${f}</a>`).join(' ') }], { empty: 'No runs yet.' }))}
       </div>`;
 
       const editDef = (id) => {
@@ -618,7 +618,38 @@
   const groupPill = (t) => {
     const tone = { unknown: 'bad', tunnel: 'warn', 'cloud-storage': 'warn', 'file-transfer': 'warn',
       webmail: 'warn', 'remote-access': 'warn', ai: 'warn' }[t.group] || '';
-    return pill(t.group_title || t.group, tone);
+    const d = (FS.egressKinds || {})[t.group];
+    return `<span title="${esc(d || '')}">${pill(t.group_title || t.group, tone)}</span>`;
+  };
+  // The who, what and where of one transfer, from the intel the module
+  // attaches: device with maker and address; application, name, payload
+  // reading and what was inspected; the far end's name, address, place and
+  // network, with a way to the map.
+  const whoCell = (t) => {
+    const i = t.intel || {};
+    return `${FS.hostLink(t.local, t.local_name)}<div class="muted small">${esc([i.vendor, t.local_name ? t.local : '', i.mac].filter(Boolean).join(' \u00b7 '))}</div>`;
+  };
+  const visPill = (v) => v ? pill(v, v === 'inspected' ? 'ok' : (v === 'opaque' || v === 'ech') ? 'warn' : '') : '';
+  const whatCell = (t) => {
+    const i = t.intel || {};
+    const name = i.sni || i.domain || '';
+    const lines = [];
+    if (i.payload) lines.push(`<b>${esc(i.payload)}</b>`);
+    const meta = [i.app, i.app_category && i.app_category !== i.app ? i.app_category : '', name].filter(Boolean).join(' \u00b7 ');
+    if (meta) lines.push(`<div class="small">${esc(meta)}</div>`);
+    if ((i.content_types || []).length) lines.push(`<div class="muted small mono">${esc(i.content_types.slice(0, 4).join(', '))}${i.content_types.length > 4 ? ` +${i.content_types.length - 4}` : ''}</div>`);
+    if ((i.web_categories || []).length) lines.push(`<div class="muted small">${esc(i.web_categories.slice(0, 3).join(', '))}</div>`);
+    lines.push(`<div class="small">${visPill(i.visibility)} ${groupPill(t)}${t.sub_title ? ` <span class="muted small">${esc(t.sub_title)}</span>` : ''}</div>`);
+    return lines.join('');
+  };
+  const whereCell = (t) => {
+    const i = t.intel || {};
+    const place = [i.city, i.region].filter(Boolean).join(', ');
+    return `<b>${esc(t.service || t.peer_name || t.peer)}</b>${(t.peer_name && t.peer_name !== t.service) ? `<div class="muted small">${esc(t.peer_name)}</div>` : ''}
+      <div class="muted small mono">${esc(t.peer)}:${t.peer_port} ${esc(t.proto)}</div>
+      <div class="small">${i.country ? FS.cc(i.country, { cls: 'pill' }) : ''} ${esc(place)}${i.anycast ? ` ${pill('anycast', '')}` : ''}</div>
+      ${i.as_name || i.asn ? `<div class="muted small">${esc(i.as_name || '')}${i.asn ? ` (AS${esc(i.asn)})` : ''}${i.provider && i.provider !== i.as_name ? ' \u00b7 ' + esc(i.provider) : ''}</div>` : ''}
+      <div class="small"><a href="#paths?dst=${encodeURIComponent(t.peer)}" title="The route to this far end on the map">map</a> \u00b7 <a href="#flows?ip=${encodeURIComponent(t.local)}&dst=${encodeURIComponent(t.peer)}">sessions</a></div>`;
   };
   FS.registerPage('egress', {
     title: 'DLP', refresh: 5,
@@ -630,6 +661,10 @@
         get(`/api/visibility/abroad?${FS.since()}`)]);
       if (live.error && !live.transfers) { el.innerHTML = FS.err(live.error); return; }
       const rows = live.transfers || [];
+      // What each kind means, for the bubbles on every pill and the legend.
+      const kinds = (live.groups || []).filter(g => g && g.key);
+      FS.egressKinds = {}; kinds.forEach(g => { FS.egressKinds[g.key] = g.desc || ''; });
+      const KINDS_DOC = 'https://github.com/grio-co/flowsight/blob/main/docs/howto/dlp-watch.md#kinds-of-destination';
       // Only connections this network opened count as data leaving. A server
       // here answering the internet has really sent the bytes, and saying so
       // is useful, but it is not the same question.
@@ -646,7 +681,8 @@
         ${kpi('Flagged', num(open), 'transfers that crossed a threshold', open ? 'bad' : '')}</div>
 
       <div class="grid cols-2" style="margin-top:14px">
-        ${card('By destination', bars((sum.groups || []).map(g => ({ label: g.title || g.key, value: g.out, href: '#egress?group=' + encodeURIComponent(g.key) + (ctx.params.all ? '&all=1' : ''), title: 'Show the connections of this kind' })), bytes))}
+        ${card('By destination', bars((sum.groups || []).map(g => ({ label: g.title || g.key, value: g.out, href: '#egress?group=' + encodeURIComponent(g.key) + (ctx.params.all ? '&all=1' : ''), title: (g.desc ? g.desc + ' ' : '') + 'Click to show the connections of this kind.' })), bytes),
+          `<details class="kindshelp"><summary>What the kinds mean</summary><dl class="kinds">${kinds.map(g => `<dt>${pill(g.title, g.watch ? 'warn' : '')}</dt><dd>${esc(g.desc || '')}${g.watch ? ' <span class="muted">Watched by default.</span>' : ''}</dd>`).join('')}</dl><div class="help">Watched kinds raise an event when a device uploads to them; the rest are measured and shown but do not raise anything on their own. Which kinds are watched is a setting under egress. <a href="${KINDS_DOC}" target="_blank" rel="noopener">More about each kind in the documentation</a>.</div></details>`)}
         ${card('By device', bars((sum.devices || []).map(d => ({ label: d.name || d.key, sub: d.name ? d.key : '', value: d.out, href: '#host/' + d.key })), bytes))}
       </div>
 
@@ -655,8 +691,8 @@
         { t: 'Direction', f: r => r.serving
             ? `<span class="muted small" title="The far side opened this connection: something here is answering the internet, not reaching out to it">serving</span>`
             : pill('reaching out', ''), sort: 'serving' },
-        { t: 'Destination', f: r => `<b>${esc(r.service || r.peer_name || r.peer)}</b>${(r.peer_name && r.peer_name !== r.service) ? `<div class="muted small">${esc(r.peer_name)}</div>` : ''}<div class="muted small">${esc(r.peer)}:${r.peer_port} ${esc(r.proto)}</div>`, sort: 'peer_name' },
-        { t: 'Kind', f: r => groupPill(r), sort: 'group' },
+        { t: 'Where', f: r => whereCell(r), sort: 'peer_name' },
+        { t: 'What', f: r => whatCell(r), sort: 'group' },
         { t: 'Sending', f: r => `<b>${rate(r.rate_out)}</b>`, num: true, sort: 'rate_out' },
         { t: 'Sent', f: r => bytes(r.out), num: true, sort: 'out' },
         { t: 'Received', f: r => bytes(r.in), num: true, sort: 'in' },
@@ -668,11 +704,13 @@
         (ctx.params.all ? `<a href="#egress${ctx.params.group ? '?group=' + encodeURIComponent(ctx.params.group) : ''}">hide small connections</a>` : `<a href="#egress?all=1${ctx.params.group ? '&group=' + encodeURIComponent(ctx.params.group) : ''}">show every connection</a>`))}</div>
 
       <div style="margin-top:14px">${card('Flagged transfers', table(events, [
-        { t: 'When', f: r => when(r.ts), sort: 'ts' },
-        { t: 'Severity', f: r => FS.sevPill(r.severity), sort: 'severity' },
-        { t: 'What', f: r => `<b>${esc(r.message)}</b>`, sort: 'message' },
-        { t: 'Kind', f: r => pill(r.kind), sort: 'kind' },
-        { t: 'Device', f: r => hostLink(r.transfer.local, r.transfer.local_name), sort: 'transfer' }],
+        { t: 'When', f: r => `${when(r.ts)}<div class="muted small">${r.transfer.since ? 'open since ' + when(r.transfer.since) + ', ' : ''}${FS.dur(r.transfer.age || 0)} at the time</div>`, sort: 'ts' },
+        { t: 'Severity', f: r => FS.sevPill(r.severity) + `<div class="muted small">${esc(r.kind)}</div>`, sort: 'severity' },
+        { t: 'Who', f: r => whoCell(r.transfer), sort: 'transfer' },
+        { t: 'What', f: r => whatCell(r.transfer), sort: 'message' },
+        { t: 'Where', f: r => whereCell(r.transfer) },
+        { t: 'How much', f: r => `<b>${bytes(r.transfer.out)}</b> sent<div class="muted small">${bytes(r.transfer.in)} received${r.transfer.rate_out ? ' \u00b7 ' + rate(r.transfer.rate_out) + ' at the time' : ''}</div>`, num: true, sort: 'transfer' },
+        { t: 'Why', f: r => `<b>${esc(r.message)}</b>${r.detail ? `<div class="muted small">${esc(r.detail)}</div>` : ''}` }],
         { empty: 'Nothing has crossed a threshold. Thresholds are in Settings, under egress.' }))}</div>
 
       <div class="help" style="margin-top:12px">${esc(live.note || '')} Sampled ${live.sampled ? ago(live.sampled) : 'never'}.</div>`;
@@ -690,6 +728,13 @@
         { t: '', f: x => `<button class="btn small" data-block-abroad="${esc(x.mac ? 'mac:' + x.mac : x.ip)}" data-cc="${esc((x.countries || []).map(c => c.country).join(','))}" title="Open a policy denying these countries for this device">Block…</button>` }]) : `<div class="empty">${homeCC ? 'No device reached another country in this window.' : 'The country of this gateway is not known yet: turn on Country lookup under Settings › enrich so sessions carry a country and "home" can be told.'}</div>`,
         `<span class="muted small">${num(adev.length)} devices · window ${FS.state.hours}h · home ${homeCC ? FS.cc(homeCC, { cls: 'pill' }) : ''} · <a href="#flows?abroad=1">all sessions outside the country</a> · <a href="#flows?anycast=1">anycast sessions</a>. Anycast far ends (Cloudflare, public resolvers, root servers and the like) answer from a nearby site whatever country their range is registered in, so they are shown apart and never count as abroad.</span>`)}</div>`;
       FS.$$('[data-block-abroad]', el).forEach(b => b.onclick = () => FS.quickPolicy({ countries: b.dataset.cc.split(',').filter(Boolean), members: [b.dataset.blockAbroad] }));
+      // A click on a kind narrows the connection list, which sits below the
+      // fold; bring it into view so the click visibly lands somewhere.
+      if (ctx.params.group && FS.egressLastGroup !== ctx.params.group) {
+        const lc = FS.$('#live-card', el);
+        if (lc && lc.scrollIntoView) lc.scrollIntoView({ block: 'start', behavior: 'smooth' });
+      }
+      FS.egressLastGroup = ctx.params.group || '';
 
       FS.$$('[data-stop]', el).forEach(b => b.onclick = async () => {
         if (!await FS.confirm(`Stop the transfer from ${b.dataset.stop} to ${b.dataset.peer}? The connection is dropped at the firewall. The device may open another one.`)) return;
@@ -1502,6 +1547,7 @@
           ${/* Shown once a hop has narrowed the map. Anything that hides most of
                 what was on screen has to say so and be undoable in one click. */''}
           <span class="mapfilter" id="mapfilter" hidden><span id="mapfilter-text"></span><button type="button" id="mapfilter-next" class="linkish" hidden title="Load the next route through this hop">next &rsaquo;</button><button type="button" id="mapfilter-off" aria-label="Show every route">&times;</button></span>
+          ${picked && !routeHops.length ? `<span class="mapfilter" id="tracing-chip"><span id="tracing-text">No route to ${esc(destName)} yet · tracing it now…</span></span>` : ''}
           <span class="sp"></span>
           <button class="btn small" id="panels-menu" title="Show, hide or reset the panels">Panels</button>
         </div>
@@ -2001,6 +2047,33 @@
         zoomedOn = null;
         if (FS.panZoomHandle) FS.panZoomHandle.reset();
       };
+      // Arriving at a destination nobody has traced yet: ask for the trace
+      // now rather than leave the reader on the default map wondering, and
+      // redraw when the answer lands. The timer would get there eventually;
+      // a person clicking "Map" beside an address is not on the timer.
+      if (picked && !routeHops.length) {
+        const chip = FS.$('#tracing-text', el);
+        const started = Date.now();
+        const key = 'fs.tracing.' + picked;
+        let asked = false;
+        try { asked = (Number(sessionStorage.getItem(key)) || 0) > Date.now() - 180000; } catch (e) { }
+        if (!asked) {
+          try { sessionStorage.setItem(key, String(Date.now())); } catch (e) { }
+          post('/api/paths/trace', { dst: picked }).then(r => {
+            if (r && r.error && chip) chip.textContent = `No route to ${destName}: ${r.error}`;
+          });
+        }
+        const poll = async () => {
+          if (FS.parseHash().page !== 'paths' || (FS.parseHash().params || {}).dst !== picked) return;
+          const r = await get('/api/paths/path?dst=' + encodeURIComponent(picked));
+          if (r && (r.hops || []).length) { FS.render(); return; }
+          const waited = Math.round((Date.now() - started) / 1000);
+          if (waited > 150) { if (chip) chip.textContent = `No route to ${destName} yet: the trace did not finish in time. It will be retried by the timer.`; return; }
+          if (chip) chip.textContent = `No route to ${destName} yet · tracing it now… ${waited}s`;
+          setTimeout(poll, 8000);
+        };
+        setTimeout(poll, 8000);
+      }
       FS.$('#f-clear', el).onclick = () => FS.go('paths');
       FS.$('#f-reset', el).onclick = () => {
         zoomedOn = null;

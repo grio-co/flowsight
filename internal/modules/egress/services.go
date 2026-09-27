@@ -18,27 +18,44 @@ import "strings"
 
 // Group is a coarse class of destination.
 type Group struct {
-	Key   string
-	Title string
+	Key   string `json:"key"`
+	Title string `json:"title"`
 	// Watch marks a group whose uploads are worth flagging by default.
-	Watch bool
+	Watch bool `json:"watch"`
+	// Desc says what the group means and why it is or is not watched; the
+	// page shows it as the bubble on each pill and in the legend.
+	Desc string `json:"desc"`
 }
 
 var groups = []Group{
-	{"cloud-storage", "Cloud storage", true},
-	{"file-transfer", "File transfer and paste", true},
-	{"code-host", "Code hosting", true},
-	{"webmail", "Personal mail", true},
-	{"messaging", "Messaging", true},
-	{"ai", "AI assistants", true},
-	{"remote-access", "Remote access", true},
-	{"backup", "Backup", false},
-	{"media", "Media and streaming", false},
-	{"telemetry", "Telemetry and analytics", false},
-	{"cdn", "Content delivery", false},
-	{"tunnel", "Encrypted tunnel", true},
-	{"unknown", "Unnamed destination", true},
-	{"other", "Other", false},
+	{"cloud-storage", "Cloud Storage", true, "Sync and object storage: Dropbox, Drive, OneDrive, iCloud, S3 and the like. Watched because a large upload here is a copy of files leaving the network."},
+	{"file-transfer", "File Transfer & Paste", true, "One-shot drop sites and paste bins: WeTransfer, file.io, pastebin and similar. Watched because they exist to move a file or a secret out in one request."},
+	{"code-host", "Code Hosting", true, "GitHub, GitLab, package registries. Watched because source and credentials leave this way, deliberately or not."},
+	{"webmail", "Personal Mail", true, "Personal mail providers reached over the web. Watched because attachments to a personal account bypass any company mail controls."},
+	{"messaging", "Messaging", true, "Chat services with file sharing: Discord, Telegram, WhatsApp, Slack. Watched for the same reason as mail."},
+	{"ai", "AI Assistants", true, "Hosted language-model services. Watched because pasted documents and code become someone else's training or logs."},
+	{"remote-access", "Remote Access", true, "Remote desktop and tunnelling services: TeamViewer, AnyDesk, ngrok. Watched because they carry anything, in either direction."},
+	{"backup", "Backup", false, "Backup services (Backblaze, Time Machine to a provider). Large uploads here are expected, so they are measured but not flagged."},
+	{"media", "Media & Streaming", false, "Video, music and game services. Mostly downloads; not flagged."},
+	{"telemetry", "Telemetry & Analytics", false, "Update and analytics endpoints vendors call home to. Small and constant; not flagged."},
+	{"cdn", "Content Delivery", false, "Content networks fronting many sites. The name says who serves it, not what it is; not flagged on its own."},
+	{"tunnel", "Encrypted Tunnel", true, "A VPN or overlay by port: WireGuard, OpenVPN, IPsec, Tailscale. Watched because nothing inside it can be seen; the volume, the far end and the timing are all that is knowable."},
+	{"unknown", "Unnamed Destination", true, "Nothing names this address: no DNS answer was seen for it, no server name in a handshake, and no reverse lookup. Ordinary traffic almost always has a name, so a nameless one is worth a look. Watched."},
+	{"other", "Other", false, "Matched none of the kinds above. Split further by what is known: the application's category, the web category of the name, the network that announces the address, or failing all of those the port."},
+}
+
+// groupDesc returns the description of a group key, or of the parent when
+// the key is an Other sub-group.
+func groupDesc(key string) string {
+	if strings.HasPrefix(key, "other:") {
+		key = "other"
+	}
+	for _, g := range groups {
+		if g.Key == key {
+			return g.Desc
+		}
+	}
+	return ""
 }
 
 // suffixes maps a domain suffix to a group. A name matches the longest

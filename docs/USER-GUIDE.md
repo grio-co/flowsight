@@ -728,6 +728,8 @@ it is not openly licensed, which is why it is not bundled.
 This needs the city-level database, since the country one carries no
 coordinates. See *Settings › enrich › How much detail*.
 
+**A destination nobody has traced yet is traced when you ask for it.** Arriving at the Map with a destination (from a policy match, a session, a host page or the DLP page) that has no measured route starts a trace at once; a chip in the toolbar says so and the route appears when the answer lands, usually within a minute. The timer would have reached it eventually; a person clicking *Map* is not on the timer.
+
 ### Devices, zones and IPv6
 
 **A device is one thing, not one address.** A phone has an IPv4 address, one
@@ -833,6 +835,10 @@ decrypted, stateful packet inspection reads the request itself. The two are mean
 read together: this says a device is sending four gigabytes to a cloud
 storage provider, and stateful packet inspection says which files.
 
+**Every kind explains itself.** Each destination kind carries a description: it is the bubble on every pill, and *What the kinds mean* under **By destination** lists them with a link to the how-to. *Unnamed Destination* means nothing could name the address at all (no DNS answer seen, no TLS server name, no reverse lookup), which is why it is watched. *Other* is no longer one bucket: it is split by the application's category, the web category of the name, the network that announces the address, or failing those the port, so the bars read *Other · Software Update* or *Other · Apple Inc.* rather than *Other*. Clicking a bar narrows the connection list to that kind and scrolls to it.
+
+**Flagged transfers say who, what and where.** Each event is enriched from what the gateway already knows: the device with its maker and hardware address; a one-line reading of the payload (*Encrypted web (TLS, name seen)*, *Inspected: images, API calls*), the application, the name, the content types of inspected sessions and how much was readable; the far end's place, whether it is anycast, and the network that announces it, with links to the Map and to the sessions; and the bytes, rate and threshold at the time. *Moving now* carries the same detail per connection.
+
 ### Stateful Packet Inspection (Business)
 
 What a decrypted session carries, not just which server it reached. The
@@ -912,6 +918,8 @@ Groups: name, description and members (addresses, networks, `mac:`,
 `device:`, `zone:`, `all`), with the members each resolves to right now.
 Schedules: name and weekly windows (days, from, to; a window past midnight
 is written as from 20:00 to 07:00). Community allows two schedules.
+
+**Picking devices.** The group editor lists the network's devices with a search box. Ticking one adds it by hardware address, which covers every address it holds on every interface, now and after its next lease; a device with no hardware address is added by each of its addresses. *Add every device shown* takes the whole filtered list.
 
 ### Categories
 

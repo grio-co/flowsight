@@ -36,10 +36,11 @@ func init() { core.Register(func() core.Module { return &Module{} }) }
 
 // Module implements core.Module.
 type Module struct {
-	ctx      *core.Context
-	run      tracer
-	rdns     lookup
-	identity core.Identity
+	tracingNow map[string]bool // destinations being traced on request, so a double click is one trace
+	ctx        *core.Context
+	run        tracer
+	rdns       lookup
+	identity   core.Identity
 
 	mu             sync.Mutex
 	lastRun        time.Time
@@ -362,6 +363,10 @@ func (m *Module) Setup(ctx *core.Context) error {
 				{"dst": "8.8.8.8", "hops": 12, "bytes_in": 500000, "bytes_out": 1000000, "country": "US"},
 			},
 		}))
+	ctx.Route("POST", "/api/paths/trace", m.apiTraceNow, core.Write(), core.Needs("paths.map"),
+		core.Doc("Trace one destination now, ahead of the timer: used when a route is asked for that has not been measured yet. Returns at once; poll /api/paths/path for the result."),
+		core.Body(core.Fld("dst", "string", true, "Destination address to trace", "1.1.1.1")),
+		core.Returns("Trace started", map[string]any{"started": true, "dst": "1.1.1.1", "already_running": false}))
 	ctx.Route("GET", "/api/paths/path", m.apiPath, core.Needs("paths.map"),
 		core.Query("dst", "string", "Destination IP address to trace", true, "8.8.8.8"),
 		core.Query("device", "string", "Source device address to filter talkers", false, "192.168.1.10"),

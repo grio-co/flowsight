@@ -12,7 +12,7 @@ name, and every release's assets carry that string in their file names.
 
 The newest entry is first.
 
-## 0.9.8r202609270353
+## 0.9.8r202609270402
 
 **`service flowsight stop` stops FlowSight.** The rc script signalled the
 daemon rather than the `daemon(8)` supervisor around it, so the supervisor
@@ -22,6 +22,40 @@ quietly respawned the process. Stop and status now act on the supervisor,
 and restart replaces both. Updates were never affected in effect, because
 the respawn picked up the new binary; they now restart cleanly as well.
 Nothing to do; the package installs the new script.
+
+**DLP knows who, what and where.** Every transfer, live or flagged, now
+carries what the gateway already knew about it: the device with maker and
+hardware address; a one-line reading of the payload (*Encrypted web (TLS,
+name seen)*, *Inspected: images, API calls*, *BitTorrent*), the application
+the flow probe recognised, the name, the content types of inspected sessions
+and how much was readable; the far end's city and country, whether it is
+anycast, and the network that announces it (asked once per address on a
+timer, remembered); links to the Map and the sessions; and the threshold
+that tripped. *Other* is split by the application's category, the web
+category of the name, the network or the port, so the bars say *Other ·
+Software Update* rather than *Other*. Every kind carries a description
+(the bubble on each pill, and a legend under *By destination* with a link to
+the how-to), the kinds are titled *Media & Streaming* and so on, and a click
+anywhere on a bar narrows the list and scrolls to it.
+
+**Map traces on request.** Arriving at the Map with a destination that has no
+measured route (from a policy match, a session, the DLP page) starts a trace
+at once; a chip says so and the route appears when the answer lands, instead
+of the default map with no explanation. `POST /api/paths/trace` is the
+endpoint.
+
+**Groups: pick devices.** The group editor lists the network's devices with
+a search; ticking one adds it by hardware address, so every address on every
+interface is covered now and after its next lease.
+
+**Fixes.** Enabling Stateful Packet Inspection failed with "port cannot be
+changed through the API": the guard for the daemon's own listener refused
+any module setting named *port*; a module's declared port saves again.
+Report downloads inside the OPNsense GUI answered "Endpoint not found":
+the links now go through the plugin's proxy like every other API call.
+The Firewall Analysis Engine's *Rules with live counters* was always empty:
+the endpoint served findings instead of rules and now returns the analysed
+ruleset with evaluations, packets, bytes, states and each rule's findings.
 
 ## 0.9.8r202609262120
 
