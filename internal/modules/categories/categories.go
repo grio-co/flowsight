@@ -746,4 +746,6 @@ func (m *Module) seedWhitelist() {
 		return
 	}
 	m.loadCustom()
+	m.scan()
+	m.rebuildIndex()
 }

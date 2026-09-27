@@ -12,9 +12,13 @@ name, and every release's assets carry that string in their file names.
 
 The newest entry is first.
 
+## 0.9.8r202609270419
+
+**The whitelist category shows up on first start.** It was created in the
+settings but not listed until the next rescan. Also repairs the previous
+entry's text, which shipped with merge markers in it.
+
 ## 0.9.8r202609270416
-<<<<<<< HEAD
-=======
 
 **Removing the Linux package removes FlowSight's DNS policy too.** `apt
 remove flowsight` and `dnf remove flowsight` stopped the service but left
@@ -25,8 +29,6 @@ stopping the service, as the OPNsense package already did. If you removed
 the package on an earlier version, delete
 `/etc/unbound/unbound.conf.d/flowsight-*` and run `unbound-control reload`.
 
-## 0.9.8rPENDING
->>>>>>> origin/fix-linux-remove-withdraw
 
 **A bandwidth test from the firewall.** *Run a bandwidth test* on the
 Priority page, and on the qos panel under Settings, measures what the link
