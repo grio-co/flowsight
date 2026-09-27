@@ -51,6 +51,7 @@ type Module struct {
 	rules     []Rule
 	addrs     map[string][]string
 	appliedAt time.Time
+	sp        *speedState // bandwidth tests, see speed.go
 }
 
 const anchorName = "qos"
@@ -66,6 +67,7 @@ func (m *Module) Info() core.ModuleInfo {
 			"enabled":          true,
 			"active":           false,
 			"lan_interface":    "",
+			"wan_interface":    "",
 			"download_mbit":    0,
 			"upload_mbit":      0,
 			"headroom_percent": 7,
@@ -84,6 +86,7 @@ func (m *Module) Info() core.ModuleInfo {
 				Help: "The more important of the two. A saturated upload delays the acknowledgements that downloads depend on, so an uncontrolled upload ruins streaming in both directions."},
 			{Key: "headroom_percent", Label: "Keep back (percent)", Type: "int",
 				Help: "How far under the measured rate the pipes are sized. A few percent is what keeps the queue on this side of the link."},
+			{Key: "wan_interface", Label: "WAN interface", Type: "string", Placeholder: "detected from the default route", Help: "The interface whose counters the bandwidth test reads. Empty: the interface the default route leaves by."},
 			{Key: "lan_interface", Label: "LAN interface", Type: "string",
 				Help: "Where shaping is applied. Addresses are still untranslated here, so a rule can name a device on this network. Empty: detected from the local networks."},
 			{Key: "default_class", Label: "Class for everything not named", Type: "choice", Choices: []string{"high", "normal", "low"}},
@@ -105,6 +108,21 @@ func (m *Module) Setup(ctx *core.Context) error {
 	m.addrs = map[string][]string{}
 	ctx.Every("apply", 60*time.Second, m.reconcile)
 	ctx.Every("resolve", 120*time.Second, m.resolve)
+	ctx.Route("GET", "/api/qos/speedtests", m.apiSpeedTests, core.Needs("qos.shape"),
+		core.Doc("Bandwidth tests run from this firewall: the built-in measurement, the WAN interface's own counters during it (so the capacity estimate includes the load already on the link), the speedtest.net comparison, divergence and reruns. Newest first; the last 50 are kept."),
+		core.Returns("Bandwidth tests", map[string]any{
+			"running": false, "stage": "", "interface": "vtnet1",
+			"tests": []map[string]any{{"id": "1790480000000000000", "ts": 1790480000, "attempt": 1, "rerun": false, "down_mbit": 912.4, "up_mbit": 38.1,
+				"iface_down_mbit": 940.2, "iface_up_mbit": 39.0, "base_down_mbit": 12.3, "base_up_mbit": 0.8, "load_down_mbit": 27.8, "load_up_mbit": 0.9,
+				"ookla_server": "Kansas City, MO, United States", "ookla_sponsor": "Example ISP", "ookla_down_mbit": 905.0, "ookla_up_mbit": 37.9, "ookla_latency_ms": 11.2,
+				"diverge_down": 0.008, "diverge_up": 0.005, "suggest_down_mbit": 940, "suggest_up_mbit": 39, "note": "the two measurements agree"}}}))
+	ctx.Route("POST", "/api/qos/speedtest", m.apiSpeedTestRun, core.Write(), core.Needs("qos.shape"),
+		core.Doc("Start a bandwidth test now. It runs in the background for about a minute (twice that when a rerun is needed); poll /api/qos/speedtests for the stage and the result."),
+		core.Returns("Started", map[string]any{"started": true, "reason": ""}))
+	ctx.Route("POST", "/api/qos/speedtest/apply", m.apiSpeedTestApply, core.Write(), core.Needs("qos.shape"),
+		core.Doc("Set the link's download and upload capacity from a test's suggestion, which is the interface's peak during the test (the test plus the load already present)."),
+		core.Body(core.Fld("id", "string", true, "The test to take the numbers from", "1790480000000000000")),
+		core.Returns("Applied", map[string]any{"ok": true, "download_mbit": 940, "upload_mbit": 39}))
 	ctx.Route("GET", "/api/qos/status", m.apiStatus, core.Needs("qos.shape"),
 		core.Doc("Get current traffic shaping status including enabled pipes, rules and queue statistics"),
 		core.Returns("QoS status", map[string]any{

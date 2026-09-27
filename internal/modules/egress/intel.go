@@ -405,6 +405,11 @@ func portService(port int, proto string) string {
 	case 33434:
 		return "Traceroute"
 	}
+	// An ephemeral port names nothing: a hundred of them would be a hundred
+	// one-row groups. They fold into one per protocol.
+	if port >= 32768 {
+		return strings.ToUpper(proto) + " high ports"
+	}
 	return fmt.Sprintf("%s %d", strings.ToUpper(proto), port)
 }
 

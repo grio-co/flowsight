@@ -438,6 +438,9 @@ Download the full OpenAPI 3.0 specification at `GET /api/openapi.json` for use w
 | Method | Path | What | Parameters |
 |---|---|---|---|
 | GET | `/api/qos/preview` | Preview firewall rules that would be generated from current QoS settings without applying them | none |
+| POST | `/api/qos/speedtest` | Start a bandwidth test now. It runs in the background for about a minute (twice that when a rerun is needed); poll /api/qos/speedtests for the stage and the result. | none |
+| POST | `/api/qos/speedtest/apply` | Set the link's download and upload capacity from a test's suggestion, which is the interface's peak during the test (the test plus the load already present). | none |
+| GET | `/api/qos/speedtests` | Bandwidth tests run from this firewall: the built-in measurement, the WAN interface's own counters during it (so the capacity estimate includes the load already on the link), the speedtest.net comparison, divergence and reruns. Newest first; the last 50 are kept. | none |
 | GET | `/api/qos/status` | Get current traffic shaping status including enabled pipes, rules and queue statistics | none |
 
 ### reports

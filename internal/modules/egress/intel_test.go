@@ -21,6 +21,10 @@ func TestSubgroupSplitsOtherByWhatIsKnown(t *testing.T) {
 	if k != "other:port:traceroute" || title != "Other · Traceroute" {
 		t.Fatalf("port: %q %q", k, title)
 	}
+	k, title = subgroup(&Intel{}, 40317, "udp")
+	if k != "other:port:udp-high-ports" || title != "Other \u00b7 UDP high ports" {
+		t.Fatalf("ephemeral ports should fold: %q %q", k, title)
+	}
 	k, _ = subgroup(&Intel{AppCategory: "Unspecified"}, 5223, "tcp")
 	if k != "other:port:push-notifications" {
 		t.Fatalf("an unspecified category must not name the group: %q", k)

@@ -925,3 +925,41 @@ FS.hostPicker = (box, textarea) => {
     paint();
   }).catch(() => { list.innerHTML = '<div class="muted small">The device list could not be loaded.</div>'; });
 };
+
+// --------------------------------------------------------------- bandwidth tests
+// The bandwidth test card, shared by the Priority page and the qos panel
+// under Settings. It shows the log newest first, the stage of a running
+// test, a button to run one, and on each finished row a button that writes
+// its suggestion into the link settings.
+FS.speedTestsHTML = (d) => {
+  const tests = d.tests || [];
+  const fmt = (v) => v ? (v >= 100 ? Math.round(v) : v.toFixed(1)) : '\u2014';
+  const pct = (v) => (v * 100).toFixed(1) + '%';
+  const rows = tests.map(t => `<tr class="${t.error ? 'flagged' : ''}">
+    <td>${FS.when(t.ts)}${t.rerun ? '<div class="muted small">rerun</div>' : ''}</td>
+    <td class="num"><b>${fmt(t.down_mbit)}</b> / <b>${fmt(t.up_mbit)}</b><div class="muted small">built-in</div></td>
+    <td class="num">${t.ookla_error ? `<span class="muted small" title="${FS.esc(t.ookla_error)}">no answer</span>` : `${fmt(t.ookla_down_mbit)} / ${fmt(t.ookla_up_mbit)}<div class="muted small">${FS.esc(t.ookla_sponsor || '')}${t.ookla_latency_ms ? ' \u00b7 ' + t.ookla_latency_ms.toFixed(0) + ' ms' : ''}</div>`}</td>
+    <td class="num">${fmt(t.load_down_mbit)} / ${fmt(t.load_up_mbit)}<div class="muted small">before: ${fmt(t.base_down_mbit)} / ${fmt(t.base_up_mbit)}</div></td>
+    <td class="num"><b>${fmt(t.iface_down_mbit)} / ${fmt(t.iface_up_mbit)}</b></td>
+    <td class="num ${(t.diverge_down >= 0.02 || t.diverge_up >= 0.02) ? 'sev-med' : ''}">${t.ookla_error ? '\u2014' : pct(t.diverge_down) + ' / ' + pct(t.diverge_up)}</td>
+    <td class="small">${FS.esc(t.error || t.note || '')}</td>
+    <td>${t.suggest_down_mbit > 0 && !t.error ? `<button type="button" class="btn small" data-speed-apply="${FS.esc(t.id)}" title="Set the link to ${t.suggest_down_mbit} / ${t.suggest_up_mbit} Mbit/s">Use ${t.suggest_down_mbit} / ${t.suggest_up_mbit}</button>` : ''}</td>
+  </tr>`).join('');
+  return `<div class="actions" style="margin-bottom:8px"><button type="button" class="btn primary" id="speed-run" ${d.running ? 'disabled' : ''}>${d.running ? 'Testing\u2026 ' + FS.esc(d.stage || '') + (d.running_for_s ? ' (' + d.running_for_s + 's)' : '') : 'Run a bandwidth test'}</button><span class="muted small">Takes about a minute from this firewall over ${FS.esc(d.interface || 'the WAN interface')}; it saturates the link while it runs.</span></div>
+    <div class="tablewrap"><table><tr><th>When</th><th>Measured (Mbit/s down / up)</th><th>speedtest.net</th><th>Other load during</th><th>Link carried</th><th>Difference</th><th></th><th></th></tr>${rows || '<tr><td colspan="8" class="muted">No test yet.</td></tr>'}</table></div>
+    <div class="help" style="margin-top:6px">${FS.esc(d.note || '')} <b>Link carried</b> is the WAN interface's peak during the test, the test plus whatever else was running, and is what <em>Use</em> writes into the link settings.</div>`;
+};
+FS.speedTestsWire = (root, after) => {
+  const run = FS.$('#speed-run', root);
+  if (run) run.onclick = async () => {
+    run.disabled = true;
+    const r = await FS.post('/api/qos/speedtest', {});
+    FS.toast(r.error || (r.started ? 'Bandwidth test started; results appear here in about a minute' : r.reason || 'Not started'), !!(r.error || (r && r.started === false)));
+    if (after) setTimeout(after, 1500);
+  };
+  FS.$$('[data-speed-apply]', root).forEach(b => b.onclick = async () => {
+    const r = await FS.post('/api/qos/speedtest/apply', { id: b.dataset.speedApply });
+    FS.toast(r.error || `Link set to ${r.download_mbit} / ${r.upload_mbit} Mbit/s`, !!r.error);
+    if (after) after();
+  });
+};

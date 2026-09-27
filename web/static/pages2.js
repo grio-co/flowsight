@@ -352,6 +352,16 @@
       const mods = d.modules || []; const sel = ctx.arg || (mods[0] || {}).name;
       const m = mods.find(x => x.name === sel);
       el.innerHTML = `<div class="two"><div>${m ? card(m.name, `<p class="small muted">${esc(m.description)}</p>${m.tier ? `<div class="small">${pill(FS.tierName(m.tier) + ' tier', 'warn')}</div>` : ''}${m.error ? `<div class="sev-high small">${esc(m.error)}</div>` : ''}<div class="check"><input type="checkbox" id="en" ${m.settings.enabled !== false ? 'checked' : ''}><span>Module enabled (restart to apply)</span></div>` + (m.schema && m.schema.length ? FS.settingsForm(m) : '<div class="muted small">No settings.</div>')) : FS.empty()}</div><div>${card('Modules', mods.map(x => `<div><a href="#modules/${esc(x.name)}" class="${x.name === sel ? '' : 'muted'}"><i class="dot ${x.loaded ? 'ok' : 'warn'}"></i>${esc(x.name)}</a></div>`).join(''))}</div></div>`;
+      // Module-specific extras under the settings form. The qos panel carries
+      // the bandwidth-test log, because that is where the link numbers are set.
+      if (m && m.name === 'qos') {
+        const st = await get('/api/qos/speedtests');
+        const host = document.createElement('div'); host.style.marginTop = '14px';
+        host.innerHTML = card('Bandwidth tests', FS.speedTestsHTML(st || {}), 'newest first; the last 50 are kept. Use writes a test\u2019s numbers into the fields above.');
+        (FS.$('.two > div', el) || el).appendChild(host);
+        FS.speedTestsWire(host, () => FS.render());
+        if ((st || {}).running) setTimeout(() => { if (FS.parseHash().page === 'modules') FS.render(); }, 5000);
+      }
       const form = FS.$('form.f', el);
       const save = async (extra) => { const settings = form ? FS.readForm(form, m.schema) : {}; Object.assign(settings, extra || {}); const r = await post('/api/system/modules/save', { module: m.name, settings }); if (r.error) FS.toast(r.error, true); else FS.toast('Saved' + (r.note ? ' — ' + r.note : '')); };
       if (form) form.onsubmit = (e) => { e.preventDefault(); save(); };

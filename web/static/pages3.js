@@ -752,7 +752,7 @@
   FS.registerPage('qos', {
     title: 'Priority', refresh: 15,
     async render(el, ctx) {
-      const [s, p] = await Promise.all([get('/api/qos/status'), get('/api/qos/preview')]);
+      const [s, p, st] = await Promise.all([get('/api/qos/status'), get('/api/qos/preview'), get('/api/qos/speedtests')]);
       if (s.error && !s.rules) { el.innerHTML = FS.err(s.error); return; }
       const rules = s.rules || [];
       const broken = rules.filter(r => r.error);
@@ -767,6 +767,7 @@
 
       ${!s.active ? `<div class="help" style="margin-top:14px">Shaping is off, so the link behaves exactly as it does now and nothing below is in force. It is switched on in <a href="#modules?m=qos">Settings › qos</a>, which also needs the rates the link really carries.</div>` : ''}
       ${s.error ? `<div style="margin-top:14px">${card('Not applied', `<div class="sev-high">${esc(s.error)}</div>`)}</div>` : ''}
+      <div style="margin-top:14px" id="speed-card">${card('Bandwidth test', FS.speedTestsHTML(st || {}), 'measured from this firewall, with the load already on the link counted; every attempt is logged here and under Settings \u203a qos')}</div>
 
       <div style="margin-top:14px">${card('Rules', table(rules, [
         { t: 'Match', f: r => `<b>${esc(r.match)}</b><div class="muted small">${r.is_host ? 'an address here' : 'a service out there'}</div>`, sort: 'match' },
@@ -786,6 +787,8 @@
         p.lan ? `on <b>${esc(p.lan)}</b>` : '<span class="sev-high">no LAN interface detected</span>')}</div>
 
       <div class="help" style="margin-top:12px">${esc(s.note || '')}</div>`;
+      FS.speedTestsWire(el, () => FS.render());
+      if ((st || {}).running) setTimeout(() => { if (FS.parseHash().page === 'qos') FS.render(); }, 5000);
     }
   });
 

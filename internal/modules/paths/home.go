@@ -299,3 +299,13 @@ func (m *Module) HomeCountry() string {
 	m.mu.Unlock()
 	return cc
 }
+
+// HomeLatLon is where this network is, for anything that wants the nearest
+// of something (the bandwidth test picks speedtest.net servers by it).
+func (m *Module) HomeLatLon() (float64, float64, bool) {
+	h := m.home()
+	if !h.OK {
+		return 0, 0, false
+	}
+	return h.Lat, h.Lon, true
+}

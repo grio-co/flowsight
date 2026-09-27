@@ -12,6 +12,26 @@ name, and every release's assets carry that string in their file names.
 
 The newest entry is first.
 
+## 0.9.8rPENDING
+
+**A bandwidth test from the firewall.** *Run a bandwidth test* on the
+Priority page, and on the qos panel under Settings, measures what the link
+really carries: several parallel streams against Cloudflare's speed
+endpoints for a few seconds each way, while the WAN interface's own byte
+counters are read every second. The counters see the test and everything
+else on the link, so the result separates the tester's share, the load that
+was already there and the capacity the link showed. The same run is
+repeated against speedtest.net's nearest server; when the two differ by 2%
+or more, both run once more. Every attempt is logged (the last 50), and
+*Use N / M* on a row writes the observed capacity into the link settings.
+`GET /api/qos/speedtests`, `POST /api/qos/speedtest`,
+`POST /api/qos/speedtest/apply`; `wan_interface` names the interface when
+the default route's is not the one. No third-party code: the speedtest.net
+exchange is its public server list and test files over plain HTTP.
+
+**DLP: ephemeral ports fold.** *Other · UDP 40317* and its hundred siblings
+are one *Other · UDP high ports* row.
+
 ## 0.9.8r202609270402
 
 **`service flowsight stop` stops FlowSight.** The rc script signalled the
