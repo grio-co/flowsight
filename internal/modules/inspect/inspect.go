@@ -7,6 +7,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -476,7 +477,14 @@ func (m *Module) detectAnomalies(states []*PFState) {
 	if m.anomalySeen == nil {
 		m.anomalySeen = map[string]time.Time{}
 	}
+	own := ownAddresses()
 	for _, f := range findAnomalies(states, m.synFloodThresh, m.portScanThresh) {
+		// The gateway's own addresses are the source of every NATed connection
+		// the LAN makes, so by count they look like the busiest scanner on
+		// the network. They are the firewall, not a device on it.
+		if own[f.Subject] {
+			continue
+		}
 		m.anomalySeen[f.Key] = now
 		m.ctx.Store.AddFindingWith("inspect", f.Kind, f.Severity, f.Subject, f.Title, f.Detail, f.Key,
 			map[string]any{"who": map[string]any{"ip": f.Subject}, "why": map[string]any{"kind": f.Kind, "seen": now.Unix()}})
@@ -1135,4 +1143,22 @@ type TLSObservationService interface {
 // HasECH returns true if a TLS connection to (dst:dstPort) from src had ECH
 func (m *Module) HasECH(src, dst string, dstPort int) bool {
 	return m.queryTLSObservation(src, dst, dstPort)
+}
+
+// ownAddresses is every address this host holds on any interface.
+func ownAddresses() map[string]bool {
+	out := map[string]bool{}
+	ifs, err := net.Interfaces()
+	if err != nil {
+		return out
+	}
+	for _, i := range ifs {
+		addrs, _ := i.Addrs()
+		for _, a := range addrs {
+			if ipn, ok := a.(*net.IPNet); ok {
+				out[ipn.IP.String()] = true
+			}
+		}
+	}
+	return out
 }

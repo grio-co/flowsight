@@ -12,6 +12,13 @@ name, and every release's assets carry that string in their file names.
 
 The newest entry is first.
 
+## 0.9.8r202609270441
+
+**The gateway is not a scanner.** The port-scan check counted the
+firewall's own WAN address, the source of every NATed connection the LAN
+makes, as the busiest scanner on the network and kept re-raising it. The
+gateway's own addresses are left out.
+
 ## 0.9.8r202609270438
 
 **Inspection anomalies resolve themselves.** A SYN-flood or port-scan
