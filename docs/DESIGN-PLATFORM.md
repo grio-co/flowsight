@@ -367,7 +367,46 @@ every object FlowSight created on other systems.
 | Web interception on Linux: the redirector says where redirected connections arrive (`Arrivals`: none extra on pf, the LAN interfaces' own addresses on nftables); squid listens there too, the fail-open probe checks every arrival address at each probe, redirects are rendered only on interfaces with a listener, an input-hook rule resets connections to the proxy's ports that were not redirected, and health warns when another table's input chain drops by default | Done. In the lab: `Arrivals` names the LAN address; a proxy on loopback alone receives nothing, and the probe of the arrival address fails too; with the listener there, port 80 reaches it; the gateway's own probe passes the guard while a client connecting directly is reset; withdrawing lets traffic through. End to end in `test/web-lab.sh`: the real daemon, real squid 6.13 (Debian's squid-openssl) and nftables in a throwaway container, a client LAN and a stand-in internet: HTTP proxied and logged, HTTPS spliced with its server name seen, other ports untouched, a direct connection to the proxy reset, squid killed and held down withdrawing the redirects with the web still working, and interception returning with squid; health warning about a distribution table that drops input; interception off withdrawing the redirects. That run found the web module never receiving the nftables redirector (it could set up first) and squid configured to run as `squid`, which Debian does not have |
 | Country blocking on Linux: `fs_geo_<cc>` and `fs_geox_<policy>` interval sets per family, declared in the policy chain with their contents as comments (as pf's tables), filled off the request from the country database with the home country allowed and anycast left out, refilled hourly on a new database build and after upkeep restores a flushed table; refused with the setting named when there is no database | Done. In the lab, with a stand-in database: a country the server is not in passes, the server's blocks, "every country except the server's" passes (the home country added to the allowed list), "every country except another" blocks, and after `nft flush ruleset` upkeep restores the chain and refills the set. At scale: 228k IPv4 and 60k IPv6 prefixes check in 2.5 s and load in 2.1 s |
 | Traffic shaping on Linux: the `tc` module serves `core.Shaper` where pf's shaper is not. Download is an HTB tree (handle `f5:`) on the LAN interface's egress; upload is the LAN's ingress redirected to an ifb device (`fsifb0`) with the same tree, so both directions see the devices' own addresses. Class rates are the weights' shares of the link (HTB lends spare in proportion), `r2q` sized from the link, fq_codel leaves where the kernel has them; a ceiling is a class capped at it; rules are u32 filters, a later rule consulted first. An unchanged plan is not reloaded; a rejected one is cleared and the last good plan restored; Clear removes only FlowSight's handle, its ingress redirect and its ifb | Download path done in the lab (Docker Desktop's kernel, which has no ifb, fq_codel or ingress qdisc, so HTB's own leaves): a 40 Mbit/s plan holds a 5–19 Gbit/s link to 40, a ceiling holds a device to 8, weights 70 and 5 split a full link 34.6 to 1.9, clearing leaves an operator's own qdisc on another interface and restores the full rate; Ready names the missing ifb module. The whole shaper on a full kernel (the Proxmox 7.0 kernel, in the Debian test container between a snapshot and a rollback, `ifb` loaded with `numifbs=0` for the run and unloaded after): download and upload each held to plan, a ceiling capping a device both ways, weights splitting a full link 36.3 to 1.9, an unchanged plan leaving the queue counters alone, a plan for a missing interface refused with the last good plan still in force, and Clear leaving only the operator's qdisc |
-| The pfSense port | Later in Phase 4 |
+| The pfSense port, Phase 0 (spike on pfSense CE 2.7.2, VM 9102 on the test host) | Done; go. Findings below |
+| The pfSense port, Phase 1 (the daemon learns pfSense): platform detected by `/etc/platform`; pfSense's layout (resolver include directory `/var/unbound/flowsight`, resolver log `/var/log/resolver.log`, `/cf/conf/config.xml`, ISC and Kea leases); services through `pfSsh.php playback svc`, the filter through `/etc/rc.filter_configure_sync`; the resolver's enabled state from config.xml; the IDS module reads every EVE log a pattern names (one per interface on pfSense), a log appearing later from its start; rule hygiene names pfSense rules by their tracker; the installer and install.sh send pfSense to its package; enroll reads no dnsmasq DHCP log there | Done. `flowsightd` run on the pfSense VM: every module loads, no errors; red only where the backend is absent (no Suricata, no ntopng) |
+| The pfSense port, Phase 2 (the package) | Next |
+
+#### pfSense: what the spike found
+
+- **Anchors: go.** A package names a `filter_rule_function` in
+  `installedpackages`; pfSense calls it while generating the ruleset with
+  `pfearly` (its output is the very first filter rule, before the `openvpn/*`
+  and `ipsec/*` anchors and every default block) and `nat` (after every port
+  forward and its reflection rules; only 1:1 reflection and the UPnP anchor
+  follow). Each package's text is checked with `pfctl -nf` first and dropped,
+  with a log line, if it does not parse. Registered on the VM, it produced
+  `anchor "flowsight/*" quick` as the first filter rule and
+  `nat-anchor`/`rdr-anchor "flowsight/*"` after pfSense's own translation.
+  With traffic: a block loaded into `flowsight/policy` beat pfSense's
+  anti-lockout pass rule, an `rdr` in `flowsight/web` delivered to a
+  loopback listener, and both survived `rc.filter_configure_sync`.
+- **Unbound** is regenerated from config.xml on every change and includes
+  only fixed files; its custom options land after the forward zones. The
+  package adds `server:` and `include: /var/unbound/flowsight/*.conf` to the
+  custom options once (and removes exactly those lines on removal);
+  FlowSight writes only that directory, which pfSense never empties (it
+  wipes only `/var/unbound/test` when checking a configuration).
+- **DHCP** is ISC dhcpd by default (`/var/dhcpd/var/db/dhcpd.leases`), Kea
+  optional (`/var/lib/kea/dhcp4.leases`); dnsmasq is only the DNS forwarder.
+- **Rules** carry `label "USER_RULE: <description>" label "id:<tracker>"
+  ridentifier <tracker>`; config.xml keys rules by `<tracker>` with a
+  leading zero pf drops.
+- **squid 6.3** installs from pfSense's own repository (`pkg install squid`)
+  without the deprecated GUI package, built with OpenSSL, `ssl-crtd` and
+  pf interception, running as `squid`, certgen in
+  `/usr/local/libexec/squid`: web interception carries over.
+- **Suricata** is a pfSense package (7.0.8) writing one EVE log per
+  interface; the IDS module now reads a pattern. Not installed in the spike.
+- **Boot**: pfSense starts `/usr/local/etc/rc.d/*.sh`. **GUI**: pages
+  include `guiconfig.inc`, declare privileges in a `##|+PRIV` block and are
+  protected by csrf-magic.
+- **Plus** could not be tested (no licence); CE is supported, Plus best
+  effort, as decided.
 
 ## Fleet
 

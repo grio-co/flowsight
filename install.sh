@@ -1,5 +1,5 @@
 #!/bin/sh
-# FlowSight installer for machines that are not OPNsense (OPNsense uses the pkg).
+# FlowSight installer for machines that are not OPNsense or pfSense (they use a pkg).
 #
 #   curl -fsSL https://github.com/grioghar/flowsight/releases/latest/download/install.sh | sh
 #   FLOWSIGHT_VERSION=1.0.0 ./install.sh          pin a version
@@ -32,6 +32,7 @@ OS="$(uname -s | tr 'A-Z' 'a-z')"; ARCH="$(uname -m)"
 case "$ARCH" in x86_64|amd64) ARCH=amd64 ;; aarch64|arm64) ARCH=arm64 ;; *) fail "unsupported architecture $ARCH" ;; esac
 case "$OS" in linux|freebsd) ;; *) fail "unsupported OS $OS" ;; esac
 [ -x /usr/local/sbin/opnsense-version ] && fail "this is OPNsense: install the os-flowsight package instead"
+grep -qx pfSense /etc/platform 2>/dev/null && fail "this is pfSense: install the pfSense-pkg-flowsight package instead (pkg add with the release's .pkg)"
 
 TMP="$(mktemp)"; trap 'rm -f "$TMP"' EXIT
 if [ -n "$BIN_SRC" ]; then

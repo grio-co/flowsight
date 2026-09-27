@@ -396,6 +396,8 @@ func (m *Module) checkAnchor() error {
 		hint := "reference it from the main ruleset"
 		if m.ctx.Platform.IsOPNsense() {
 			hint = "enable FlowSight in the plugin and apply firewall changes so the anchor is generated"
+		} else if m.ctx.Platform.IsPfSense() {
+			hint = "reinstall the pfSense-pkg-flowsight package, or apply any firewall change (Firewall › Rules › Apply) so pfSense regenerates its ruleset with FlowSight's anchors"
 		} else {
 			hint = "add 'anchor \"flowsight/*\"' and 'rdr-anchor \"flowsight/*\"' to pf.conf"
 		}

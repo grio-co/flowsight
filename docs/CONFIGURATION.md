@@ -251,7 +251,7 @@ Suricata alerts and TLS observations from the EVE log.
 
 | Key | Setting | Type | Default | Notes |
 |---|---|---|---|---|
-| `eve_path` | EVE log path | string | `""` | Empty uses the platform default. |
+| `eve_path` | EVE log path | string | `""` | Empty uses the platform default. May be a pattern (/var/log/suricata/*/eve.json) to read one log per interface. |
 | `poll_seconds` | Poll interval (s) | int | `5` |  |
 | `tls_records` | Record TLS sessions and certificates | bool | `true` |  |
 

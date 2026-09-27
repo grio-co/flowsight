@@ -215,12 +215,17 @@ func (m *Module) Setup(ctx *core.Context) error {
 			})
 		}
 
-		// Initialize log tailer
-		logPath := "/var/log/dnsmasq/latest.log"
-		if ctx.Platform.Name == "linux" {
-			logPath = "/var/log/dnsmasq.log"
+		// Initialize log tailer. pfSense serves DHCP with ISC dhcpd or Kea,
+		// never dnsmasq (its dnsmasq is the optional DNS forwarder), so
+		// there is no DHCP log to read there; identity's lease files are
+		// the signal instead.
+		if !ctx.Platform.IsPfSense() {
+			logPath := "/var/log/dnsmasq/latest.log"
+			if ctx.Platform.Name == "linux" {
+				logPath = "/var/log/dnsmasq.log"
+			}
+			m.tailer = core.NewTailer(logPath)
 		}
-		m.tailer = core.NewTailer(logPath)
 	}
 
 	// API routes

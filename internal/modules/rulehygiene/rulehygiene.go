@@ -184,11 +184,14 @@ type Rule struct {
 	Description string // OPNsense label description
 }
 
-// OPNsenseConfig models /conf/config.xml.
+// OPNsenseConfig models the filter rules in config.xml, OPNsense's or
+// pfSense's: OPNsense keys a rule by its uuid attribute (the pf label),
+// pfSense by its tracker (the pf ridentifier).
 type OPNsenseConfig struct {
 	Filter *struct {
 		Rules []struct {
 			UUID        string `xml:"uuid,attr"`
+			Tracker     string `xml:"tracker"`
 			Description string `xml:"descr"`
 			Interface   string `xml:"interface"`
 			Type        string `xml:"type"`
@@ -222,8 +225,16 @@ func loadOPNsenseConfig(path string) (map[string]string, string, error) {
 	labels := make(map[string]string)
 	if cfg.Filter != nil {
 		for _, r := range cfg.Filter.Rules {
-			if r.UUID != "" && r.Description != "" {
+			if r.Description == "" {
+				continue
+			}
+			if r.UUID != "" {
 				labels[r.UUID] = r.Description
+			}
+			if r.Tracker != "" {
+				// pf prints the tracker as a number: 0100000101 in
+				// config.xml is ridentifier 100000101.
+				labels[strings.TrimLeft(r.Tracker, "0")] = r.Description
 			}
 		}
 	}
@@ -234,6 +245,16 @@ func loadOPNsenseConfig(path string) (map[string]string, string, error) {
 	}
 
 	return labels, actor, nil
+}
+
+var ridentifierRe = regexp.MustCompile(`\bridentifier (\d+)`)
+
+// ridentifier is pfSense's rule tracker as pf shows it, "" if none.
+func ridentifier(rule string) string {
+	if m := ridentifierRe.FindStringSubmatch(rule); m != nil {
+		return m[1]
+	}
+	return ""
 }
 
 // configHash computes the hash of config file for change detection.
@@ -297,8 +318,12 @@ func (m *Module) analyse() error {
 
 	rules := make([]Rule, len(live))
 	for i, r := range live {
+		desc := labelMap[r.Label]
+		if desc == "" {
+			desc = labelMap[ridentifier(r.Text)]
+		}
 		rules[i] = Rule{Index: i, Text: r.Text, Label: r.Label, Evaluations: r.Evaluations,
-			Packets: r.Packets, Bytes: r.Bytes, States: r.States, Description: labelMap[r.Label]}
+			Packets: r.Packets, Bytes: r.Bytes, States: r.States, Description: desc}
 	}
 
 	// Analyse for issues.
@@ -573,7 +598,7 @@ func (m *Module) hasMgmtPorts(text string, mgmtPorts []string) bool {
 // detectWANInterfaces guesses WAN interface from the default route.
 func (m *Module) detectWANInterfaces() []string {
 	// On FreeBSD, use `route -n get default`; on Linux, use `ip route | grep default`.
-	if m.platform == "freebsd" || m.platform == "opnsense" {
+	if m.platform == "freebsd" || m.platform == "opnsense" || m.platform == "pfsense" {
 		out, err := core.Run(5*time.Second, "route", "-n", "get", "default")
 		if err == nil {
 			re := regexp.MustCompile(`interface:\s*(\S+)`)

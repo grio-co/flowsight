@@ -147,10 +147,15 @@ func Apply(e Env, p Plan, version string, now time.Time, say func(string)) (Resu
 		say(s.Do)
 		switch s.ID {
 		case "package":
-			if !p.Facts.Installed {
-				return r, errors.New("install the os-flowsight package first (System > Firmware > Plugins, or pkg add); on OPNsense the package, not this command, installs the binary and the GUI page")
+			pkg, where := "os-flowsight", "System > Firmware > Plugins, or pkg add"
+			if p.Platform == "pfsense" {
+				pkg, where = "pfSense-pkg-flowsight", "pkg add with the release's .pkg"
 			}
-			r.Notes = append(r.Notes, "the os-flowsight package owns the binary; it was left as it is")
+			if !p.Facts.Installed {
+				return r, fmt.Errorf("install the %s package first (%s); on %s the package, not this command, installs the binary and the GUI page",
+					pkg, where, p.Facts.System)
+			}
+			r.Notes = append(r.Notes, "the "+pkg+" package owns the binary; it was left as it is")
 		case "binary":
 			err = r.copyBinary(e, stamp)
 		case "service":
@@ -311,7 +316,7 @@ func (r *Result) writeConfig(e Env, p Plan) error {
 		r.Files = append(r.Files, FileChange{Path: cfg, Action: "kept"})
 		return nil
 	}
-	if p.Platform == "opnsense" {
+	if p.Platform == "opnsense" || p.Platform == "pfsense" {
 		return nil // the GUI signs people in; the daemon writes its own defaults
 	}
 	doc := map[string]any{}
@@ -339,7 +344,7 @@ func (r *Result) writeConfig(e Env, p Plan) error {
 
 func dirsFor(p Plan) []string {
 	out := []string{filepath.Dir(p.Paths["config"]), p.Paths["data"], p.Paths["log"]}
-	if p.Platform == "freebsd" || p.Platform == "opnsense" {
+	if p.Platform == "freebsd" || p.Platform == "opnsense" || p.Platform == "pfsense" {
 		out = append(out, "/var/run/flowsight")
 	}
 	return out
@@ -381,6 +386,10 @@ func (r *Result) start(e Env, p Plan) error {
 		if err := r.run(e, "service", "flowsight", "restart"); err != nil {
 			return r.run(e, "service", "flowsight", "start")
 		}
+	case "pfsense-package":
+		// pfSense starts packages' *.sh scripts itself; service(8) does not
+		// know them by name.
+		return r.run(e, "/usr/local/etc/rc.d/flowsight.sh", "restart")
 	case "systemd":
 		return r.run(e, "systemctl", "restart", "flowsight")
 	}

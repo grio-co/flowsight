@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -21,7 +22,8 @@ func init() { core.Register(func() core.Module { return &Module{} }) }
 type Module struct {
 	evePath  string
 	ctx      *core.Context
-	tail     *core.Tailer
+	tails    map[string]*core.Tailer // by file; evePath may be a pattern
+	polled   bool
 	mu       sync.Mutex
 	lastErr  string
 	alerts   int64
@@ -46,7 +48,7 @@ func (m *Module) Info() core.ModuleInfo {
 			"tls_records":  true,
 		},
 		Schema: []core.SettingField{
-			{Key: "eve_path", Label: "EVE log path", Type: "string", Help: "Empty uses the platform default."},
+			{Key: "eve_path", Label: "EVE log path", Type: "string", Help: "Empty uses the platform default. May be a pattern (/var/log/suricata/*/eve.json) to read one log per interface."},
 			{Key: "poll_seconds", Label: "Poll interval (s)", Type: "int"},
 			{Key: "tls_records", Label: "Record TLS sessions and certificates", Type: "bool"},
 		},
@@ -60,7 +62,7 @@ func (m *Module) Setup(ctx *core.Context) error {
 	if path == "" {
 		path = ctx.Platform.SuricataEve
 	}
-	m.tail = core.NewTailer(path)
+	m.tails = map[string]*core.Tailer{}
 	m.evePath = path
 	every := time.Duration(core.Int(ctx.Settings(), "poll_seconds", 5)) * time.Second
 	ctx.Every("tail", every, m.poll)
@@ -169,28 +171,56 @@ func parseTS(s string) int64 {
 	return time.Now().Unix()
 }
 
+// eveFiles is every EVE log the path names. It may be a pattern: pfSense's
+// Suricata package writes one log per interface, in a directory per
+// instance, and an interface added later is picked up on the next poll.
+func (m *Module) eveFiles() []string {
+	if !strings.ContainsAny(m.evePath, "*?[") {
+		return []string{m.evePath}
+	}
+	files, _ := filepath.Glob(m.evePath)
+	return files
+}
+
 func (m *Module) poll() error {
 	var lines [][]byte
-	_, err := m.tail.Lines(func(line []byte) {
-		lines = append(lines, append([]byte(nil), line...))
-	})
+	var firstErr error
+	read := 0
+	for _, f := range m.eveFiles() {
+		t := m.tails[f]
+		if t == nil {
+			t = core.NewTailer(f)
+			// A log that appears after the first poll is new (an
+			// interface added since): read it from its start.
+			t.StartAtEnd = !m.polled
+			m.tails[f] = t
+		}
+		_, err := t.Lines(func(line []byte) {
+			lines = append(lines, append([]byte(nil), line...))
+		})
+		switch {
+		case err == nil:
+			read++
+		case os.IsNotExist(err):
+			// rotated away or not written yet; reported through Health
+		case firstErr == nil:
+			firstErr = fmt.Errorf("cannot read %s: %w", f, err)
+		}
+	}
+	m.polled = true
 	m.mu.Lock()
-	m.localMissing = err != nil && os.IsNotExist(err)
-	switch {
-	case err != nil && !m.localMissing:
-		m.lastErr = "cannot read " + m.tail.Path + ": " + err.Error()
-	default:
-		m.lastErr = ""
+	m.localMissing = read == 0 && firstErr == nil
+	m.lastErr = ""
+	if firstErr != nil {
+		m.lastErr = firstErr.Error()
 	}
 	m.mu.Unlock()
-	if err != nil {
-		if m.localMissing {
-			return nil // reported through Health; not a failure worth a log line every cycle
+	if len(lines) > 0 {
+		if _, err := m.ingest(lines, "suricata"); err != nil {
+			return err
 		}
-		return err
 	}
-	_, err = m.ingest(lines, "suricata")
-	return err
+	return firstErr
 }
 
 // fromProvider takes a batch of EVE events from a Suricata provider.

@@ -17,7 +17,7 @@ type Plan struct {
 	Supported bool   `json:"supported"`
 	Reason    string `json:"reason,omitempty"` // why not, when not
 
-	Platform string `json:"platform"` // opnsense, freebsd, linux, darwin
+	Platform string `json:"platform"` // opnsense, pfsense, freebsd, linux, darwin
 	// Packaged is set when a package manager has already put the binary
 	// and the service file in place (the .deb, .rpm and pkg scripts call
 	// the installer this way). Those files are the package's, so the
@@ -31,7 +31,7 @@ type Plan struct {
 	Why      []string `json:"why"` // the facts the position was decided from
 
 	Providers map[string]string `json:"providers"` // role -> provider, "none" when no provider is here
-	Service   string            `json:"service"`   // opnsense-plugin, rc.d, systemd, container, none
+	Service   string            `json:"service"`   // opnsense-plugin, pfsense-package, rc.d, systemd, container, none
 	Paths     map[string]string `json:"paths"`     // config, data, log
 
 	Steps     []Step     `json:"steps"`
@@ -82,7 +82,8 @@ func MakePlan(f Facts, now time.Time, opts ...Options) Plan {
 		p.Platform, p.Service = "freebsd", "rc.d"
 		p.Paths = map[string]string{"config": "/usr/local/etc/flowsight/flowsight.json", "data": "/var/db/flowsight", "log": "/var/log/flowsight"}
 	case "pfsense":
-		p.unsupported("pfSense is not supported yet; the port is planned (docs/DESIGN-PLATFORM.md, Phase 4)")
+		p.Platform, p.Service = "pfsense", "pfsense-package"
+		p.Paths = map[string]string{"config": "/usr/local/etc/flowsight/flowsight.json", "data": "/var/db/flowsight", "log": "/var/log/flowsight"}
 	case "openwrt":
 		p.unsupported("OpenWrt is not supported yet; it needs a smaller build and an nftables provider")
 	case "vyos":
@@ -213,9 +214,13 @@ func (p *Plan) steps(f Facts) {
 	case p.Service == "opnsense-plugin":
 		add("package", "install the os-flowsight package (binary, GUI page, service, pf anchors)",
 			"/usr/local/sbin/flowsightd", "/usr/local/www/flowsight.php", "/usr/local/etc/rc.d/flowsight")
+	case p.Service == "pfsense-package":
+		add("package", "install the pfSense-pkg-flowsight package (binary, GUI page, service, pf anchors, the resolver include)",
+			"/usr/local/sbin/flowsightd", "/usr/local/www/flowsight.php", "/usr/local/pkg/flowsight.xml",
+			"/usr/local/pkg/flowsight.inc", "/usr/local/etc/rc.d/flowsight.sh")
 	}
 	switch {
-	case p.Packaged || p.Service == "opnsense-plugin":
+	case p.Packaged || p.Service == "opnsense-plugin" || p.Service == "pfsense-package":
 	case p.Service == "rc.d":
 		add("binary", "install the flowsightd binary", "/usr/local/sbin/flowsightd")
 		add("service", "install the rc.d service and enable it", "/usr/local/etc/rc.d/flowsight", "flowsight_enable in /etc/rc.conf")
@@ -228,10 +233,10 @@ func (p *Plan) steps(f Facts) {
 	switch {
 	case f.Installed:
 		add("config", "keep the existing configuration", cfg)
-	case p.Platform == "opnsense":
-		// The GUI authenticates and proxies over loopback, so OPNsense has
-		// never needed a token; the daemon writes its defaults itself.
-		add("config", "leave the configuration to the daemon: on OPNsense the GUI signs you in, so no API token is created")
+	case p.Platform == "opnsense" || p.Platform == "pfsense":
+		// The GUI authenticates and proxies over loopback, so the firewall
+		// distributions need no token; the daemon writes its defaults itself.
+		add("config", "leave the configuration to the daemon: the firewall's GUI signs you in, so no API token is created")
 	default:
 		add("config", "write a configuration with a new API token (readable by root only)", cfg)
 	}

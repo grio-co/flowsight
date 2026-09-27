@@ -61,7 +61,7 @@ func PlanUninstall(e Env, f Facts, purge bool) (UninstallPlan, error) {
 		return u, fmt.Errorf("%s cannot be read as an install record", manifest)
 	}
 	for _, r := range runs {
-		if r.Packaged || r.Platform == "opnsense" {
+		if r.Packaged || r.Platform == "opnsense" || r.Platform == "pfsense" {
 			return u, errors.New("FlowSight was installed by a package; remove it with the package manager (" + packageRemover(here) + "), which withdraws and removes what the package put in place")
 		}
 	}
@@ -190,6 +190,8 @@ func PlanWithdraw(e Env, f Facts) (UninstallPlan, error) {
 
 func packageRemover(p Plan) string {
 	switch {
+	case p.Platform == "pfsense":
+		return "pkg delete pfSense-pkg-flowsight"
 	case p.Platform == "opnsense" || p.Platform == "freebsd":
 		return "pkg delete os-flowsight"
 	case p.Facts.System == "debian" || p.Facts.System == "ubuntu":

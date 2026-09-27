@@ -18,7 +18,7 @@ import (
 // composes keep their files. Modules never branch on the OS themselves; they
 // ask the platform. Every path can be overridden in the config document.
 type Platform struct {
-	Name     string `json:"name"`     // opnsense, freebsd, linux
+	Name     string `json:"name"`     // opnsense, pfsense, freebsd, linux
 	Family   string `json:"family"`   // freebsd, linux
 	Firewall string `json:"firewall"` // pf, nft, none
 
@@ -73,6 +73,8 @@ func DetectPlatform() *Platform {
 	switch {
 	case exists("/usr/local/sbin/opnsense-version"):
 		return opnsense()
+	case isPfSense("/etc/platform"):
+		return pfsense()
 	case runtime.GOOS == "freebsd":
 		return freebsd()
 	case runtime.GOOS == "darwin":
@@ -109,6 +111,33 @@ func opnsense() *Platform {
 		Pfctl:          "/sbin/pfctl", OpenSSL: "/usr/bin/openssl",
 		Configctl: "/usr/local/sbin/configctl", ConfigXML: "/conf/config.xml",
 	}
+}
+
+// isPfSense reads pfSense's platform file, which holds the word pfSense
+// (CE and Plus alike).
+func isPfSense(path string) bool {
+	b, err := os.ReadFile(path)
+	return err == nil && strings.TrimSpace(string(b)) == "pfSense"
+}
+
+// pfsense is a FreeBSD with pfSense's own layout. Its resolver
+// configuration is regenerated from config.xml on every change, so
+// FlowSight's includes live in /var/unbound/flowsight, which the package
+// names in the resolver's custom options once; pfSense never empties it.
+// The resolver logs through syslog to /var/log/resolver.log. The Suricata
+// package writes one EVE log per interface.
+func pfsense() *Platform {
+	p := freebsd()
+	p.Name = "pfsense"
+	p.UnboundConfig = "/var/unbound/unbound.conf"
+	p.UnboundInclude = "/var/unbound/flowsight/flowsight-policy.conf"
+	p.UnboundLog = "/var/log/resolver.log"
+	p.SuricataEve = "/var/log/suricata/*/eve.json"
+	p.SuricataRulesDir = ""
+	p.DHCPLeases = []string{"/var/dhcpd/var/db/dhcpd.leases", "/var/lib/kea/dhcp4.leases"}
+	p.DnsmasqConfDir = ""
+	p.ConfigXML = "/cf/conf/config.xml"
+	return p
 }
 
 func freebsd() *Platform {
@@ -167,6 +196,13 @@ func darwin() *Platform {
 
 // IsOPNsense reports whether the OPNsense integration points exist.
 func (p *Platform) IsOPNsense() bool { return p.Name == "opnsense" }
+
+// IsPfSense reports whether this is pfSense (CE or Plus).
+func (p *Platform) IsPfSense() bool { return p.Name == "pfsense" }
+
+// pfSsh is pfSense's scripting shell; its svc session starts, stops and
+// restarts services the way the GUI does, so the GUI's view stays right.
+const pfSsh = "/usr/local/sbin/pfSsh.php"
 
 // Run executes a command with a timeout and returns combined output.
 func Run(timeout time.Duration, name string, args ...string) (string, error) {
@@ -237,6 +273,20 @@ func (p *Platform) UnboundEnabled() bool {
 			return false
 		}
 		return strings.TrimSpace(cfg.OPNsense.Unbound.General.Enabled) == "1"
+	case p.IsPfSense() && p.ConfigXML != "":
+		b, err := os.ReadFile(p.ConfigXML)
+		if err != nil {
+			return false
+		}
+		var cfg struct {
+			Unbound *struct {
+				Enable *struct{} `xml:"enable"`
+			} `xml:"unbound"`
+		}
+		if xml.Unmarshal(b, &cfg) != nil {
+			return false
+		}
+		return cfg.Unbound != nil && cfg.Unbound.Enable != nil
 	case p.Family == "freebsd":
 		_, err := Run(15*time.Second, "/usr/sbin/service", "unbound", "enabled")
 		return err == nil
@@ -271,6 +321,12 @@ func (p *Platform) Service(name, action string) (string, error) {
 			}
 			return Run(180*time.Second, p.Configctl, svc, act)
 		}
+	}
+	if p.IsPfSense() {
+		if name == "filter" {
+			return Run(180*time.Second, "/etc/rc.filter_configure_sync")
+		}
+		return Run(180*time.Second, pfSsh, "playback", "svc", action, name)
 	}
 	if p.Family == "freebsd" {
 		return Run(180*time.Second, "/usr/sbin/service", name, "one"+action)

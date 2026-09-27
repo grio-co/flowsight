@@ -214,17 +214,30 @@ func TestCloudFromDMIOnly(t *testing.T) {
 	}
 }
 
-func TestPfSenseIsRecognisedButNotYetSupported(t *testing.T) {
-	m := machine(t, "freebsd")
+// pfSense is a packaged platform like OPNsense: the package installs the
+// binary, the GUI page and the service; the GUI signs people in.
+func TestPfSenseIsAPackagedPlatform(t *testing.T) {
+	m := machine(t, "freebsd").twoLANs()
 	m.files["/etc/platform"] = "pfSense\n"
-	m.files["/etc/version"] = "2.8.0-RELEASE"
+	m.files["/etc/version"] = "2.7.2-RELEASE"
 	m.files["/dev/pf"] = ""
+	m.cmds["sysctl -n net.inet.ip.forwarding"] = "1"
 	p := plan(m)
-	if p.Supported || p.Facts.System != "pfsense" || !strings.Contains(p.Reason, "pfSense") {
+	if !p.Supported || p.Platform != "pfsense" || p.Service != "pfsense-package" || p.Position != "in-path" {
 		t.Fatalf("pfsense: %+v", p)
 	}
-	if len(p.Steps) != 0 {
-		t.Fatal("an unsupported system must have no steps")
+	ids := []string{}
+	for _, s := range p.Steps {
+		ids = append(ids, s.ID)
+		if s.ID == "binary" || s.ID == "service" {
+			t.Fatalf("the package installs the binary and the service, not this command: %+v", p.Steps)
+		}
+		if s.ID == "config" && strings.Contains(s.Do, "API token") && !strings.Contains(s.Do, "no API token") {
+			t.Fatalf("the GUI signs people in; no token: %s", s.Do)
+		}
+	}
+	if len(ids) == 0 || ids[0] != "package" {
+		t.Fatalf("first the package: %v", ids)
 	}
 }
 
