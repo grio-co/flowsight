@@ -337,6 +337,15 @@ option, and it takes the same file an interactive install writes, so a
 site installed by hand once can be copied.
 
 `flowsightd install -dry-run` prints the plan and changes nothing.
+
+#### Phase 2 progress
+
+| Step | State |
+|---|---|
+| Detection (`internal/install`): system, container and Kubernetes, hypervisor and cloud from DMI, firewall, routing and NAT, guest hosts, backends, existing install; the plan (position, providers, steps, questions, warnings); `flowsightd install -dry-run [-json] [-plan-out]`. Tested with faked machines, and run for real on the OPNsense test bed, on PVE2 (a Proxmox host beside the firewall) and in a Docker container. Those runs corrected two things: forwarding alone does not make a host the gateway (Proxmox forwards for its guests; a gateway also translates addresses), and a minimal container has no ip(8), so the default route is read from /proc | Done |
+| Apply: binary, service, configuration, for the platforms supported today; `install.sh` and the packages call it | Next |
+| Verify: each provider's health check after start | Next |
+| `-plan <file>` for unattended installs; `uninstall` restoring every backup | Next |
 `flowsightd uninstall` restores every backup the install took and removes
 every object FlowSight created on other systems.
 

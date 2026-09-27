@@ -47,6 +47,8 @@ func run() int {
 		switch args[0] {
 		case "mcp":
 			return runMCP(*cfgPath, *dataDir, *level)
+		case "install":
+			return runInstall(args[1:])
 		}
 	}
 

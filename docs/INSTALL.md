@@ -15,6 +15,32 @@ Releases: <https://github.com/grioghar/flowsight/releases>. Every asset is
 listed in `SHA256SUMS`; the binaries are additionally signed and verified by
 the in-place updater.
 
+## Checking a machine first
+
+`flowsightd install -dry-run` looks at the machine it runs on and says what
+installing FlowSight there would do, without changing anything. It reads
+local facts only (it opens no network connection):
+
+- what the machine is (OPNsense, FreeBSD, a Linux distribution; a container
+  or a Kubernetes pod; a virtual machine or a cloud instance, from the
+  machine's own firmware tables),
+- which firewall it has, whether it routes and translates addresses for
+  other machines, or only forwards for virtual machines and containers it
+  runs,
+- which of the tools FlowSight works with are already there (Unbound,
+  dnsmasq, Pi-hole, AdGuard Home, squid, Suricata, ntopng, Zeek),
+- whether FlowSight is already installed.
+
+From that it proposes a position (*in-path* on the firewall itself,
+*adjacent* beside it), the tool it would use for each job (whatever is
+already installed; it installs nothing on your behalf), the steps it would
+take, and the questions it could not answer. `-json` prints the same plan
+as JSON and `-plan-out <file>` saves it. Enforcement is never switched on by
+the installer.
+
+Applying a plan is not built yet: without `-dry-run` the command says so
+and changes nothing. Install with the package for your platform below.
+
 ## OPNsense
 
 1. Install `os-ntopng` from System › Firmware › Plugins (recommended; it

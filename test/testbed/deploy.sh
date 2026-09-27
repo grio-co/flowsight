@@ -76,7 +76,7 @@ LICPUB="$(cat packaging/release/license.pub)"
 OUT="$(mktemp -d)"
 cleanup() {
     rm -rf "$OUT"
-    ssh -o BatchMode=yes "$PVE" "pkill -f 'http.server $PORT' || true; rm -rf /tmp/flowsight-dev" 2>/dev/null || true
+    ssh -o BatchMode=yes "$PVE" "pkill -f 'http[.]server $PORT' || true; rm -rf /tmp/flowsight-dev" 2>/dev/null || true
 }
 trap cleanup EXIT
 
