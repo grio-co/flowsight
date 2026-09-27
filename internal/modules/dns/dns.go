@@ -87,10 +87,17 @@ func (m *Module) Setup(ctx *core.Context) error {
 	if every > 0 {
 		ctx.Every("cache-names", every, m.snapshotCache, core.Delayed())
 	}
-	if core.Bool(ctx.Settings(), "manage_logging", true) {
-		ctx.Every("ensure-logging", 10*time.Minute, m.ensureLogging)
+	// Unbound's logging and DNS policy exist only where Unbound does. Without
+	// it (a container, a host beside the firewall) the module still reads
+	// whatever resolver log it is given, and offers no dns.block: a policy
+	// asking for it is shown as having no provider here instead of failing
+	// on every reconcile.
+	if m.unboundPresent() {
+		if core.Bool(ctx.Settings(), "manage_logging", true) {
+			ctx.Every("ensure-logging", 10*time.Minute, m.ensureLogging)
+		}
+		ctx.Provider(&provider{m: m})
 	}
-	ctx.Provider(&provider{m: m})
 	ctx.Route("GET", "/api/dns/summary", m.apiSummary, core.Doc("Query summary with volumes, block rates, top domains, clients and lists"),
 		core.Query("hours", "integer", "Time window in hours", false, 24),
 		core.Query("limit", "integer", "Max results per category", false, 15),
@@ -124,11 +131,27 @@ func (m *Module) Setup(ctx *core.Context) error {
 	return nil
 }
 
+// unboundPresent reports whether this machine has Unbound to manage.
+func (m *Module) unboundPresent() bool {
+	for _, p := range []string{m.ctx.Platform.UnboundControl, m.ctx.Platform.UnboundCheckconf} {
+		if p == "" {
+			return false
+		}
+		if _, err := os.Stat(p); err != nil {
+			return false
+		}
+	}
+	return true
+}
+
 func (m *Module) Health() core.Health {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.lastErr != "" {
 		return core.Health{OK: false, Detail: m.lastErr}
+	}
+	if !m.unboundPresent() {
+		return core.Health{OK: true, Detail: fmt.Sprintf("Unbound is not installed here: no DNS policy or reply logging; %d log lines read", m.lines)}
 	}
 	return core.Health{OK: true, Detail: fmt.Sprintf("%d log lines read, %d names cached", m.lines, m.names)}
 }
