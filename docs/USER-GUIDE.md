@@ -879,6 +879,12 @@ The page shows the rules, what each one currently matches, the queues and
 what they are holding, and the firewall rules the settings would produce, so
 you can read them before trusting them.
 
+On a Linux gateway the same page works over the kernel's traffic control
+instead of pf and dummynet: what it prints is the `tc` commands, and the
+queues are the download and upload classes. Shaping takes effect on
+connections already open, not only new ones. It needs the `ifb` kernel
+module for the upload direction; the page says so if it is missing.
+
 **Measuring the link.** *Run a bandwidth test* on the Priority page (and on the qos panel under Settings) measures what the link really carries, from the firewall itself. For about a minute it pulls and pushes data on several streams against Cloudflare's speed endpoints while reading the WAN interface's own byte counters every second. The counters see everything the link carried, the test and everyone else's traffic, so the **Link carried** figure is the capacity as observed and **Other load during** is what was already there; a test run while two people stream is measured beside them rather than fooled by them. The same run is repeated against speedtest.net's nearest server for comparison, and when the two differ by 2% or more in either direction both are run once more. Every attempt is logged, newest first, with the interface, the load before and during, the comparison server and its latency, and the difference. *Use N / M* on a row writes the link-carried numbers into the download and upload fields; headroom is still taken from them when shaping. The interface is the one the default route leaves by unless *WAN interface* names another.
 
 ### DLP (Business)

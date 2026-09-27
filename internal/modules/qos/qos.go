@@ -58,7 +58,7 @@ func (m *Module) Info() core.ModuleInfo {
 		Version:     "1.0",
 		Tier:        "pro",
 		Description: "Decides who waits when the link is full. Moves the queue off the carrier and onto this firewall, then shares the link by weight, with optional ceilings per device or service.",
-		After:       []string{"firewall", "identity", "web"},
+		After:       []string{"firewall", "tc", "identity", "web"},
 		Defaults: map[string]any{
 			"enabled":          true,
 			"active":           false,

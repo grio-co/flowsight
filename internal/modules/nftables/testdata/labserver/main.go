@@ -1,7 +1,8 @@
 // labserver answers HTTP on each address:port given, with a body naming
 // what answered, for the nftables and web labs (lab_test.go,
 // test/web-lab.sh). An address given as tls:address:port answers HTTPS
-// instead, with a self-signed certificate for lab.test.
+// instead, with a self-signed certificate for lab.test. /bytes/N answers
+// N bytes, for measuring rates.
 package main
 
 import (
@@ -12,9 +13,11 @@ import (
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"fmt"
+	"io"
 	"math/big"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -27,11 +30,26 @@ func selfSigned() tls.Certificate {
 	return tls.Certificate{Certificate: [][]byte{der}, PrivateKey: key}
 }
 
+type zeros struct{}
+
+func (zeros) Read(p []byte) (int, error) {
+	clear(p)
+	return len(p), nil
+}
+
 func main() {
 	for _, addr := range os.Args[1:] {
 		a := addr
 		go func() {
 			h := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				// /bytes/N sends N bytes, and an upload is read to the end:
+				// the tc lab measures rates with them.
+				if n, err := strconv.ParseInt(strings.TrimPrefix(r.URL.Path, "/bytes/"), 10, 64); err == nil {
+					w.Header().Set("Content-Length", strconv.FormatInt(n, 10))
+					_, _ = io.CopyN(w, zeros{}, n)
+					return
+				}
+				_, _ = io.Copy(io.Discard, r.Body)
 				fmt.Fprintf(w, "answered by %s\n", a)
 			})
 			var err error

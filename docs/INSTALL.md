@@ -205,7 +205,9 @@ firewall blocks. Only a connection's first packet is judged. Web
 interception needs squid (`squid-openssl` on Debian and Ubuntu, for
 inspection), and, if your firewall drops incoming connections by default,
 ports 3128 and 3129 allowed from the LAN (see [Interception](INTERCEPTION.md)).
-Not yet on Linux: traffic shaping. DNS policy, visibility, reports and
+Traffic shaping uses tc (iproute2) and needs the `ifb` kernel module for
+the upload direction (`modprobe ifb numifbs=0`; stock Debian, Ubuntu and
+Red Hat kernels ship it). DNS policy, visibility, reports and
 alerting work as elsewhere.
 
 ## FreeBSD (not OPNsense)

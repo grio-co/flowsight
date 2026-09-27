@@ -92,8 +92,11 @@ block rules in `flowsight/enroll`. Shaping becomes dummynet pipes and
 queues (`dnctl`) plus match rules and tables in `flowsight/qos`. There is one pf state parser (`firewall.ParseStates`) and one
 rule parser (`firewall.ParseRules`). The
 set names are the ones the firewall's policy provider declared from the
-policy document. Another backend (nftables, a firewall's API) provides the
-same services and these modules work unchanged.
+policy document. Another backend provides the same services and these
+modules work unchanged: on a Linux gateway the nftables module serves the
+enforcer, the connection table, redirects and isolation from its own table
+`inet flowsight`, and the tc module serves the shaper with HTB queues on the
+LAN interface (upload through an ifb device).
 
 ## Data path
 

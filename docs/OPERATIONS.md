@@ -327,3 +327,23 @@ pfctl -a flowsight/qos -vsr
 
 A rule with a large packet count on the direction you care about is doing its
 job. A rule with none is not being reached.
+
+**On a Linux gateway** shaping is tc queues on the LAN interface: downloads
+leave the LAN interface through FlowSight's HTB tree (handle `f5:`), uploads
+arrive on it and are redirected through the `fsifb0` device's tree. The
+class counters say where traffic went:
+
+```sh
+tc -s class show dev <lan>     # download: f5:10 high, f5:20 normal, f5:30 low, f5:1nn ceilings
+tc -s class show dev fsifb0    # upload, the same classes
+```
+
+Unlike pf, every packet is classified as it passes, so connections that were
+open before shaping was switched on are shaped too. If the Priority page
+says an ifb device could not be created, load the module (`modprobe ifb
+numifbs=0`, and add `ifb` to `/etc/modules-load.d/` to keep it). If it says
+tc rejected the shaping because the LAN interface already has a queueing
+discipline, FlowSight will not replace one it did not create: remove it
+(`tc qdisc del dev <lan> root`) or leave shaping off. `tc qdisc del dev <lan>
+root; tc qdisc del dev <lan> ingress; ip link del fsifb0` removes FlowSight's
+shaping by hand; turning shaping off does the same.

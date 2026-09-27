@@ -61,6 +61,18 @@ groups and update), `/groups`, `/clients`, `/categories`, `/gravity`,
 `/sync`, each taking `server` (`all` by default). Every change is in the
 change history. How-to: `docs/howto/pihole.md#blocking`.
 
+## 0.9.8r202609271627
+
+**Traffic priority works on a Linux gateway.** The Priority page (qos) now
+shapes through the kernel's traffic control where there is no pf: the link
+held a little under its real rates, the three weighted classes, and
+per-rule ceilings, in both directions, matched on the LAN side so a rule can
+name a device. The upload direction needs the `ifb` kernel module (`modprobe
+ifb numifbs=0`); the page tells you if it is missing. FlowSight will not
+replace a queueing discipline you configured on the LAN interface yourself,
+and turning shaping off removes only what it added. Nothing changes on
+OPNsense.
+
 ## 0.9.8r202609271622
 
 **SmartSearch filters the Map.** On the Map the search now filters the
@@ -70,6 +82,7 @@ matching by address, name, city or country and the routes through hops
 matching by address, router name or place, fading the rest. The Destinations
 tab keeps destinations whose routes were lit. A note floats over the map
 with the count; *Clear search* or the map's own × ends it.
+
 
 ## 0.9.8r202609271620
 

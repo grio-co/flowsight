@@ -44,7 +44,11 @@ its value in the file; the daemon reads the file at start.
   With interception on, the proxy listens on the LAN interfaces' own
   addresses (nftables redirects there, not to loopback), never on the WAN,
   and the table resets any connection to its ports that was not
-  redirected. nftables
+  redirected. With shaping on, FlowSight adds queueing to the LAN
+  interface (an HTB tree with the handle `f5:` and an ingress redirect) and
+  one ifb device, `fsifb0`; queueing delays packets and never passes or
+  blocks one. Turning shaping off removes exactly those, and nothing that
+  was there before. nftables
   lets every table see a packet that another accepts, and makes a reject
   final, so FlowSight can take traffic away but cannot open anything the
   operator's firewall closes.

@@ -36,10 +36,12 @@ the UI, and services other modules can consume. Each can be disabled.
 | pihole | Pulls the query log from Pi-hole servers (v6 API or v5) into the same DNS history, with blocks, lists and client names. |
 | web | Owns a transparent squid: the server name of every web session, `web.block`, `tls.inspect`, the block page. |
 | firewall | Owns the pf anchors `flowsight/*`; provides `net.block` and the tables for `app.block`; maintains the local-networks table. |
+| nftables | On a Linux gateway, FlowSight's own nftables table `inet flowsight`: `net.block`, `app.block` sets, country sets, interception redirects, zone isolation, the connection table through conntrack. Serves the same contracts as the firewall module. |
+| tc | On a Linux gateway, the traffic shaper: the qos module's classes and ceilings as HTB queues on the LAN interface, upload through an ifb device. |
 | appcontrol | Subscribes to the flow bus; a denied application's far end goes into a pf table and the state is killed. |
 | tls | The inspection CA (Pro), the certificate inventory, findings about weak or expiring certificates. |
 | paths | Path mapping (Pro): traces the route to destinations the network already contacts, and folds many routes into one picture by collapsing the legs they share. |
-| qos | Traffic priority (Pro): moves the queue off the carrier and onto this firewall with dummynet, then shares the link by weight, with ceilings per device or service. The only module that changes traffic rather than describing it. |
+| qos | Traffic priority (Pro): moves the queue off the carrier and onto this firewall with dummynet (pf) or tc (Linux), then shares the link by weight, with ceilings per device or service. The only module that changes traffic rather than describing it. |
 | egress | Live egress (Business): samples the firewall's connection counters every few seconds, so what is leaving is visible while it leaves, including pinned sessions, QUIC and tunnels that cannot be decrypted at all. Publishes an event stream other modules subscribe to. |
 | mitm | Stateful Packet Inspection (Business): the proxy hands decrypted requests here, and their headers, content types and DNS-over-HTTPS questions are recorded. Bodies are decoded, never stored. |
 | ids | Reads Suricata's EVE log: alerts, TLS sessions and certificates. |
