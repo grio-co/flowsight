@@ -1613,6 +1613,12 @@ Pi-hole lists, gravity and keeping several Pi-holes the same, on one Pi-hole
 or all of them). All DNS
 configuration is here; *Monitor › DNS* only watches.
 
+**identity** › *Send device names to the DHCP server* (on by default): names
+given in FlowSight also go to the DHCP server (dnsmasq), which gives each
+device its name with its next lease. Names only, never addresses; a device
+with its own OPNsense static host keeps it. The page lists what was sent and
+what was left alone. See [Give a device a DNS name](howto/local-names.md).
+
 **pihole** connects FlowSight to your Pi-holes (servers and app password) and
 pulls their query logs; what the Pi-holes do is configured on *Settings ›
 dns › Pi-hole*.

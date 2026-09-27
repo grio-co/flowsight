@@ -15,7 +15,9 @@
 
   // FS.nameDevice opens the dialog for one address. onDone runs after a save.
   FS.nameDevice = async (ip, current, onDone) => {
-    const sg = await FS.get(`/api/dns/names/suggest?ip=${encodeURIComponent(ip)}${current ? '&name=' + encodeURIComponent(current) : ''}`);
+    const [sg, dn] = await Promise.all([FS.get(`/api/dns/names/suggest?ip=${encodeURIComponent(ip)}${current ? '&name=' + encodeURIComponent(current) : ''}`), FS.get('/api/identity/dhcp-names')]);
+    const dhcpOn = dn && !dn.error && dn.enabled && dn.server;
+    const dhcpMine = dhcpOn && ((dn.entries || []).find(e => e.ip === ip || (sg && sg.mac && e.mac === String(sg.mac).toLowerCase())) || null);
     const ok = sg && !sg.error;
     const ex = ok ? sg.existing : null;
     const doms = ok ? (sg.domains || []) : [];
@@ -44,6 +46,7 @@
     FS.modal(`<h2>Name ${esc(ip)}</h2>
       <form class="f nm-form">
         <label>Name in FlowSight<input name="display" value="${esc(current || '')}" placeholder="Kitchen iPad" autocomplete="off"></label>
+        ${dhcpOn ? `<div class="small muted">${dhcpMine && dhcpMine.status !== 'sent' ? esc('Not sent to the DHCP server: ' + (dhcpMine.why || '')) : 'Also sent to the DHCP server (dnsmasq), which gives the device this name at its next lease renewal.'} <a href="#modules/identity">Setting</a></div>` : ''}
         ${ok ? `<label class="nm-toggle"><input type="checkbox" name="dns" ${dnsOn ? 'checked' : ''}> Also add it to DNS, so other devices reach it by name (forward and reverse lookup)</label>
         <div class="nm-dns" ${dnsOn ? '' : 'hidden'}>
           <div class="nm-name"><input name="label" value="${esc(ex ? ex.label : (sg.label || ''))}" placeholder="kitchen-ipad" autocomplete="off" spellcheck="false"><span>.</span>

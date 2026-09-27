@@ -394,6 +394,19 @@
         if ((st || {}).running) setTimeout(() => { if (FS.parseHash().page === 'modules') FS.render(); }, 5000);
       }
       if (m && m.name === 'dns' && FS.dnsSettings) await FS.dnsSettings(el, ctx);
+      if (m && m.name === 'identity') {
+        const dn = await get('/api/identity/dhcp-names');
+        const host = document.createElement('div'); host.style.marginTop = '14px';
+        const rows = (dn && dn.entries) || [];
+        host.innerHTML = card('Names sent to the DHCP server', !dn || dn.error && !rows.length ? `<div class="small">${esc((dn && dn.error) || 'unavailable')}</div>` : !dn.server ? '<div class="small muted">No dnsmasq DHCP server on this system; names stay in FlowSight.</div>'
+          : `<div class="small">${dn.enabled ? `Names given in FlowSight go to <b>dnsmasq</b>, which hands each device its name with its next lease and registers it in DNS. ${dn.error ? `<span class="sev-high">${esc(dn.error)}</span>` : dn.last_run ? 'Last sent ' + FS.ago(dn.last_run) + '.' : ''}` : 'Off: turn on <i>Send device names to the DHCP server</i> above.'}</div>`
+            + (rows.length ? table(rows, [{ t: 'Device', f: x => `<b>${esc(x.name)}</b><div class="muted small mono">${esc(x.ip)}</div>` }, { t: 'Hardware address', f: x => `<span class="mono small">${esc(x.mac || '—')}</span>` },
+              { t: 'DHCP host name', f: x => x.label ? `<span class="mono">${esc(x.label)}</span>` : '' },
+              { t: 'Status', f: x => x.status === 'sent' ? pill('sent', 'ok') : `${pill('left alone', '')}<div class="muted small">${esc(x.why || '')}</div>` }]) : '')
+            + `<div class="actions"><button class="btn small" id="dhcp-now">Send now</button></div><div class="help small">FlowSight writes its own host file (<span class="mono">${esc(dn.hosts_file || '')}</span>), named by <span class="mono">${esc(dn.include || '')}</span>; names only, never addresses. A device with its own static host in OPNsense keeps that entry. A device picks its name up at its next lease renewal.</div>`, `${num(rows.filter(x => x.status === 'sent').length)} sent`);
+        (FS.$('.two > div', el) || el).appendChild(host);
+        const btn = FS.$('#dhcp-now', host); if (btn) btn.onclick = async () => { const r = await post('/api/identity/dhcp-names', {}); FS.toast(r.error || 'Sent to the DHCP server', !!r.error); FS.render(); };
+      }
       if (m && m.name === 'pihole') {
         const note = document.createElement('div'); note.style.marginTop = '14px';
         note.innerHTML = card('Pi-hole configuration', `<div class="small">This page connects FlowSight to your Pi-holes. What the Pi-holes do (blocking, device-specific answers, upstreams, allow and deny lists) is configured on <a href="#modules/dns?tab=pihole">Settings › dns › Pi-hole</a>.</div>`);

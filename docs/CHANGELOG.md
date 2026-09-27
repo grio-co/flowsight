@@ -12,6 +12,18 @@ name, and every release's assets carry that string in their file names.
 
 The newest entry is first.
 
+## 0.9.8r202609271704
+
+**Device names reach the DHCP server.** A name given in FlowSight now also
+goes to the DHCP server: on dnsmasq, FlowSight keeps its own host file of
+`MAC,name` lines (names only, never addresses), so dnsmasq gives the device
+that name with its next lease and registers it in DNS. The host name matches
+the device's DNS label when it has one. Devices with an OPNsense static host
+or a placement reservation keep that entry. Renames are re-read without a
+restart. A setting controls it: *Settings › identity › Send device names to
+the DHCP server* (on by default), and that page lists what was sent and what
+was left alone. `GET`/`POST /api/identity/dhcp-names`.
+
 ## 0.9.8r202609271647
 
 **SmartSearch uses the name you gave a device.** A device carrying a

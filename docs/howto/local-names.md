@@ -60,6 +60,32 @@ again, with the box ticked, replaces the old name everywhere.
   restarts that Pi-hole's DNS service once to clear it, a second or two
   without answers.
 
+## The DHCP server gets the name too
+
+With *Settings › identity › Send device names to the DHCP server* on (the
+default), every name given in FlowSight also goes to the DHCP server. On
+OPNsense that is dnsmasq: FlowSight keeps its own host file
+(`/usr/local/etc/flowsight/dnsmasq-names.hosts`, one `MAC,name` line per
+device) named by one line in its own include
+(`/usr/local/etc/dnsmasq.conf.d/flowsight-names.conf`). dnsmasq then gives
+the device that name with its next lease, lists the lease under it, and
+registers it in DNS under its DHCP domain. Only names are sent, never
+addresses, so nothing about a device's address changes.
+
+- The host name is the device's DNS label when it has one (`iphone`), so
+  DHCP and DNS say the same thing; otherwise it is made from the name.
+- A device you already describe to dnsmasq, with a static host in OPNsense
+  (*Services › Dnsmasq › Hosts*) or through FlowSight's device placement,
+  keeps that entry and is left out. *Settings › identity* lists what was sent
+  and what was left alone, and why.
+- Two devices given the same name get distinct host names (the second has
+  the end of its hardware address appended).
+- A rename reaches dnsmasq within a minute (at once from the device page) and
+  is re-read without restarting it; turning the setting on the first time
+  restarts dnsmasq once. The device picks the name up at its next lease
+  renewal.
+- Turning the setting off empties the host file.
+
 ## See and manage names
 
 *Settings › dns › Device names* lists every name FlowSight put in DNS, its addresses,

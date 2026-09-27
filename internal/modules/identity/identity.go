@@ -62,6 +62,7 @@ func (m *Module) Info() core.ModuleInfo {
 			"extra_lease_files":    []string{},
 			"local_networks":       []string{},
 			"address_memory_hours": 24,
+			"dhcp_names":           true,
 		},
 		Schema: []core.SettingField{
 			{Key: "refresh_seconds", Label: "Refresh interval (s)", Type: "int"},
@@ -70,6 +71,8 @@ func (m *Module) Info() core.ModuleInfo {
 			{Key: "extra_lease_files", Label: "Extra lease files", Type: "list"},
 			{Key: "address_memory_hours", Label: "Remember a device's addresses for (hours)", Type: "int",
 				Help: "How long an address stays associated with its device after the neighbour entry goes. Operating systems rotate temporary IPv6 addresses; remembering them keeps policy, names and history attached to the device."},
+			{Key: "dhcp_names", Label: "Send device names to the DHCP server", Type: "bool",
+				Help: "A name given to a device in FlowSight also goes to the DHCP server (dnsmasq), which hands it to the device with its lease and registers it in DNS. Names only, never addresses; a device with its own static host in OPNsense keeps that entry. Takes effect at each device's next lease renewal."},
 		},
 	}
 }
@@ -91,6 +94,15 @@ func (m *Module) Setup(ctx *core.Context) error {
 	m.loadSeen()
 	every := time.Duration(core.Int(ctx.Settings(), "refresh_seconds", 30)) * time.Second
 	ctx.Every("refresh", every, m.refresh)
+	ctx.Every("dhcp-names", time.Minute, m.syncDHCPNames, core.Delayed())
+	dhcpDoc := core.Returns("Names sent to the DHCP server", map[string]any{"ok": true, "enabled": true, "server": "dnsmasq",
+		"include": "/usr/local/etc/dnsmasq.conf.d/flowsight-names.conf", "hosts_file": "/usr/local/etc/flowsight/dnsmasq-names.hosts", "last_run": 1790500000, "error": "",
+		"entries": []map[string]any{{"mac": "ca:51:71:75:2f:b9", "ip": "192.168.1.69", "name": "iPhone", "label": "iphone", "status": "sent"},
+			{"mac": "bc:24:11:c2:5c:a4", "ip": "192.168.1.159", "name": "homeassistant", "label": "homeassistant", "status": "skipped", "why": "already named to the DHCP server by the OPNsense static host homeassistant"}}})
+	ctx.Route("GET", "/api/identity/dhcp-names", m.apiDHCPNames,
+		core.Doc("Device names FlowSight sends to the DHCP server, which devices were left to an existing static host, and the last sync"), dhcpDoc)
+	ctx.Route("POST", "/api/identity/dhcp-names", m.apiDHCPNames, core.Write(),
+		core.Doc("Send the device names to the DHCP server now instead of at the next minute"), dhcpDoc)
 	ctx.Route("GET", "/api/identity/hosts", m.apiHosts,
 		core.Query("hours", "integer", "Activity window in hours to consider as active (default 24)", false, 24),
 		core.Query("all", "boolean", "Include inactive hosts that are no longer seen (default false)", false, false),
@@ -1342,5 +1354,6 @@ func (m *Module) apiSetName(r *core.Req) (any, error) {
 		return nil, err
 	}
 	_ = m.ctx.Store.UpsertHosts([]core.HostUpdate{{IP: in.IP, Name: in.Name, Source: "operator"}})
+	go func() { _ = m.syncDHCPNames() }()
 	return map[string]any{"ok": true}, nil
 }

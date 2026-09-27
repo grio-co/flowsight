@@ -243,6 +243,8 @@ Names and MAC addresses for every host, from DHCP, ARP/NDP, DNS answers and the 
 | `local_networks` | Local networks | list | `[]` | CIDRs considered local. Empty: derived from the firewall's own interfaces. |
 | `extra_lease_files` | Extra lease files | list | `[]` |  |
 
+`dhcp_names` (default true): send device names given in FlowSight to the DHCP server. On dnsmasq, FlowSight writes `<etc>/dnsmasq-names.hosts` (`MAC,name` per line) and `<dnsmasq conf.d>/flowsight-names.conf` (`dhcp-hostsfile=` that file), validates with `dnsmasq --test`, and signals dnsmasq to re-read (a restart only when the include first appears). MACs with an OPNsense static host or a placement reservation are skipped. `GET /api/identity/dhcp-names` lists what was sent; `POST` sends now.
+
 ### ids
 
 Suricata alerts and TLS observations from the EVE log.
