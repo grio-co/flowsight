@@ -12,6 +12,12 @@ name, and every release's assets carry that string in their file names.
 
 The newest entry is first.
 
+## 0.9.8r202609271633
+
+**Gravity output hides the feed key.** The gravity output shown on the
+Pi-hole blocking tab named the URL of a subscribed FlowSight category with
+its feed key; the key is now masked there.
+
 ## 0.9.8r202609271630
 
 **Pi-hole blocking, managed from FlowSight.** A new tab, *Settings › dns ›

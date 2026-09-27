@@ -35,3 +35,10 @@ func TestGroupNamesFromIDs(t *testing.T) {
 		t.Fatalf("names: %v", got)
 	}
 }
+
+func TestGravityOutputHidesTheFeedKey(t *testing.T) {
+	got := keyRe.ReplaceAllString("[i] Target: http://192.168.0.1:8080/feeds/categories/vaping.txt?key=f8498a8088d22983609d13336ab398947906bd935bf2d5d2", "key=…")
+	if got != "[i] Target: http://192.168.0.1:8080/feeds/categories/vaping.txt?key=…" {
+		t.Fatal(got)
+	}
+}

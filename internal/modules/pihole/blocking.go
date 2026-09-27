@@ -214,7 +214,10 @@ func sameStrings(a, b []string) bool {
 	return true
 }
 
-var feedRe = regexp.MustCompile(`/feeds/categories/([a-z0-9_-]+)\.txt`)
+var (
+	feedRe = regexp.MustCompile(`/feeds/categories/([a-z0-9_-]+)\.txt`)
+	keyRe  = regexp.MustCompile(`key=[0-9a-f]{16,}`)
+)
 
 func (m *Module) apiBlockingState(r *core.Req) (any, error) {
 	servers, err := m.pick(r.Q("server", "all"))
@@ -674,7 +677,8 @@ func (m *Module) streamGravity(s *serverState, run *gravityRun) error {
 	sc.Buffer(make([]byte, 64<<10), 1<<20)
 	ansi := regexp.MustCompile(`\x1b\[[0-9;]*[A-Za-z]`)
 	for sc.Scan() {
-		line := strings.TrimSpace(ansi.ReplaceAllString(sc.Text(), ""))
+		// The feed key is a secret of this installation; the output is shown.
+		line := keyRe.ReplaceAllString(strings.TrimSpace(ansi.ReplaceAllString(sc.Text(), "")), "key=…")
 		if line == "" {
 			continue
 		}
