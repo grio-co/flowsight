@@ -128,11 +128,13 @@ func (c *Core) apiSearch(r *Req) (any, error) {
 	// Devices: the inventory joined to the host table, by name, address,
 	// hardware address or maker.
 	{
+		// Every local host of the last month (a few hundred rows): names
+		// the operator gave live in the identity module, not in the table,
+		// so matching happens here rather than in SQL.
 		rows, _ := c.Store.Rows(`SELECT h.ip, h.mac, h.name, h.vendor, h.last_seen, d.hostname, d.zone, d.class
 			FROM hosts h LEFT JOIN devices d ON lower(d.mac)=lower(h.mac)
-			WHERE h.last_seen>=? AND h.is_local=1 AND (lower(h.ip) LIKE ? ESCAPE '\' OR lower(h.mac) LIKE ? ESCAPE '\'
-			  OR lower(h.name) LIKE ? ESCAPE '\' OR lower(h.vendor) LIKE ? ESCAPE '\' OR lower(d.hostname) LIKE ? ESCAPE '\')
-			ORDER BY h.last_seen DESC LIMIT 200`, month, like, like, like, like, like)
+			WHERE h.last_seen>=? AND h.is_local=1 ORDER BY h.last_seen DESC LIMIT 5000`, month)
+		idn, _ := c.Services["identity"].(Identity)
 		// One device has several address rows (IPv4, IPv6, old leases):
 		// merge them, and take the name and the IPv4 address from
 		// whichever row has them.
@@ -159,6 +161,9 @@ func (c *Core) apiSearch(r *Req) (any, error) {
 			}
 			if d.name == "" {
 				d.name = sOf(row["name"])
+			}
+			if d.name == "" && idn != nil {
+				d.name = idn.Name(ip)
 			}
 			if d.host == "" {
 				d.host = sOf(row["hostname"])

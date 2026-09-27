@@ -12,6 +12,14 @@ name, and every release's assets carry that string in their file names.
 
 The newest entry is first.
 
+## 0.9.8r202609271519
+
+**SmartSearch finds devices by the names you gave them.** Names given on a
+device's page are kept by the identity module rather than in the host
+table, so searching "echo show" or "nintendo switch" did not find those
+devices by name. The device search now asks the identity module, as the
+device lists do.
+
 ## 0.9.8r202609271517
 
 **SmartSearch: devices by name, fewer stray findings.** A device with
