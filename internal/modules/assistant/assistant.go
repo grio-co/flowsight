@@ -175,7 +175,7 @@ func (m *Module) Setup(ctx *core.Context) error {
 	ctx.Route("GET", "/api/assistant/tools", m.apiTools,
 		core.Doc("The FlowSight tools the model and MCP clients can call: one per documented API route, with its input schema"),
 		core.Returns("Tools", map[string]any{"tools": []map[string]any{{"name": "visibility_flows", "description": "Recent sessions …", "inputSchema": map[string]any{"type": "object", "properties": map[string]any{"minutes": map[string]any{"type": "integer"}}}}}, "count": 190}))
-	ctx.Route("POST", "/api/mcp", m.apiMCP,
+	ctx.Route("POST", "/api/mcp", m.apiMCP, core.ReadSafe(),
 		core.Doc("Model Context Protocol over HTTP (JSON-RPC 2.0, streamable-HTTP style single responses): initialize, tools/list, tools/call, ping. What `flowsightd mcp` bridges to for stdio clients such as Claude Code"),
 		core.Body(
 			core.Fld("jsonrpc", "string", true, "Always \"2.0\"", "2.0"),

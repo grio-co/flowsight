@@ -27,7 +27,10 @@ its value in the file; the daemon reads the file at start.
   to loopback and the feeds; a browser on the LAN is redirected to HTTPS.
   Session cookies are marked Secure over HTTPS.
 - **Tokens.** Named tokens carry a scope: `admin` or `read`. Use `read` for
-  anything that only looks (dashboards, the assistant's MCP token). With
+  anything that only looks (dashboards, the assistant's MCP token). A read
+  token may call `/api/mcp`, whose JSON-RPC is always a POST, but only its
+  read tools: write tools are refused to it even when the assistant's
+  write settings are on. With
   `api_token_local_only`, the unnamed token the OPNsense plugin reads works
   only from loopback.
 - **Guessing.** Eight failed logins or bad tokens from one address within

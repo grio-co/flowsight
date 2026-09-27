@@ -1,6 +1,7 @@
 package core
 
 import (
+	"context"
 	"crypto/hmac"
 	"crypto/rand"
 	"crypto/sha1"
@@ -118,6 +119,7 @@ type Route struct {
 	Handler              Handler
 	Description          string
 	Write                bool
+	ReadSafe             bool              // a POST that changes nothing unless the caller may write (see ReadOnly)
 	Feature              string            // tier feature this route belongs to ("" = free)
 	Params               map[string]string // Legacy: query param descriptions
 	Tags                 []string          // OpenAPI tags for grouping
@@ -136,6 +138,22 @@ type RouteOption func(*Route)
 
 func Doc(desc string) RouteOption { return func(r *Route) { r.Description = desc } }
 func Write() RouteOption          { return func(r *Route) { r.Write = true } }
+
+// ReadSafe marks a POST a read-only token may call because the handler
+// itself refuses anything that would change state when ReadOnly(ctx) is true
+// (the MCP endpoint: JSON-RPC is always POST, but most of its tools read).
+func ReadSafe() RouteOption { return func(r *Route) { r.ReadSafe = true } }
+
+type readOnlyKey struct{}
+
+// ReadOnly reports whether the request was made with a read-scoped token or
+// a session one opened.
+func ReadOnly(ctx context.Context) bool { v, _ := ctx.Value(readOnlyKey{}).(bool); return v }
+
+// WithReadOnly marks ctx as coming from a read-only caller.
+func WithReadOnly(ctx context.Context) context.Context {
+	return context.WithValue(ctx, readOnlyKey{}, true)
+}
 func Params(kv ...string) RouteOption {
 	return func(r *Route) {
 		for i := 0; i+1 < len(kv); i += 2 {
@@ -900,9 +918,12 @@ func (a *API) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// A read-only token (or a session it opened) changes nothing.
-	if scope == ScopeRead && (route.Write || (r.Method != http.MethodGet && r.Method != http.MethodHead)) {
-		a.writeJSON(w, 403, map[string]any{"error": "this token is read-only"})
-		return
+	if scope == ScopeRead {
+		if route.Write || (!route.ReadSafe && r.Method != http.MethodGet && r.Method != http.MethodHead) {
+			a.writeJSON(w, 403, map[string]any{"error": "this token is read-only"})
+			return
+		}
+		r = r.WithContext(WithReadOnly(r.Context()))
 	}
 	req := &Req{Request: r, User: user, Client: client, Params: params}
 	if r.Method != http.MethodGet && r.Method != http.MethodHead {

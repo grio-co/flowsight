@@ -414,3 +414,27 @@ func TestShrinkJSONKeepsWholeRows(t *testing.T) {
 		t.Fatalf("small results untouched: %s", small)
 	}
 }
+
+// A caller with a read-only token gets read tools only, even when writes are
+// allowed.
+func TestReadOnlyCallerNeverReachesAWriteTool(t *testing.T) {
+	m := testModule(t)
+	m.config.AllowWrites = true
+	_ = m.generateTools()
+	var methods []string
+	daemon := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		methods = append(methods, r.Method)
+		fmt.Fprint(w, `{"ok":true}`)
+	}))
+	defer daemon.Close()
+	t.Setenv("FLOWSIGHT_URL", daemon.URL)
+	call := []byte(`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"policy_apply","arguments":{}}}`)
+	m.handleMCPRequest(core.WithReadOnly(context.Background()), call)
+	if len(methods) != 0 {
+		t.Fatalf("a read-only caller reached %v", methods)
+	}
+	m.handleMCPRequest(context.Background(), call)
+	if len(methods) != 1 || methods[0] != "POST" {
+		t.Fatalf("an admin caller with writes on should reach the write route: %v", methods)
+	}
+}

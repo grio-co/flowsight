@@ -210,3 +210,23 @@ func TestOutboundGuard(t *testing.T) {
 		t.Fatalf("the default transport must refuse metadata addresses: %v", err)
 	}
 }
+
+// A read token may call a ReadSafe POST (MCP), and the handler learns the
+// caller is read-only; a plain POST stays refused.
+func TestReadSafeRouteTellsTheHandler(t *testing.T) {
+	c := newTestAPI(t, nil)
+	var seen []bool
+	c.API.Add("POST", "/api/test/readsafe", func(r *Req) (any, error) {
+		seen = append(seen, ReadOnly(r.Context()))
+		return map[string]any{"ok": true}, nil
+	}, "test", ReadSafe())
+	if got := do(c, "POST", "/api/test/readsafe", "192.168.1.119", "reader-token-0123456789", `{}`, false).Code; got != 200 {
+		t.Fatalf("read token on a ReadSafe route: %d", got)
+	}
+	if got := do(c, "POST", "/api/test/readsafe", "192.168.1.119", "operator-token-0123456789", `{}`, false).Code; got != 200 {
+		t.Fatalf("admin token on a ReadSafe route: %d", got)
+	}
+	if len(seen) != 2 || !seen[0] || seen[1] {
+		t.Fatalf("ReadOnly seen by the handler: %v", seen)
+	}
+}

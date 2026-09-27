@@ -41,6 +41,11 @@ func (m *Module) callToolHTTP(ctx context.Context, toolName string, args map[str
 		if method != "GET" && !m.config.AllowWrites && !m.config.MCPAllowWrites {
 			return
 		}
+		// A caller holding a read-only token gets read tools only, whatever
+		// the write settings say.
+		if method != "GET" && core.ReadOnly(ctx) {
+			return
+		}
 		matchedRoute, matchedPath, matchedMethod = route, path, method
 	})
 
