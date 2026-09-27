@@ -46,6 +46,10 @@ type squidParams struct {
 	// V6Listener is an address the firewall owns on the LAN (a unique local
 	// address works well); pf cannot redirect LAN traffic to [::1].
 	V6Listener string
+	// Arrivals are further addresses to listen on: where the redirector
+	// delivers redirected connections (on nftables, the LAN interfaces'
+	// own addresses). Empty on pf, which delivers to loopback.
+	Arrivals []string
 }
 
 type squidPolicy struct {
@@ -96,8 +100,9 @@ func (p squidParams) render() (string, map[string]string) {
 		w("workers %d", p.Workers)
 	}
 	w("")
-	w("# Listeners: loopback only; pf redirects to them. The plain port exists")
-	w("# because squid needs one forward-proxy port for its internal URLs.")
+	w("# Listeners: loopback, where pf redirects, and any address the redirector")
+	w("# delivers to instead (nftables: the LAN interfaces' own). The plain port")
+	w("# exists because squid needs one forward-proxy port for its internal URLs.")
 	w("http_port 127.0.0.1:%d", p.HTTPPort-1)
 	w("http_port 127.0.0.1:%d intercept", p.HTTPPort)
 	w("http_port [::1]:%d intercept", p.HTTPPort)
@@ -112,9 +117,9 @@ func (p squidParams) render() (string, map[string]string) {
 	}
 	w("https_port 127.0.0.1:%d intercept%s", p.HTTPSPort, ssl)
 	w("https_port [::1]:%d intercept%s", p.HTTPSPort, ssl)
-	if p.V6Listener != "" {
-		w("http_port [%s]:%d intercept", p.V6Listener, p.HTTPPort)
-		w("https_port [%s]:%d intercept%s", p.V6Listener, p.HTTPSPort, ssl)
+	for _, a := range p.listenAddrs() {
+		w("http_port %s intercept", net.JoinHostPort(a, fmt.Sprint(p.HTTPPort)))
+		w("https_port %s intercept%s", net.JoinHostPort(a, fmt.Sprint(p.HTTPSPort)), ssl)
 	}
 	w("")
 	if p.CAPath != "" {
@@ -373,6 +378,22 @@ func domainList(domains []string) string {
 	}
 	sort.Strings(out)
 	return strings.Join(out, "\n") + "\n"
+}
+
+// listenAddrs is every intercept listener beyond loopback: the IPv6
+// listener and the arrivals, each once (squid refuses a port bound twice).
+func (p squidParams) listenAddrs() []string {
+	seen := map[string]bool{"127.0.0.1": true, "::1": true}
+	var out []string
+	for _, a := range append([]string{p.V6Listener}, p.Arrivals...) {
+		ip := net.ParseIP(strings.TrimSpace(a))
+		if ip == nil || seen[ip.String()] {
+			continue
+		}
+		seen[ip.String()] = true
+		out = append(out, ip.String())
+	}
+	return out
 }
 
 // redirectSpec describes interception for the redirector: port 80 and 443

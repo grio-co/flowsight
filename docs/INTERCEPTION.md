@@ -64,7 +64,46 @@ openssl s_client -connect example.com:443 -servername example.com </dev/null | g
 An issuer of *FlowSight Inspection CA* on a device no policy inspects is a
 bug; the TLS page lists which clients were bumped (mode *bump*).
 
+## On a Linux gateway (nftables)
+
+nftables' `redirect` does not deliver to loopback: it rewrites the
+destination to the address of the interface the connection came in on. So
+on Linux FlowSight's proxy also listens on the LAN interfaces' own addresses
+(each once, IPv4, and IPv6 other than link-local when IPv6 is intercepted),
+and the fail-open check probes every one of them as well as loopback. A
+proxy that answers on loopback but not on the LAN address has the redirects
+withdrawn, exactly as a proxy that does not answer at all.
+
+The interfaces are the ones in **Interfaces**, or, left empty, the ones
+holding an address inside an intercepted network; the WAN is never chosen,
+so the proxy never listens on a public address. Redirects are only rendered
+for interfaces the proxy was told to listen on; if none can be found,
+nothing is redirected. The addresses are read again at every probe, so a
+LAN address that appears after the proxy was configured fails the probe and
+withdraws interception until the next apply, rather than sending traffic to
+an address nothing listens on.
+
+Because the proxy's ports are now open on the LAN, FlowSight's `input` chain
+(`fs_web_in`) turns away any connection to them that did not arrive through
+a redirect: a client aiming at the proxy directly is reset. Loopback passes,
+for the probe and for squid's own requests.
+
+Redirected connections pass through the input hook, and nftables lets every
+table judge them. If the distribution's firewall (ufw, firewalld, or an
+`inet filter` table with `policy drop` on input) does not let the proxy's
+ports in from the LAN, redirected web traffic is dropped there, while the
+probe, made over loopback, still passes. FlowSight's table cannot accept on
+another table's behalf, so the nftables module's health turns red and names
+the table while interception is loaded and any other table's input chain
+drops by default. Allow the proxy's ports (`http_port`, `https_port`, 3128
+and 3129 unless changed) from the LAN in that firewall, for example
+`ufw allow in on lan0 to any port 3128:3129 proto tcp`.
+
 ## IPv6
+
+On a Linux gateway the proxy listens on the LAN's own IPv6 address (see
+above), so the listener address only needs setting to turn IPv6
+interception on. On pf:
 
 pf cannot redirect LAN traffic to `[::1]`, so IPv6 interception needs an
 address the firewall holds on the LAN. Set the web module's

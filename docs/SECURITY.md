@@ -40,7 +40,11 @@ its value in the file; the daemon reads the file at start.
   trust, or put the core behind a TLS reverse proxy; the token would
   otherwise cross the network in clear.
 - **On a Linux gateway** FlowSight changes nothing but its own nftables
-  table, `inet flowsight`, whose rules only reject or count. nftables
+  table, `inet flowsight`, whose rules only reject, count or redirect.
+  With interception on, the proxy listens on the LAN interfaces' own
+  addresses (nftables redirects there, not to loopback), never on the WAN,
+  and the table resets any connection to its ports that was not
+  redirected. nftables
   lets every table see a packet that another accepts, and makes a reject
   final, so FlowSight can take traffic away but cannot open anything the
   operator's firewall closes.

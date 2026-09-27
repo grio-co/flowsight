@@ -69,5 +69,8 @@ func renderRedirects(spec core.RedirectSpec, localTable string) string {
 // sub-anchor name.
 func (e *pfEnforcer) LoadRedirects(name, text string) error { return e.m.LoadAnchor(name, text) }
 
+// Arrivals is empty: pf's rdr delivers to the rule's own address.
+func (e *pfEnforcer) Arrivals(spec core.RedirectSpec) []string { return nil }
+
 // ClearRedirects flushes the sub-anchor name.
 func (e *pfEnforcer) ClearRedirects(name string) error { return e.m.FlushAnchor(name) }

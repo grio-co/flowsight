@@ -33,9 +33,15 @@ func sh(t *testing.T, cmd string) string {
 }
 
 // fetch asks from the client netns; "" means the connection failed.
-func fetch(port int) string {
-	out, err := exec.Command("ip", "netns", "exec", "client", "curl", "-s", "-m", "3",
-		fmt.Sprintf("http://10.20.0.2:%d/", port)).Output()
+func fetch(port int) string { return fetchFrom("client", fmt.Sprintf("http://10.20.0.2:%d/", port)) }
+
+// fetchFrom asks from a netns, or from the gateway itself with ns "".
+func fetchFrom(ns, url string) string {
+	args := []string{"curl", "-s", "-m", "3", url}
+	if ns != "" {
+		args = append([]string{"ip", "netns", "exec", ns}, args...)
+	}
+	out, err := exec.Command(args[0], args[1:]...).Output()
 	if err != nil {
 		return ""
 	}
@@ -81,7 +87,7 @@ ip addr add 10.20.0.1/24 dev vs; ip link set vs up
 ip -n client addr add 10.10.0.2/24 dev vc0; ip -n client link set vc0 up; ip -n client link set lo up; ip -n client route add default via 10.10.0.1
 ip -n server addr add 10.20.0.2/24 dev vs0; ip -n server link set vs0 up; ip -n server link set lo up; ip -n server route add default via 10.20.0.1`)
 	sh(t, fmt.Sprintf(`(ip netns exec server %s 10.20.0.2:80 10.20.0.2:25 10.20.0.2:8080 >/dev/null 2>&1 &)
-(%s 0.0.0.0:3128 >/dev/null 2>&1 &)
+(%s 127.0.0.1:3128 >/dev/null 2>&1 &)
 sleep 1`, srv, srv))
 	t.Cleanup(func() {
 		exec.Command("sh", "-c", `pkill -x labserver; nft flush ruleset; ip netns del client; ip netns del server; ip link del vc; ip link del vs`).Run()
@@ -176,11 +182,29 @@ sleep 1`, srv, srv))
 		}
 		spec := core.RedirectSpec{Rules: []core.RedirectRule{{Family: "inet", Sources: []string{"10.10.0.0/24"}, Port: 80,
 			To: core.Endpoint{Addr: "127.0.0.1", Port: 3128}}}}
+		// The redirect delivers to the LAN interface's address, which is
+		// what Arrivals must say, and where a loopback-only proxy is deaf.
+		if got := e.Arrivals(spec); strings.Join(got, " ") != "10.10.0.1" {
+			t.Fatalf("arrivals: %v", got)
+		}
 		if err := e.LoadRedirects("web", e.RenderRedirects(spec)); err != nil {
 			t.Fatal(err)
 		}
-		if got := fetch(80); got != "answered by 0.0.0.0:3128" {
-			t.Fatalf("port 80 must reach the gateway's listener: %q", got)
+		if got := fetch(80); got != "" {
+			t.Fatalf("a proxy on loopback alone must not receive redirected traffic: %q", got)
+		}
+		if got := fetchFrom("", "http://10.10.0.1:3128/"); got != "" {
+			t.Fatalf("the fail-open probe of the arrival address must fail too: %q", got)
+		}
+		sh(t, fmt.Sprintf(`(%s 10.10.0.1:3128 >/dev/null 2>&1 &) ; sleep 1`, srv))
+		if got := fetch(80); got != "answered by 10.10.0.1:3128" {
+			t.Fatalf("port 80 must reach the proxy at the arrival address: %q", got)
+		}
+		if got := fetchFrom("", "http://10.10.0.1:3128/"); got != "answered by 10.10.0.1:3128" {
+			t.Fatalf("the gateway's own probe must pass the input guard: %q", got)
+		}
+		if got := fetchFrom("client", "http://10.10.0.1:3128/"); got != "" {
+			t.Fatalf("a client connecting to the proxy directly must be turned away: %q", got)
 		}
 		if got := fetch(8080); got != "answered by 10.20.0.2:8080" {
 			t.Fatalf("other ports must not be redirected: %q", got)

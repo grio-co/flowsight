@@ -1,6 +1,7 @@
 package nftables
 
 import (
+	"net/netip"
 	"strings"
 	"testing"
 	"time"
@@ -81,6 +82,23 @@ func TestCountryPoliciesAreRefusedForNow(t *testing.T) {
 	}
 }
 
+func pfx(s ...string) []netip.Prefix {
+	var out []netip.Prefix
+	for _, a := range s {
+		out = append(out, netip.MustParsePrefix(a))
+	}
+	return out
+}
+
+// A gateway: loopback, a LAN with IPv4, a ULA and a link-local address, a
+// WAN, and a second LAN that is down.
+var testIfs = []ifaceInfo{
+	{Name: "lo", Up: true, Loopback: true, Addrs: pfx("127.0.0.1/8", "::1/128")},
+	{Name: "lan0", Up: true, Addrs: pfx("10.99.0.1/24", "fd99::1/64", "fe80::1/64")},
+	{Name: "wan0", Up: true, Addrs: pfx("198.51.100.2/24", "2001:db8::2/64")},
+	{Name: "lan1", Up: false, Addrs: pfx("10.98.0.1/24")},
+}
+
 func TestRedirectsRender(t *testing.T) {
 	tx := renderRedirects(core.RedirectSpec{
 		Interfaces: []string{"lan0"},
@@ -89,15 +107,62 @@ func TestRedirectsRender(t *testing.T) {
 			{Family: "inet", Sources: []string{"10.99.0.0/24"}, Port: 80, To: core.Endpoint{Addr: "127.0.0.1", Port: 3128}},
 			{Family: "inet", Sources: []string{"10.99.0.0/24"}, Port: 443, To: core.Endpoint{Addr: "127.0.0.1", Port: 3129}},
 			{Family: "inet6", Port: 443, To: core.Endpoint{Addr: "fd99::1", Port: 3129}},
-		}})
+		}}, testIfs)
 	ret := index(tx, `add rule inet flowsight fs_web iifname "lan0" ip saddr { 10.99.0.50 } tcp dport { 80, 443 } return`)
 	rdr := index(tx, `add rule inet flowsight fs_web iifname "lan0" ip saddr { 10.99.0.0/24 } ip daddr != @local_v4 tcp dport 80 redirect to :3128`)
 	if ret < 0 || rdr < 0 || ret > rdr {
 		t.Fatalf("exclusions must come before redirects:\n%s", tx)
 	}
 	has(t, tx, `add rule inet flowsight fs_web iifname "lan0" ip6 saddr @local_v6 ip6 daddr != @local_v6 tcp dport 443 redirect to :3129`)
-	if empty := renderRedirects(core.RedirectSpec{}); strings.Contains(empty, "redirect") {
+	if empty := renderRedirects(core.RedirectSpec{}, testIfs); strings.Contains(empty, "redirect") {
 		t.Fatal("no rules must mean no redirects")
+	}
+	// Only redirected connections, and loopback, may reach the proxy's ports.
+	lo := index(tx, `add rule inet flowsight fs_web_in iifname "lo" return`)
+	dnat := index(tx, `add rule inet flowsight fs_web_in ct status dnat return`)
+	rej := index(tx, `add rule inet flowsight fs_web_in tcp dport { 3128, 3129 } counter reject with tcp reset`)
+	if lo < 0 || dnat < 0 || rej < 0 || lo > rej || dnat > rej {
+		t.Fatalf("the input guard must pass loopback and redirected connections before it rejects:\n%s", tx)
+	}
+}
+
+func v4spec(ifaces ...string) core.RedirectSpec {
+	return core.RedirectSpec{Interfaces: ifaces, Rules: []core.RedirectRule{
+		{Family: "inet", Sources: []string{"10.99.0.0/24"}, Port: 80, To: core.Endpoint{Addr: "127.0.0.1", Port: 3128}},
+		{Family: "inet", Sources: []string{"10.99.0.0/24"}, Port: 443, To: core.Endpoint{Addr: "127.0.0.1", Port: 3129}},
+	}}
+}
+
+// With no interface named, the redirects and the proxy's listeners go where
+// the intercepted networks are: the LAN, never the WAN.
+func TestArrivalsFollowTheInterceptedNetworks(t *testing.T) {
+	spec := v4spec()
+	if got := arrivals(spec, testIfs); strings.Join(got, " ") != "10.99.0.1" {
+		t.Fatalf("arrivals: %v", got)
+	}
+	tx := renderRedirects(spec, testIfs)
+	has(t, tx, `add rule inet flowsight fs_web iifname "lan0" ip saddr { 10.99.0.0/24 } ip daddr != @local_v4 tcp dport 80 redirect to :3128`)
+	if strings.Contains(tx, "wan0") || strings.Contains(tx, "lan1") {
+		t.Fatalf("redirects on an interface the proxy does not listen on:\n%s", tx)
+	}
+	spec.Rules = append(spec.Rules, core.RedirectRule{Family: "inet6", Port: 443, To: core.Endpoint{Addr: "fd99::1", Port: 3129}})
+	if got := arrivals(spec, testIfs); strings.Join(got, " ") != "10.99.0.1 fd99::1" {
+		t.Fatalf("with IPv6, the LAN's non-link-local IPv6 address too: %v", got)
+	}
+	if got := arrivals(v4spec("lan0", "lan1", "gone0"), testIfs); strings.Join(got, " ") != "10.99.0.1" {
+		t.Fatalf("named interfaces that are down or missing have no arrivals: %v", got)
+	}
+}
+
+// Where no interface can be found, nothing is redirected: a redirect with no
+// listener behind it is interception failing closed.
+func TestNoInterfaceMeansNoRedirects(t *testing.T) {
+	spec := v4spec("gone0")
+	if got := arrivals(spec, testIfs); len(got) != 0 {
+		t.Fatalf("arrivals: %v", got)
+	}
+	if tx := renderRedirects(spec, testIfs); strings.Contains(tx, "redirect to") {
+		t.Fatalf("redirected with no listener:\n%s", tx)
 	}
 }
 
@@ -140,5 +205,29 @@ conntrack v1.4.8 (conntrack-tools): 3 flow entries have been shown.`
 	}
 	if got[2].Proto != "udp" || got[2].Status != "" || got[2].Initiator.Addr != "fd99::2" {
 		t.Errorf("udp v6: %+v", got[2])
+	}
+}
+
+func TestInputDropTablesAreFound(t *testing.T) {
+	listing := `table inet flowsight {
+	chain input {
+		type filter hook input priority filter - 10; policy accept;
+	}
+}
+table inet filter {
+	chain input {
+		type filter hook input priority filter; policy drop;
+	}
+	chain forward {
+		type filter hook forward priority filter; policy drop;
+	}
+}
+table ip nat {
+	chain prerouting {
+		type nat hook prerouting priority dstnat; policy accept;
+	}
+}`
+	if got := inputDropTables(listing); strings.Join(got, ",") != "inet filter" {
+		t.Fatalf("got %v", got)
 	}
 }

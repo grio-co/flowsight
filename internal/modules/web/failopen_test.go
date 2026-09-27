@@ -214,3 +214,44 @@ func TestRedirectSpecMatchesFirewallGolden(t *testing.T) {
 		t.Fatalf("no IPv4 networks must mean no redirects, got %+v", empty.Rules)
 	}
 }
+
+// On nftables, redirected connections arrive at the LAN interface's address,
+// not loopback. A proxy that answers on loopback but not there is deaf to
+// the LAN, and the redirects must be withdrawn.
+func TestSuperviseProbesWhereRedirectedTrafficArrives(t *testing.T) {
+	withListenWait(t, 200*time.Millisecond)
+	b := newFailOpenBed(t)
+	b.m.rdr.(*fakeRedirector).arrivals = []string{"::1"}
+	b.m.setSpec(core.RedirectSpec{})
+	b.running(t)
+	listenOn(t, b.http)
+	listenOn(t, b.tls)
+	if err := b.m.supervise(); err == nil {
+		t.Fatal("supervise should report that the proxy is not listening where traffic arrives")
+	}
+	if loads, clears := b.fw.counts(); loads != 0 || clears == 0 {
+		t.Fatalf("deaf at the arrival address: want redirects cleared and never loaded, got %d load(s), %d clear(s)", loads, clears)
+	}
+	for _, port := range []int{b.http, b.tls} {
+		l, err := net.Listen("tcp", net.JoinHostPort("::1", strconv.Itoa(port)))
+		if err != nil {
+			t.Skipf("no IPv6 loopback here: %v", err)
+		}
+		t.Cleanup(func() { l.Close() })
+		go func() {
+			for {
+				c, err := l.Accept()
+				if err != nil {
+					return
+				}
+				c.Close()
+			}
+		}()
+	}
+	if err := b.m.supervise(); err != nil {
+		t.Fatalf("supervise with the proxy answering everywhere: %v", err)
+	}
+	if loads, _ := b.fw.counts(); loads != 1 {
+		t.Fatalf("want the redirects loaded once the arrival address answers, got %d load(s)", loads)
+	}
+}

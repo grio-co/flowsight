@@ -36,6 +36,7 @@ const table = "inet flowsight"
 const (
 	chainPolicy = "fs_policy" // "policy" is a keyword in nftables
 	chainWeb    = "fs_web"
+	chainWebIn  = "fs_web_in" // turns away connections to the proxy that were not redirected
 	chainEnroll = "fs_enroll"
 )
 
@@ -49,14 +50,18 @@ add set inet flowsight local_v6 { type ipv6_addr; flags interval; auto-merge; }
 add chain inet flowsight fs_policy
 add chain inet flowsight fs_enroll
 add chain inet flowsight fs_web
+add chain inet flowsight fs_web_in
 add chain inet flowsight forward { type filter hook forward priority filter - 10; policy accept; }
 add chain inet flowsight prerouting { type nat hook prerouting priority dstnat - 10; policy accept; }
+add chain inet flowsight input { type filter hook input priority filter - 10; policy accept; }
 flush chain inet flowsight forward
 flush chain inet flowsight prerouting
+flush chain inet flowsight input
 add rule inet flowsight forward ct state { established, related } return
 add rule inet flowsight forward jump fs_enroll
 add rule inet flowsight forward jump fs_policy
 add rule inet flowsight prerouting jump fs_web
+add rule inet flowsight input jump fs_web_in
 `
 }
 
@@ -110,17 +115,24 @@ func setDecls(name string) []string {
 
 // ---------------------------------------------------------------- redirects
 
-// renderRedirects writes the web chain. nftables' redirect sends a
-// connection to the incoming interface's own address, so the listener must
-// accept there, not only on loopback. Exclusions come first as returns,
-// in both families, as in pf.
-func renderRedirects(spec core.RedirectSpec) string {
+// renderRedirects writes the web chain, on the interfaces interceptInterfaces
+// chooses (the ones arrivals lists addresses for); with none there is
+// nothing to redirect. nftables' redirect sends a connection to the incoming
+// interface's own address, so the listener must accept there, not only on
+// loopback. Exclusions come first as returns, in both families, as in pf.
+//
+// The proxy then listens on LAN addresses, so the input chain turns away
+// any connection to its ports that did not come through a redirect: a
+// client aiming at the proxy directly, or anyone at all when the redirects
+// are withdrawn. Loopback (the fail-open probe, squid's own requests) passes.
+func renderRedirects(spec core.RedirectSpec, ifs []ifaceInfo) string {
 	var rules []string
-	if len(spec.Rules) > 0 {
-		ifaces := spec.Interfaces
-		if len(ifaces) == 0 {
-			ifaces = []string{""}
-		}
+	var names []string
+	for _, i := range interceptInterfaces(spec, ifs) {
+		names = append(names, i.Name)
+	}
+	if len(spec.Rules) > 0 && len(names) > 0 {
+		ifaces := names
 		ex4, ex6 := family(spec.Excluded)
 		ports := map[int]bool{}
 		var portList []string
@@ -163,7 +175,23 @@ func renderRedirects(spec core.RedirectSpec) string {
 			}
 		}
 	}
-	return replaceChain(chainWeb, nil, rules)
+	tx := replaceChain(chainWeb, nil, rules)
+	var tx2 strings.Builder
+	var guard []string
+	seen := map[int]bool{}
+	for _, r := range spec.Rules {
+		if !seen[r.To.Port] {
+			seen[r.To.Port] = true
+			guard = append(guard, fmt.Sprint(r.To.Port))
+		}
+	}
+	fmt.Fprintf(&tx2, "flush chain %s %s\n", table, chainWebIn)
+	if len(guard) > 0 {
+		fmt.Fprintf(&tx2, "add rule %s %s iifname \"lo\" return\n", table, chainWebIn)
+		fmt.Fprintf(&tx2, "add rule %s %s ct status dnat return\n", table, chainWebIn)
+		fmt.Fprintf(&tx2, "add rule %s %s tcp dport %s counter reject with tcp reset\n", table, chainWebIn, elems(guard))
+	}
+	return tx + tx2.String()
 }
 
 // ---------------------------------------------------------------- isolation

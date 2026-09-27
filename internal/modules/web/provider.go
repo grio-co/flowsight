@@ -187,6 +187,12 @@ func (p *provider) Compile(doc *core.PolicyDoc) (core.Artifact, error) {
 			}
 		}
 	}
+	var spec core.RedirectSpec
+	if m.rdr != nil {
+		spec = redirectSpec(core.Strs(s, "interfaces"), v4nets, excluded, params.HTTPPort, params.HTTPSPort, params.V6Listener)
+		params.Arrivals = m.rdr.Arrivals(spec)
+		m.setSpec(spec)
+	}
 	_, files := params.render()
 	out := map[string]string{}
 	for name, text := range files {
@@ -194,8 +200,7 @@ func (p *provider) Compile(doc *core.PolicyDoc) (core.Artifact, error) {
 	}
 	rdr := ""
 	if m.wanted() && m.rdr != nil {
-		rdr = m.rdr.RenderRedirects(redirectSpec(core.Strs(s, "interfaces"), v4nets, excluded,
-			params.HTTPPort, params.HTTPSPort, params.V6Listener))
+		rdr = m.rdr.RenderRedirects(spec)
 	}
 	out[m.redirectPath()] = rdr
 	note := fmt.Sprintf("%d web polic(ies)", len(pols))

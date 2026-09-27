@@ -103,6 +103,18 @@ follow those links and survives a reload; Esc twice or *Clear search* ends
 it. New endpoint `GET /api/search`, reading the hourly summaries so it is
 fast enough to run on every keystroke.
 
+## 0.9.8r202609271502
+
+**Web interception works on a Linux gateway.** On nftables, redirected web
+traffic arrives at the LAN interface's own address rather than loopback, so
+FlowSight's proxy now listens there too, and the check that withdraws the
+redirects whenever the proxy stops answering now probes every such address.
+The proxy never listens on the WAN, and connections to its ports that did
+not come through a redirect are reset. If your distribution's firewall drops
+incoming connections by default (ufw, firewalld), allow ports 3128 and 3129
+from the LAN before turning interception on; the nftables module's health
+warns you when it would be needed. Nothing changes on OPNsense.
+
 ## 0.9.8r202609271458
 
 **A device no longer inherits the device that held its address before.**

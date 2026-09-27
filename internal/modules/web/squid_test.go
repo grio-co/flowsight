@@ -100,3 +100,33 @@ func TestSquidCertErrorsRefusedOnlyForInspectedClients(t *testing.T) {
 		t.Fatal("certificate errors refused without an inspection CA")
 	}
 }
+
+// The proxy listens wherever the redirector delivers, each address once:
+// squid will not start with a port bound twice.
+func TestSquidListensOnArrivals(t *testing.T) {
+	conf, _ := squidParams{Dir: "/d", HTTPPort: 3128, HTTPSPort: 3129, V6Listener: "fd99::1",
+		Arrivals: []string{"10.99.0.1", "fd99::1", "127.0.0.1", "garbage"}}.render()
+	count := func(line string) int {
+		n := 0
+		for _, l := range strings.Split(conf, "\n") {
+			if l == line || strings.HasPrefix(l, line+" ") {
+				n++
+			}
+		}
+		return n
+	}
+	for line, want := range map[string]int{
+		"http_port 10.99.0.1:3128 intercept":  1,
+		"https_port 10.99.0.1:3129 intercept": 1,
+		"http_port [fd99::1]:3128 intercept":  1,
+		"https_port [fd99::1]:3129 intercept": 1,
+		"http_port 127.0.0.1:3128 intercept":  1,
+	} {
+		if got := count(line); got != want {
+			t.Errorf("%q: %d time(s), want %d", line, got, want)
+		}
+	}
+	if strings.Contains(conf, "garbage") {
+		t.Error("an invalid arrival reached squid's configuration")
+	}
+}

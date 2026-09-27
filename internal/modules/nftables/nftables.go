@@ -82,13 +82,9 @@ func (m *Module) Setup(ctx *core.Context) error {
 	e := &enforcer{m: m}
 	ctx.Publish(core.ServiceEnforcer, e)
 	ctx.Publish(core.ServiceIsolator, e)
-	// Not the redirector yet. nftables' redirect delivers a connection to
-	// the incoming interface's own address, and FlowSight's squid listens on
-	// loopback only; redirecting now would send the LAN's web traffic to a
-	// port nothing answers on, while the web module's fail-open check (which
-	// probes loopback) passed: interception failing closed. The rendering
-	// and loading are done and proven in the lab; the redirector is published
-	// once the web module listens on the LAN side as well.
+	// The redirector too: its Arrivals tell the web module to listen on the
+	// LAN interfaces' addresses, where nftables' redirect delivers.
+	ctx.Publish(core.ServiceRedirector, e)
 	if m.conntrack != "" {
 		ctx.Publish(core.ServiceConnStates, e)
 	}
@@ -107,6 +103,13 @@ func (m *Module) Health() core.Health {
 		return core.Health{OK: false, Detail: m.lastErr}
 	}
 	detail := fmt.Sprintf("table inet flowsight, %d chain(s) loaded", len(m.chains))
+	if _, intercepting := m.chains[chainWeb]; intercepting {
+		if out, err := core.Run(10*time.Second, m.nft, "list", "chains"); err == nil {
+			if t := inputDropTables(out); len(t) > 0 {
+				return core.Health{OK: false, Detail: detail + "; " + inputDropWarning(t)}
+			}
+		}
+	}
 	if m.conntrack == "" {
 		detail += "; conntrack is not installed, so connections cannot be listed or cut"
 	}
@@ -291,9 +294,14 @@ func (e *enforcer) States() ([]core.ConnState, error) {
 	return ParseConntrack(out), nil
 }
 
-func (e *enforcer) RenderRedirects(spec core.RedirectSpec) string { return renderRedirects(spec) }
-func (e *enforcer) LoadRedirects(name, text string) error         { return e.m.loadChain(chainWeb, text) }
-func (e *enforcer) ClearRedirects(name string) error              { return e.m.clearChain(chainWeb) }
+func (e *enforcer) RenderRedirects(spec core.RedirectSpec) string {
+	return renderRedirects(spec, systemInterfaces())
+}
+func (e *enforcer) Arrivals(spec core.RedirectSpec) []string {
+	return arrivals(spec, systemInterfaces())
+}
+func (e *enforcer) LoadRedirects(name, text string) error { return e.m.loadChain(chainWeb, text) }
+func (e *enforcer) ClearRedirects(name string) error      { return e.m.clearChain(chainWeb) }
 
 func (e *enforcer) RenderIsolation(spec core.IsolationSpec) string { return renderIsolation(spec) }
 func (e *enforcer) LoadIsolation(name, text string) error          { return e.m.loadChain(chainEnroll, text) }

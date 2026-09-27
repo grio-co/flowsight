@@ -51,8 +51,9 @@ type Module struct {
 	rdr      core.Redirector
 	cats     core.Categories
 	blockSrv *http.Server
-	blocks   map[string]int64 // policy -> count since start
-	pin      *pinning         // names whose clients pin their certificate
+	blocks   map[string]int64   // policy -> count since start
+	pin      *pinning           // names whose clients pin their certificate
+	spec     *core.RedirectSpec // the interception last rendered, for the listener probe
 }
 
 // CAProvider is published by the tls module: the combined PEM squid needs.
@@ -259,17 +260,41 @@ func (m *Module) running() bool {
 	return p.Signal(syscallSignal0()) == nil
 }
 
-// listening reports whether the proxy accepts connections on its ports. Only
-// a proxy that answers may have traffic redirected to it; anything else would
-// take the network's web access down with it.
+func (m *Module) setSpec(spec core.RedirectSpec) {
+	m.mu.Lock()
+	m.spec = &spec
+	m.mu.Unlock()
+}
+
+// probeAddrs is everywhere redirected connections can arrive: loopback, and
+// what the redirector says now. Asking now, not at render time, means an
+// address the LAN gained since (which squid does not listen on) fails the
+// probe and withdraws the redirects instead of blackholing that traffic.
+func (m *Module) probeAddrs() []string {
+	addrs := []string{"127.0.0.1"}
+	m.mu.Lock()
+	spec := m.spec
+	m.mu.Unlock()
+	if spec != nil && m.rdr != nil {
+		addrs = append(addrs, m.rdr.Arrivals(*spec)...)
+	}
+	return addrs
+}
+
+// listening reports whether the proxy accepts connections on its ports
+// wherever redirected traffic arrives. Only a proxy that answers may have
+// traffic redirected to it; anything else would take the network's web
+// access down with it.
 func (m *Module) listening() bool {
 	s := m.ctx.Settings()
-	for _, port := range []int{core.Int(s, "http_port", 3128), core.Int(s, "https_port", 3129)} {
-		c, err := net.DialTimeout("tcp", fmt.Sprintf("127.0.0.1:%d", port), 2*time.Second)
-		if err != nil {
-			return false
+	for _, addr := range m.probeAddrs() {
+		for _, port := range []int{core.Int(s, "http_port", 3128), core.Int(s, "https_port", 3129)} {
+			c, err := net.DialTimeout("tcp", net.JoinHostPort(addr, fmt.Sprint(port)), 2*time.Second)
+			if err != nil {
+				return false
+			}
+			c.Close()
 		}
-		c.Close()
 	}
 	return true
 }

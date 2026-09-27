@@ -4,13 +4,17 @@ import "github.com/grioghar/flowsight/internal/core"
 
 // fakeRedirector stands in for the firewall: loading and clearing the web
 // redirects are recorded, rendering is inert.
-type fakeRedirector struct{ r *redirects }
+type fakeRedirector struct {
+	r        *redirects
+	arrivals []string
+}
 
 func newFakeRedirector(r *redirects) *fakeRedirector { return &fakeRedirector{r: r} }
 
 func (f *fakeRedirector) Name() string                                  { return "pf" }
 func (f *fakeRedirector) Available() bool                               { return true }
 func (f *fakeRedirector) RenderRedirects(spec core.RedirectSpec) string { return "" }
+func (f *fakeRedirector) Arrivals(spec core.RedirectSpec) []string      { return f.arrivals }
 
 func (f *fakeRedirector) LoadRedirects(name, text string) error {
 	if name == "web" {

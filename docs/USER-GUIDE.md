@@ -1433,7 +1433,7 @@ A guided 12-step wizard for initial configuration after installation. Open it th
 
 **Step 4: DNS source.** Where to read DNS queries. Pi-hole address and API token (optional; empty means use the local Unbound resolver). The wizard scans for Pi-hole on the gateway's subnet and tests connectivity.
 
-**Step 5: Interception.** Whether to redirect web traffic through the transparent proxy for server names and blocking. Off by default. Choose which interfaces (empty means all).
+**Step 5: Interception.** Whether to redirect web traffic through the transparent proxy for server names and blocking. Off by default. Choose which interfaces (empty means all; on a Linux gateway, empty means the interfaces that hold the intercepted networks, never the WAN).
 
 **Step 6: Identity & zones.** Delegated to **Settings › identity**: review auto-detected local networks and name the zones.
 

@@ -153,6 +153,12 @@ type Redirector interface {
 	// fail-open path: safe to repeat, and it must not depend on the
 	// listener or on anything the caller has rendered.
 	ClearRedirects(name string) error
+	// Arrivals lists the addresses, besides each rule's own To address,
+	// where redirected connections will actually arrive, so the listener
+	// accepts there and the fail-open check probes there. pf delivers to
+	// the To address itself (none extra); nftables' redirect delivers to
+	// the incoming interface's own address.
+	Arrivals(spec RedirectSpec) []string
 }
 
 // IsolationSpec describes network zones and what each may reach: other
