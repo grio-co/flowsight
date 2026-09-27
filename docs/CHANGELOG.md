@@ -12,6 +12,14 @@ name, and every release's assets carry that string in their file names.
 
 The newest entry is first.
 
+## 0.9.8r202609272030
+
+**The local-networks table is refilled every ten seconds instead of every
+minute.** FlowSight's blocks and interception tell local destinations from
+the internet with a pf table in the root ruleset. If a firewall reload ever
+loses that table, "not local" matches local destinations too until it is
+refilled; that window is now at most ten seconds. Nothing to do.
+
 ## 0.9.8r202609271704
 
 **Device names reach the DHCP server.** A name given in FlowSight now also
