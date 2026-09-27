@@ -40,14 +40,10 @@ exit 0
 PI
 cat > "$STAGE/DEBIAN/prerm" <<'PR'
 #!/bin/sh
-# Take FlowSight's resolver files away before stopping it, as the OPNsense
-# package does: left in place, Unbound goes on applying its DNS blocks after
-# FlowSight is gone. On an upgrade the new version writes them again.
-removed=
-for f in /etc/unbound/unbound.conf.d/flowsight-*; do
-    [ -e "$f" ] && rm -f "$f" && removed=1
-done
-[ -n "$removed" ] && unbound-control reload >/dev/null 2>&1 || true
+# Take away what FlowSight put in front of traffic (its resolver files, its
+# squid) while it can still say what that is, then stop it. On an upgrade
+# the new package's postinst puts everything back.
+/usr/local/sbin/flowsightd uninstall -withdraw -yes </dev/null >/dev/null 2>&1 || true
 systemctl disable --now flowsight >/dev/null 2>&1 || true
 PR
 chmod 755 "$STAGE/DEBIAN/postinst" "$STAGE/DEBIAN/prerm"

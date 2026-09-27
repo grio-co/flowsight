@@ -61,6 +61,24 @@ says what to add if not; it never edits `pf.conf`. After starting the
 service it asks the daemon for its health over loopback and lists every
 module that is not well, with the reason.
 
+**Repeating an install.** `-plan-out site.json` saves the plan, and
+`flowsightd install -plan site.json -yes` applies one without questions on
+the next machine. A plan file carries decisions (the answers to the plan's
+questions), never facts: the machine it runs on is always detected afresh,
+and a plan made for another kind of machine (a different platform, service
+or position) is refused. A hand-written file needs only what it decides,
+for example `{"format": 1, "questions": [{"id": "firewall", "answer":
+"opnsense 192.168.1.1"}]}`.
+
+**Uninstalling.** `flowsightd uninstall` reverses what `flowsightd install`
+recorded. It first takes away everything FlowSight put in front of traffic
+(its pf anchors, its own squid, its resolver files), then stops and
+disables the service, removes what the installer created and restores
+what it replaced. The configuration, data and logs are kept; `-purge`
+removes them too, which leaves the machine as it was before the first
+install. `-dry-run` shows the steps. An install made by a package is left
+to the package manager.
+
 ## OPNsense
 
 1. Install `os-ntopng` from System › Firmware › Plugins (recommended; it

@@ -52,14 +52,10 @@ cp -a $R/. %{buildroot}/
     echo "FlowSight is installed, but the installer reported a problem above."
 
 %preun
-# On removal (not upgrade): take FlowSight's resolver files away before
-# stopping it; left in place, Unbound goes on applying its DNS blocks.
+# On removal (not upgrade): take away what FlowSight put in front of
+# traffic, then stop it.
 if [ "\$1" = 0 ]; then
-    removed=
-    for f in /etc/unbound/unbound.conf.d/flowsight-*; do
-        [ -e "\$f" ] && rm -f "\$f" && removed=1
-    done
-    [ -n "\$removed" ] && unbound-control reload >/dev/null 2>&1 || true
+    /usr/local/sbin/flowsightd uninstall -withdraw -yes </dev/null >/dev/null 2>&1 || true
     systemctl disable --now flowsight >/dev/null 2>&1 || true
 fi
 

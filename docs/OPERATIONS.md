@@ -252,9 +252,13 @@ in front of traffic and keeps the data.
 ## Uninstalling
 
 `pkg delete os-flowsight`, `apt remove flowsight` or `dnf remove flowsight`
-stops the service, flushes the `flowsight/*` anchors, removes the Unbound
-include files, reloads the resolver and the filter and removes the menu.
-The configuration, policy, CA and store directories are left in place.
+first takes away what FlowSight put in front of traffic (the `flowsight/*`
+anchors, its squid, its Unbound include and zone files, reloading the
+resolver), then stops the service; on OPNsense it also reloads the filter
+and removes the menu. The configuration, policy, CA and store directories
+are left in place. An install made with `install.sh` or `flowsightd
+install` is removed with `flowsightd uninstall` (`-purge` to remove the
+configuration and data as well); see [Installing](INSTALL.md).
 
 ## Shaping is on but nothing seems shaped
 

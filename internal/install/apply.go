@@ -28,6 +28,10 @@ type Result struct {
 	Commands  []string     `json:"commands"`
 	Notes     []string     `json:"notes,omitempty"`
 	Verify    *Verify      `json:"verify,omitempty"`
+	Packaged  bool         `json:"packaged,omitempty"`
+	// Answers are the plan's answered questions, kept for the modules and
+	// integrations that will use them.
+	Answers map[string]string `json:"answers,omitempty"`
 
 	// Token is a newly created API token, shown once in the summary. It is
 	// never written to install.json; the configuration file holds it.
@@ -120,7 +124,15 @@ WantedBy=multi-user.target
 // needs root it does not have, backs up every file it replaces, never
 // switches enforcement on, and records what it did. say reports progress.
 func Apply(e Env, p Plan, version string, now time.Time, say func(string)) (Result, error) {
-	r := Result{AppliedAt: now.UTC(), Version: version, Platform: p.Platform, Position: p.Position}
+	r := Result{AppliedAt: now.UTC(), Version: version, Platform: p.Platform, Position: p.Position, Packaged: p.Packaged}
+	for _, q := range p.Questions {
+		if q.Answer != "" {
+			if r.Answers == nil {
+				r.Answers = map[string]string{}
+			}
+			r.Answers[q.ID] = q.Answer
+		}
+	}
 	if !p.Supported {
 		return r, errors.New("this plan cannot be applied: " + p.Reason)
 	}
@@ -207,13 +219,20 @@ func (r *Result) copyBinary(e Env, stamp string) error {
 		return err
 	}
 	// The updater keeps the binary before the current one as
-	// flowsightd.previous for its rollback; the installer does the same.
+	// flowsightd.previous for its rollback, and the installer does the
+	// same; it also keeps a copy of its own, named for this run, because
+	// .previous is overwritten by the next update and uninstall must be
+	// able to put back what was there before the first install.
 	full := e.path(binaryPath)
 	if old, err := os.ReadFile(full); err == nil && !bytes.Equal(old, b) {
+		backup := binaryPath + ".flowsight-backup-" + stamp
+		if err := os.WriteFile(e.path(backup), old, 0o755); err != nil {
+			return err
+		}
 		if err := os.WriteFile(full+".previous", old, 0o755); err != nil {
 			return err
 		}
-		r.Files = append(r.Files, FileChange{Path: binaryPath, Action: "replaced", Backup: binaryPath + ".previous"})
+		r.Files = append(r.Files, FileChange{Path: binaryPath, Action: "replaced", Backup: backup})
 		return r.put(e, binaryPath, b, 0o755)
 	} else if err == nil {
 		r.Files = append(r.Files, FileChange{Path: binaryPath, Action: "unchanged"})

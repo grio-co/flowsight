@@ -49,6 +49,8 @@ func run() int {
 			return runMCP(*cfgPath, *dataDir, *level)
 		case "install":
 			return runInstall(args[1:])
+		case "uninstall":
+			return runUninstall(args[1:])
 		}
 	}
 
