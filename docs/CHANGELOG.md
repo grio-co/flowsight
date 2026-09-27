@@ -12,6 +12,15 @@ name, and every release's assets carry that string in their file names.
 
 The newest entry is first.
 
+## 0.9.8r202609270425
+
+**Bandwidth test: a fair comparison and a patient rerun.** speedtest.net is
+now measured against its current server directory and test endpoints
+(nearest dozen, quickest to answer), not the retired plain-HTTP files that
+read a fraction of the truth; the rerun waits half a minute so the
+built-in endpoint's rate limit has passed, and a rate-limited download leg
+is tried once more before it counts as a failure.
+
 ## 0.9.8r202609270420
 
 **Bandwidth test, first field results.** The download leg asked the

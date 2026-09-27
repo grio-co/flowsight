@@ -93,3 +93,19 @@ func TestOoklaServerListAndPick(t *testing.T) {
 		t.Fatalf("distance Manhattan KS to Kansas City = %v km", d)
 	}
 }
+
+func TestOoklaCurrentDirectoryAndEndpoints(t *testing.T) {
+	js := `[{"url":"http://a.example.net:8080/speedtest/upload.php","lat":"39.0997","lon":"-94.5786","name":"Kansas City, MO","country":"United States","sponsor":"Sponsor A","id":1,"host":"a.example.net:8080"}]`
+	servers, err := parseOoklaJSON([]byte(js))
+	if err != nil || len(servers) != 1 || servers[0].Lat < 39 || servers[0].Host != "a.example.net:8080" {
+		t.Fatalf("json directory: %v %+v", err, servers)
+	}
+	d, u := ooklaEndpoints(servers[0], "x1")
+	if d != "https://a.example.net:8080/download?nocache=x1&size=25000000" || u != "https://a.example.net:8080/upload?nocache=x1" {
+		t.Fatalf("current endpoints: %s %s", d, u)
+	}
+	d, u = ooklaEndpoints(ooklaServer{URL: "http://b.example.net/speedtest/upload.php"}, "x2")
+	if d != "http://b.example.net/speedtest/random4000x4000.jpg?x=x2" || u != "http://b.example.net/speedtest/upload.php?x=x2" {
+		t.Fatalf("legacy endpoints: %s %s", d, u)
+	}
+}

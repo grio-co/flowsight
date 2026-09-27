@@ -25,6 +25,7 @@ package qos
 import (
 	"context"
 	"crypto/rand"
+	"encoding/json"
 	"encoding/xml"
 	"fmt"
 	"io"
@@ -585,22 +586,48 @@ func ooklaBase(u string) string {
 	return u
 }
 
+// ooklaJSONServer is one entry of speedtest.net's current server directory.
+type ooklaJSONServer struct {
+	URL     string `json:"url"`
+	Host    string `json:"host"`
+	Name    string `json:"name"`
+	Country string `json:"country"`
+	Sponsor string `json:"sponsor"`
+	ID      any    `json:"id"`
+	Lat     string `json:"lat"`
+	Lon     string `json:"lon"`
+}
+
+func parseOoklaJSON(b []byte) ([]ooklaServer, error) {
+	var list []ooklaJSONServer
+	if err := json.Unmarshal(b, &list); err != nil {
+		return nil, err
+	}
+	out := make([]ooklaServer, 0, len(list))
+	for _, x := range list {
+		lat, _ := strconv.ParseFloat(x.Lat, 64)
+		lon, _ := strconv.ParseFloat(x.Lon, 64)
+		out = append(out, ooklaServer{URL: x.URL, Host: x.Host, Name: x.Name, Country: x.Country, Sponsor: x.Sponsor, ID: fmt.Sprint(x.ID), Lat: lat, Lon: lon})
+	}
+	return out, nil
+}
+
+// ooklaEndpoints returns the download and upload URLs for a server: the
+// current servers serve /download?size=N and /upload over HTTPS on their
+// host; the legacy ones serve random files beside upload.php.
+func ooklaEndpoints(s ooklaServer, id string) (down, up string) {
+	if s.Host != "" {
+		return "https://" + s.Host + "/download?nocache=" + id + "&size=25000000", "https://" + s.Host + "/upload?nocache=" + id
+	}
+	base := ooklaBase(s.URL)
+	return base + "random4000x4000.jpg?x=" + id, base + "upload.php?x=" + id
+}
+
+// ooklaPick chooses the speedtest.net server to compare against: the
+// nearest dozen from the current directory (the static list when that is
+// unreachable), then the quickest of them to answer. Distance is a guess;
+// the round trip is a measurement.
 func (m *Module) ooklaPick(ctx context.Context, client *http.Client) (ooklaServer, error) {
-	req, _ := http.NewRequestWithContext(ctx, "GET", "https://www.speedtest.net/speedtest-servers-static.php", nil)
-	req.Header.Set("User-Agent", "FlowSight/1 (gateway bandwidth check)")
-	resp, err := client.Do(req)
-	if err != nil {
-		return ooklaServer{}, err
-	}
-	defer resp.Body.Close()
-	b, err := io.ReadAll(io.LimitReader(resp.Body, 8<<20))
-	if err != nil {
-		return ooklaServer{}, err
-	}
-	servers, err := parseOoklaServers(b)
-	if err != nil || len(servers) == 0 {
-		return ooklaServer{}, fmt.Errorf("speedtest.net server list unreadable")
-	}
 	var lat, lon float64
 	if h, ok := m.ctx.Service("home").(interface {
 		HomeLatLon() (float64, float64, bool)
@@ -609,15 +636,48 @@ func (m *Module) ooklaPick(ctx context.Context, client *http.Client) (ooklaServe
 			lat, lon = la, lo
 		}
 	}
+	fetch := func(url string) ([]byte, error) {
+		req, _ := http.NewRequestWithContext(ctx, "GET", url, nil)
+		req.Header.Set("User-Agent", "FlowSight/1 (gateway bandwidth check)")
+		resp, err := client.Do(req)
+		if err != nil {
+			return nil, err
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode >= 400 {
+			return nil, fmt.Errorf("HTTP %d", resp.StatusCode)
+		}
+		return io.ReadAll(io.LimitReader(resp.Body, 8<<20))
+	}
+	var servers []ooklaServer
+	dir := "https://www.speedtest.net/api/js/servers?engine=js&https_functional=true&limit=12"
+	if lat != 0 || lon != 0 {
+		dir += fmt.Sprintf("&lat=%.4f&lon=%.4f", lat, lon)
+	}
+	if b, err := fetch(dir); err == nil {
+		servers, _ = parseOoklaJSON(b)
+	}
+	if len(servers) == 0 {
+		b, err := fetch("https://www.speedtest.net/speedtest-servers-static.php")
+		if err != nil {
+			return ooklaServer{}, err
+		}
+		servers, err = parseOoklaServers(b)
+		if err != nil || len(servers) == 0 {
+			return ooklaServer{}, fmt.Errorf("speedtest.net server list unreadable")
+		}
+	}
 	cands := nearestOokla(servers, lat, lon, 10)
-	// The quickest to answer of the nearest few: distance is a guess, the
-	// round trip is a measurement.
 	best := ooklaServer{}
 	bestMs := math.MaxFloat64
 	for _, s := range cands {
-		base := ooklaBase(s.URL)
+		probe := ooklaBase(s.URL) + "latency.txt?x=" + strconv.FormatInt(time.Now().UnixNano(), 10)
+		if s.Host != "" {
+			probe = "https://" + s.Host + "/hello?nocache=" + strconv.FormatInt(time.Now().UnixNano(), 10)
+		}
 		t0 := time.Now()
-		r, _ := http.NewRequestWithContext(ctx, "GET", base+"latency.txt?x="+strconv.FormatInt(time.Now().UnixNano(), 10), nil)
+		r, _ := http.NewRequestWithContext(ctx, "GET", probe, nil)
+		r.Header.Set("User-Agent", "FlowSight/1 (gateway bandwidth check)")
 		resp, err := client.Do(r)
 		if err != nil {
 			continue
@@ -630,7 +690,7 @@ func (m *Module) ooklaPick(ctx context.Context, client *http.Client) (ooklaServe
 			best.latency = ms
 		}
 	}
-	if best.URL == "" {
+	if best.URL == "" && best.Host == "" {
 		return ooklaServer{}, fmt.Errorf("no speedtest.net server answered")
 	}
 	return best, nil
@@ -662,6 +722,15 @@ func (m *Module) runSpeedTest(ctx context.Context, attempt int, rerun bool) (t S
 
 	setStage("downloading")
 	dBytes, dSec, dErr := downloadFor(ctx, client, cfDown, testStreams, testSeconds*time.Second)
+	if dBytes == 0 && dErr != nil && strings.Contains(dErr.Error(), "429") {
+		setStage("download rate-limited; waiting to try again")
+		select {
+		case <-time.After(20 * time.Second):
+		case <-ctx.Done():
+		}
+		smp.take()
+		dBytes, dSec, dErr = downloadFor(ctx, client, cfDown, testStreams, testSeconds*time.Second)
+	}
 	din, _ := smp.take()
 	t.DownMbit = mbitPerSec(dBytes, dSec)
 	t.IfaceDownMbit = mbitPerSec(peakRate(din), 1)
@@ -693,11 +762,11 @@ func (m *Module) runSpeedTest(ctx context.Context, attempt int, rerun bool) (t S
 	if srv, err := m.ooklaPick(ctx, client); err != nil {
 		t.OoklaError = err.Error()
 	} else {
-		base := ooklaBase(srv.URL)
+		downURL, upURL := ooklaEndpoints(srv, t.ID)
 		t.OoklaServer, t.OoklaSponsor, t.OoklaLatency = srv.Name+", "+srv.Country, srv.Sponsor, srv.latency
-		ob, os, oerr := downloadFor(ctx, client, base+"random4000x4000.jpg?x="+t.ID, testStreams, testSeconds*time.Second)
+		ob, os, oerr := downloadFor(ctx, client, downURL, testStreams, testSeconds*time.Second)
 		t.OoklaDownMbit = mbitPerSec(ob, os)
-		ub, us, uerr := uploadFor(ctx, client, base+"upload.php?x="+t.ID, testStreams, testSeconds*time.Second)
+		ub, us, uerr := uploadFor(ctx, client, upURL, testStreams, testSeconds*time.Second)
 		t.OoklaUpMbit = mbitPerSec(ub, us)
 		if oerr != nil && uerr != nil {
 			t.OoklaError = "speedtest.net did not answer: " + oerr.Error()
@@ -749,11 +818,21 @@ func (m *Module) startSpeedTest() (bool, string) {
 			sp.running, sp.stage = false, ""
 			sp.mu.Unlock()
 		}()
-		ctx, cancel := context.WithTimeout(context.Background(), 4*time.Minute)
+		ctx, cancel := context.WithTimeout(context.Background(), 6*time.Minute)
 		defer cancel()
 		first := m.runSpeedTest(ctx, 1, false)
 		m.recordSpeedTest(first)
 		if first.Error == "" && needsRerun(first) {
+			// The endpoint rate-limits a second burst that follows the first
+			// too closely; half a minute between them is enough.
+			sp.mu.Lock()
+			sp.stage = "waiting before the rerun"
+			sp.mu.Unlock()
+			select {
+			case <-time.After(30 * time.Second):
+			case <-ctx.Done():
+				return
+			}
 			second := m.runSpeedTest(ctx, 2, true)
 			m.recordSpeedTest(second)
 		}
