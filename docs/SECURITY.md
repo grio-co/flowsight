@@ -60,14 +60,17 @@ its value in the file; the daemon reads the file at start.
   an ingress redirect) and one ifb device, `fsifb0`; queueing delays
   packets and never passes or blocks one. Turning shaping off removes
   exactly those, and nothing that was there before.
-- **On pfSense** the package changes three things outside FlowSight's own
+- **On pfSense** the package changes four things outside FlowSight's own
   files: pfSense's ruleset gains FlowSight's three anchors (through the
   package filter hook, regenerated with every filter reload), the
   resolver's custom options gain three marked lines including
-  `/var/unbound/flowsight/*.conf`, and the GUI gains the page and a
+  `/var/unbound/flowsight/*.conf`, the aliases gain `flowsight_local`
+  (private, loopback, link-local and multicast ranges: the table
+  FlowSight's rules use for "not local"), and the GUI gains the page and a
   privilege. Removing the package stops the daemon, flushes every
-  FlowSight anchor, removes exactly those three lines and the directory,
-  and reloads the resolver and the filter; the policy and the store stay.
+  FlowSight anchor, removes exactly those three lines, the directory and
+  the alias (unless one of your rules uses it), and reloads the resolver
+  and the filter; the policy and the store stay.
 - **Writes pass one gate.** Every state-changing route requires the header
   `X-Requested-With: Flowsight` (a browser cannot add it cross-site) and,
   from anything other than the OPNsense or pfSense GUI or loopback, the API token.

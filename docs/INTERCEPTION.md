@@ -78,7 +78,13 @@ intercepted rather than reflected. Exclude such clients, or the mapped
 addresses, from interception if you use 1:1 NAT with reflection.
 
 The anchors are regenerated with every filter reload, and what FlowSight
-loaded into them survives the reload. `pfctl -sr | head -3` shows the
+loaded into them survives the reload. The local-networks table the rules
+name is different: pfSense deletes every root table that is not an alias
+after each reload, which for up to a minute made "to anything not local"
+match local destinations too. The package therefore keeps the table as the
+alias `flowsight_local`, which pfSense declares and keeps; FlowSight adds
+its own local networks to it within ten seconds (and refreshes the table
+every ten seconds on every platform). `pfctl -sr | head -3` shows the
 filter anchor first; if it is missing, the package is not registered
 (see [Operations](OPERATIONS.md)).
 

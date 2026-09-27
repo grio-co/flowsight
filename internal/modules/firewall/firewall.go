@@ -133,7 +133,10 @@ func (m *Module) Setup(ctx *core.Context) error {
 	}
 	if m.Available() {
 		ctx.Provider(&provider{m: m})
-		ctx.Every("local-table", 60*time.Second, m.refreshLocal)
+		// The table lives in the root ruleset, which the firewall's own
+		// GUI replaces on every filter reload (pfSense also deletes root
+		// tables it does not know); refill it soon after.
+		ctx.Every("local-table", 10*time.Second, m.refreshLocal)
 		ctx.Every("anchor-check", 60*time.Second, m.checkAnchor)
 		ctx.Every("geo-tables", time.Hour, m.refreshGeoTables, core.Delayed())
 		// What was filled before this process started: the tables persist

@@ -274,14 +274,23 @@ nothing, reinstall the package (`pkg add -f pfSense-pkg-flowsight-*.pkg`),
 which registers it again and reloads the filter. A config.xml restored from
 before FlowSight was installed has the same effect.
 
+**Blocks or interception catch local traffic for a few seconds after a
+firewall change.** They should not: the table FlowSight uses for "local"
+is the alias `flowsight_local`, which pfSense reloads with the ruleset. If
+the alias was deleted, pfSense deletes the table on every reload until
+FlowSight refills it (within ten seconds); reinstall the package to put the
+alias back.
+
 **DNS reports are empty.** The resolver's *Custom options* must still hold
 FlowSight's three marked lines (*Services › DNS Resolver*); saving that page
 with them deleted removes the include. Reinstalling the package puts them
 back without touching your own options.
 
 **Removing it** (`pkg delete pfSense-pkg-flowsight`) stops the daemon,
-flushes every FlowSight anchor, removes the three lines and
-`/var/unbound/flowsight`, and reloads the resolver and the filter. pkg may
+flushes every FlowSight anchor, removes the three lines,
+`/var/unbound/flowsight` and the `flowsight_local` alias (kept, with a log
+line, if one of your rules uses it), and reloads the resolver and the
+filter. pkg may
 say the rc script was already missing: pfSense removes a package's service
 script itself before pkg does.
 

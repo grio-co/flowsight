@@ -19,7 +19,9 @@ FlowSight on pfSense CE 2.7 and later (Plus best effort) with `pkg add`. It
 appears under *Services › FlowSight*, runs under *Status › Services*, adds
 its firewall anchors through pfSense's package filter hook (so they survive
 every filter reload), and adds three marked lines to the DNS Resolver's
-*Custom options*, which removing the package takes out again. Non-admin
+*Custom options*, and the alias `flowsight_local` (the local ranges its
+rules mean by "not local"; pfSense would otherwise delete that table on
+every filter reload). Removing the package takes all of it out again. Non-admin
 users need the privilege *WebCfg - Services: FlowSight*. See the pfSense
 section of the installation guide.
 

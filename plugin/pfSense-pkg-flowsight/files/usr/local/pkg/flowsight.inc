@@ -13,7 +13,9 @@
  *     "flowsight/*" after pfSense's own translation (nat), so interception
  *     only sees traffic no port forward or reflection already claimed;
  *   - three lines in the resolver's custom options include
- *     /var/unbound/flowsight/*.conf, the one directory flowsightd writes.
+ *     /var/unbound/flowsight/*.conf, the one directory flowsightd writes;
+ *   - the alias flowsight_local, the root table FlowSight's rules use for
+ *     "not local", which pfSense would otherwise delete on every reload.
  *
  * Everything inside the anchors and that directory is written by flowsightd;
  * nothing here writes a rule. Removing the package takes out exactly what
@@ -82,6 +84,77 @@ function flowsight_unbound_include($add)
 	return true;
 }
 
+/*
+ * FlowSight's rules say "to anything not local" with the root table
+ * <flowsight_local>. After every filter reload pfSense deletes each root
+ * table that is not an alias, so the table is an alias: pfSense then
+ * declares it, with the ranges below, on every reload, and keeps it.
+ * flowsightd adds this network's own local networks within seconds.
+ */
+define('FLOWSIGHT_ALIAS', 'flowsight_local');
+
+function flowsight_alias_ranges()
+{
+	return array("10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "127.0.0.0/8", "169.254.0.0/16",
+	    "224.0.0.0/4", "fc00::/7", "fe80::/10", "::1/128", "ff00::/8");
+}
+
+/* The index of the alias in config.xml, or -1. */
+function flowsight_alias_index()
+{
+	foreach (config_get_path('aliases/alias', []) as $i => $a) {
+		if (($a['name'] ?? '') === FLOWSIGHT_ALIAS) {
+			return $i;
+		}
+	}
+	return -1;
+}
+
+function flowsight_alias_add()
+{
+	$ranges = flowsight_alias_ranges();
+	$alias = array(
+		'name' => FLOWSIGHT_ALIAS,
+		'type' => 'network',
+		'address' => implode(' ', $ranges),
+		'descr' => 'FlowSight: local networks (FlowSight keeps this current; removed with the package)',
+		'detail' => implode('||', array_fill(0, count($ranges), 'FlowSight')),
+	);
+	$aliases = config_get_path('aliases/alias', []);
+	$i = flowsight_alias_index();
+	if ($i >= 0) {
+		if ($aliases[$i] == $alias) {
+			return false;
+		}
+		$aliases[$i] = $alias;
+	} else {
+		$aliases[] = $alias;
+	}
+	config_set_path('aliases/alias', $aliases);
+	return true;
+}
+
+/* Remove the alias unless one of the operator's own rules uses it. */
+function flowsight_alias_remove()
+{
+	$i = flowsight_alias_index();
+	if ($i < 0) {
+		return false;
+	}
+	foreach (array('filter/rule', 'nat/rule', 'nat/outbound/rule') as $path) {
+		foreach (config_get_path($path, []) as $r) {
+			if (strpos(serialize($r), FLOWSIGHT_ALIAS) !== false) {
+				log_error("FlowSight: alias " . FLOWSIGHT_ALIAS . " left in place, a rule uses it");
+				return false;
+			}
+		}
+	}
+	$aliases = config_get_path('aliases/alias', []);
+	unset($aliases[$i]);
+	config_set_path('aliases/alias', array_values($aliases));
+	return true;
+}
+
 function flowsight_install()
 {
 	safe_mkdir(FLOWSIGHT_UNBOUND_DIR, 0755);
@@ -91,8 +164,10 @@ function flowsight_install()
 	if (!file_exists($placeholder)) {
 		file_put_contents($placeholder, "# FlowSight writes its resolver includes in this directory.\n");
 	}
-	if (flowsight_unbound_include(true)) {
-		write_config("FlowSight: include its resolver directory");
+	$changed = flowsight_unbound_include(true);
+	$changed = flowsight_alias_add() || $changed;
+	if ($changed) {
+		write_config("FlowSight: resolver include and local-networks alias");
 	}
 	if (config_path_enabled('unbound')) {
 		require_once("unbound.inc");
@@ -115,8 +190,10 @@ function flowsight_deinstall()
 		mwexec("/sbin/pfctl -a flowsight/{$a} -F rules");
 		mwexec("/sbin/pfctl -a flowsight/{$a} -F Tables");
 	}
-	if (flowsight_unbound_include(false)) {
-		write_config("FlowSight: removed its resolver include");
+	$changed = flowsight_unbound_include(false);
+	$changed = flowsight_alias_remove() || $changed;
+	if ($changed) {
+		write_config("FlowSight: removed its resolver include and local-networks alias");
 	}
 	rmdir_recursive(FLOWSIGHT_UNBOUND_DIR);
 	if (config_path_enabled('unbound')) {

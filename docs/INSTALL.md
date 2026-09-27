@@ -179,8 +179,12 @@ installed outside Netgate's repository, which a Plus upgrade may not keep).
    interception on the networks FlowSight will intercept). pfSense records
    the package, adds **Services › FlowSight** to the menu and the daemon to
    *Status › Services*, adds FlowSight's anchors to its ruleset through the
-   package filter hook, and adds three marked lines to the DNS Resolver's
-   *Custom options* that include `/var/unbound/flowsight/*.conf`. The
+   package filter hook, adds three marked lines to the DNS Resolver's
+   *Custom options* that include `/var/unbound/flowsight/*.conf`, and adds
+   the alias `flowsight_local` (*Firewall › Aliases*): the local ranges
+   FlowSight's rules mean by "not local". pfSense deletes, on every filter
+   reload, any table that is not an alias, so FlowSight keeps its table as
+   one; leave it in place. The
    installer then starts the daemon and checks every module.
 2. Everything else is as on OPNsense (above): the Overview fills within a
    minute; web interception is *Settings › web › Intercept web traffic*;
