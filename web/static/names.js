@@ -24,13 +24,19 @@
     const chosen = ex ? ex.addresses : addrs.filter(a => !String(a.ip).includes(':')).slice(0, 1).map(a => a.ip);
     const piholes = ok ? (sg.piholes || []) : [];
     const dnsOn = ex ? true : pref('fs.nameDNS', true);
-    const addrRows = addrs.map(a => {
+    const addrRow = (a) => {
       const v6 = String(a.ip).includes(':');
       const taken = (sg.reverse_taken || {})[a.ip];
       return `<label class="nm-addr"><input type="checkbox" name="addr" value="${esc(a.ip)}" ${chosen.includes(a.ip) ? 'checked' : ''}> <span class="mono">${esc(a.ip)}</span>
         ${v6 ? (a.stable ? FS.pill('stable', 'ok') : `<span class="muted small">${esc(a.note || '')}</span>`) : ''}
         ${taken ? `<span class="muted small">reverse already answers ${esc(taken.join(', '))} (gateway override; FlowSight adds forward only)</span>` : ''}</label>`;
-    }).join('') || `<label class="nm-addr"><input type="checkbox" name="addr" value="${esc(ip)}" checked> <span class="mono">${esc(ip)}</span></label>`;
+    };
+    // IPv4 and stable IPv6 first; rotating privacy addresses fold away,
+    // since a name on one of them stops working within a day.
+    const isPrivacy = (a) => String(a.ip).includes(':') && !a.stable && !chosen.includes(a.ip);
+    const main = addrs.filter(a => !isPrivacy(a)), priv = addrs.filter(isPrivacy);
+    const addrRows = (main.map(addrRow).join('') || `<label class="nm-addr"><input type="checkbox" name="addr" value="${esc(ip)}" checked> <span class="mono">${esc(ip)}</span></label>`)
+      + (priv.length ? `<details class="small"><summary>${priv.length} IPv6 privacy address${priv.length === 1 ? '' : 'es'} (the device replaces these every day or so; usually leave them out)</summary>${priv.slice(0, 8).map(a => addrRow(Object.assign({}, a, { note: '' }))).join('')}</details>` : '');
     const where = [
       sg && sg.gateway ? `<label><input type="checkbox" name="gateway" ${!ex || ex.gateway ? 'checked' : ''}> Gateway resolver <span class="muted small">(devices that use the gateway for DNS)</span></label>` : '',
       ...piholes.map(t => `<label title="${t.writable ? '' : esc('FlowSight may not change this Pi-hole: turn on “Permit app password to modify config” there')}"><input type="checkbox" name="pihole" value="${esc(t.url)}" ${!t.writable ? 'disabled' : (!ex || (ex.piholes || []).includes(t.url)) ? 'checked' : ''}> Pi-hole ${esc(t.host)} ${t.writable ? '' : FS.pill('read only', 'warn')}</label>`)

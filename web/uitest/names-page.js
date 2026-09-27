@@ -31,7 +31,7 @@ FS.pages.host.render(el, { arg: '192.168.1.44', params: {} }).then(function () {
   if (el.innerHTML.indexOf('<dt>DNS name</dt>') < 0 || el.innerHTML.indexOf('not in DNS') < 0) throw new Error('host page: no DNS name row');
   return FS.nameDevice('192.168.1.44', 'Kitchen iPad');
 }).then(function () {
-  ['Also add it to DNS', 'forward and reverse', 'kitchen-ipad', 'grio.co', 'privacy address', 'Gateway resolver', 'Pi-hole 192.168.1.53', 'read only', 'Follow the device', 'local-names.md'].forEach(function (s) {
+  ['Also add it to DNS', 'forward and reverse', 'kitchen-ipad', 'grio.co', '1 IPv6 privacy address', 'Gateway resolver', 'Pi-hole 192.168.1.53', 'read only', 'Follow the device', 'local-names.md'].forEach(function (s) {
     if (modalHTML.indexOf(s) < 0) throw new Error('name dialog missing: ' + s);
   });
   if (!/value="192\.168\.1\.44" checked/.test(modalHTML)) throw new Error('the IPv4 address should be chosen by default');

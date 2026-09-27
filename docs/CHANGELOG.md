@@ -12,6 +12,13 @@ name, and every release's assets carry that string in their file names.
 
 The newest entry is first.
 
+## 0.9.8r202609271438
+
+**Naming dialog: privacy addresses fold away.** A phone can hold a dozen
+rotating IPv6 privacy addresses; the naming dialog now lists the IPv4 and
+stable IPv6 addresses and folds the privacy ones under a single collapsed
+line, since a name on one of them stops working within a day.
+
 ## 0.9.8r202609271436
 
 **Give a device a DNS name when you name it.** Renaming a device on its
