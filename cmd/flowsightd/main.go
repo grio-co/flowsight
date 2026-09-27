@@ -51,6 +51,10 @@ func run() int {
 			return runInstall(args[1:])
 		case "uninstall":
 			return runUninstall(args[1:])
+		case "container":
+			return runContainer(args[1:])
+		case "health":
+			return runHealth(args[1:])
 		}
 	}
 

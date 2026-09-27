@@ -58,6 +58,9 @@ sh packaging/docs/build-docs.sh 0.9.3 dist/0.9.3/docs      # needs pandoc + weas
 packaging/release/release.sh docs 0.9.3
 # pass dist/0.9.3/docs as the last argument of build-pkg.sh and build-deb.sh so the packages carry it
 
+# 3d. the container image, every architecture, pushed to the registry (FROM scratch: nothing is pulled)
+sh packaging/container/build-image.sh 0.9.3 dist/0.9.3 --push <registry>/flowsight
+
 # 4. sign and write manifest.json + SHA256SUMS
 NOTES="$(cat notes.md)" packaging/release/release.sh manifest 0.9.3
 

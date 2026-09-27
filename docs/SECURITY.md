@@ -22,6 +22,15 @@ its value in the file; the daemon reads the file at start.
   proxied request carries the GUI user's name so the audit log names
   people. Elsewhere, reach it through a reverse proxy you control or bind
   it to a LAN address and rely on the API token.
+- **In the container image** the daemon listens on the container's own
+  interface (`0.0.0.0:8080` inside it), because a published port or a
+  Kubernetes Service reaches it there and not on loopback. It therefore
+  always has an API token: the image's entrypoint creates one, takes the
+  one in `FLOWSIGHT_API_TOKEN`, and refuses to start a configuration that
+  listens beyond loopback without one. The image runs as an unprivileged
+  user (uid 65532), has no shell, and the Helm chart adds a read-only root
+  filesystem and drops every capability. Only what you publish is
+  reachable from outside the container.
 - **Writes pass one gate.** Every state-changing route requires the header
   `X-Requested-With: Flowsight` (a browser cannot add it cross-site) and,
   from anything other than the OPNsense GUI or loopback, the API token.
@@ -42,6 +51,8 @@ its value in the file; the daemon reads the file at start.
 
 ## What runs as root and why
 
+In the container image nothing does: it runs as uid 65532 and changes
+nothing on the network (the adjacent position). On a host,
 `flowsightd` runs as root because it writes the resolver's include files,
 manages a squid instance, and loads pf anchors. It drops nothing it does
 not need: squid itself runs as the `squid` user in the `proxy` group (the

@@ -1,0 +1,9 @@
+apiVersion: v2
+name: flowsight
+description: FlowSight beside your firewall - visibility, DNS and web policy, reports and alerting (the adjacent position)
+type: application
+version: 0.1.0
+appVersion: "0.9.8"
+home: https://github.com/grioghar/flowsight
+sources:
+  - https://github.com/grioghar/flowsight

@@ -1,0 +1,57 @@
+# FlowSight in Kubernetes runs adjacent: beside the firewall, reading what
+# it exports and serving the API and UI. It changes nothing on the network
+# and needs no privileges.
+
+image:
+  repository: flowsight
+  tag: ""            # defaults to the chart's appVersion
+  pullPolicy: IfNotPresent
+imagePullSecrets: []
+
+# The API token. Use an existing Secret, or give a value and the chart makes
+# one, or leave both empty and FlowSight generates a token on first start
+# and prints it once in the pod's log.
+apiToken:
+  existingSecret: ""
+  key: api-token
+  value: ""
+
+service:
+  type: ClusterIP
+  port: 8080
+
+# One volume holds everything that persists: the configuration and token,
+# the CA, the SQLite store, captures and reports. FlowSight keeps one store,
+# so it runs as one replica.
+persistence:
+  enabled: true
+  size: 2Gi
+  storageClass: ""
+  accessMode: ReadWriteOnce
+  existingClaim: ""
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 192Mi
+  limits:
+    memory: 512Mi
+
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 65532
+  runAsGroup: 65532
+  fsGroup: 65532
+  seccompProfile:
+    type: RuntimeDefault
+
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop: ["ALL"]
+
+nodeSelector: {}
+tolerations: []
+affinity: {}
+podAnnotations: {}

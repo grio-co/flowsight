@@ -136,7 +136,9 @@ func Apply(e Env, p Plan, version string, now time.Time, say func(string)) (Resu
 	if !p.Supported {
 		return r, errors.New("this plan cannot be applied: " + p.Reason)
 	}
-	if !p.Facts.Root {
+	// A container runs as an unprivileged user and writes only into its
+	// own volumes; everything else needs root.
+	if !p.Facts.Root && p.Service != "container" {
 		return r, errors.New("applying a plan needs root")
 	}
 	stamp := now.UTC().Format("20060102T150405Z")
@@ -156,7 +158,7 @@ func Apply(e Env, p Plan, version string, now time.Time, say func(string)) (Resu
 		case "enable":
 			err = r.enable(e, p)
 		case "container":
-			r.Notes = append(r.Notes, "in a container nothing is installed on a host; run flowsightd as the container's command")
+			r.Notes = append(r.Notes, "in a container flowsightd is the container's own process; nothing is installed on a host")
 		case "config":
 			err = r.writeConfig(e, p)
 		case "anchors":
@@ -312,13 +314,26 @@ func (r *Result) writeConfig(e Env, p Plan) error {
 	if p.Platform == "opnsense" {
 		return nil // the GUI signs people in; the daemon writes its own defaults
 	}
-	tok, err := token()
-	if err != nil {
-		return err
+	doc := map[string]any{}
+	tok := ""
+	if p.Service == "container" && e.Getenv != nil {
+		tok = e.Getenv("FLOWSIGHT_API_TOKEN")
 	}
-	b, _ := json.MarshalIndent(map[string]any{"api_token": tok}, "", "  ")
+	if tok == "" {
+		var err error
+		if tok, err = token(); err != nil {
+			return err
+		}
+		r.Token = tok // shown once; one from the environment is not echoed
+	}
+	doc["api_token"] = tok
+	if p.Service == "container" {
+		// Published ports reach the container on its own interface, not on
+		// loopback; the token is what protects it.
+		doc["bind"] = "0.0.0.0"
+	}
+	b, _ := json.MarshalIndent(doc, "", "  ")
 	r.Files = append(r.Files, FileChange{Path: cfg, Action: "created"})
-	r.Token = tok
 	return r.put(e, cfg, append(b, '\n'), 0o600)
 }
 
@@ -479,7 +494,7 @@ func (r Result) Summary() string {
 		w("Note: %s.", n)
 	}
 	if r.Token != "" {
-		w("API token (shown once; it is also in the configuration file, readable by root only): %s", r.Token)
+		w("API token (shown once; it is also in the configuration file, readable only by the user FlowSight runs as): %s", r.Token)
 	}
 	if v := r.Verify; v != nil {
 		if !v.Answering {

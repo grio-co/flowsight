@@ -79,6 +79,38 @@ removes them too, which leaves the machine as it was before the first
 install. `-dry-run` shows the steps. An install made by a package is left
 to the package manager.
 
+## Docker
+
+```sh
+docker run -d --name flowsight -p 8080:8080 -v flowsight:/var/lib/flowsight flowsight:<version>
+docker logs flowsight | grep "shown once"      # the API token, printed on first start only
+```
+
+The image holds the static binary, CA certificates and nothing else (no
+shell); it runs as an unprivileged user. Everything that must persist (the
+configuration and token, the CA, the store) is on the one volume at
+`/var/lib/flowsight`; `/etc/flowsight` links into it. To supply the token,
+set `FLOWSIGHT_API_TOKEN`: it is written into the configuration at every
+start and never printed. `docker exec flowsight flowsightd health` is the
+image's health check. In a container FlowSight runs *adjacent*: it reads
+what your firewall exports and serves the UI, API, DNS and web policy to
+clients that use it, but it cannot change the network. The image is built
+with `packaging/container/build-image.sh` (see [Releasing](RELEASING.md)).
+
+## Kubernetes
+
+```sh
+helm install flowsight packaging/helm/flowsight --set image.repository=<registry>/flowsight
+kubectl port-forward svc/flowsight 8080:8080
+```
+
+One replica with a persistent volume (`persistence.*`), non-root, a
+read-only root filesystem and no capabilities. The token comes from
+`apiToken.existingSecret` (key `apiToken.key`), from `apiToken.value` (the
+chart makes the Secret), or, with neither, is generated on first start and
+printed once in the pod's log. Rotating the Secret and restarting the pod
+changes the token. The probes run `flowsightd health`.
+
 ## OPNsense
 
 1. Install `os-ntopng` from System › Firmware › Plugins (recommended; it

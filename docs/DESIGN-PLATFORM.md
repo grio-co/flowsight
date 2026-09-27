@@ -351,6 +351,14 @@ site installed by hand once can be copied.
 `flowsightd uninstall` restores every backup the install took and removes
 every object FlowSight created on other systems.
 
+#### Phase 3 progress
+
+| Step | State |
+|---|---|
+| OCI image (`packaging/container`): FROM scratch, static binary, CA certificates, uid 65532, one volume (`/etc/flowsight` links into `/var/lib/flowsight`), `flowsightd container` as entrypoint (installer in container mode: token from `FLOWSIGHT_API_TOKEN` or generated and shown once; an open bind without a token refused), `flowsightd health` as health check | Done. Built and run on Docker Desktop (arm64) and the Docker VM (amd64): token required from outside, no module failing to start, configuration kept when the container is recreated on the same volume |
+| Helm chart (`packaging/helm/flowsight`): one replica, Recreate, persistent volume, non-root, read-only root, no capabilities, token from a Secret or generated, exec probes | Written; not yet rendered or installed: no Helm or cluster here |
+| Provider protocol, with Suricata in its own container as the first out-of-process provider | Next |
+
 ## Fleet
 
 For many sites, many clouds, many countries.

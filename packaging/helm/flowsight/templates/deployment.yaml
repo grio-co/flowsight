@@ -1,0 +1,109 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "flowsight.fullname" . }}
+  labels:
+    {{- include "flowsight.labels" . | nindent 4 }}
+spec:
+  # One store (SQLite) on one volume: one replica, replaced rather than
+  # rolled, so two never write the store at once.
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "flowsight.selector" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "flowsight.selector" . | nindent 8 }}
+      {{- with .Values.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: flowsight
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          ports:
+            - name: http
+              containerPort: 8080
+          {{- $secret := include "flowsight.secretName" . }}
+          {{- if $secret }}
+          env:
+            # The token is the Secret's: written into the configuration at
+            # every start, so rotating the Secret and restarting is enough.
+            - name: FLOWSIGHT_API_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $secret }}
+                  key: {{ .Values.apiToken.key }}
+          {{- end }}
+          startupProbe:
+            exec:
+              command: ["/usr/local/sbin/flowsightd", "health"]
+            periodSeconds: 5
+            failureThreshold: 24
+          livenessProbe:
+            exec:
+              command: ["/usr/local/sbin/flowsightd", "health"]
+            periodSeconds: 30
+            timeoutSeconds: 10
+          readinessProbe:
+            exec:
+              command: ["/usr/local/sbin/flowsightd", "health"]
+            periodSeconds: 10
+            timeoutSeconds: 10
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          # Everything that persists is on one volume, mounted once:
+          # /etc/flowsight in the image links to /var/lib/flowsight/etc.
+          # No subPath, so no directory is made by the kubelet as root.
+          volumeMounts:
+            - name: state
+              mountPath: /var/lib/flowsight
+            - name: log
+              mountPath: /var/log/flowsight
+            - name: run
+              mountPath: /run/flowsight
+            - name: share
+              mountPath: /usr/share/flowsight
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: state
+          {{- if .Values.persistence.enabled }}
+          persistentVolumeClaim:
+            claimName: {{ .Values.persistence.existingClaim | default (include "flowsight.fullname" .) }}
+          {{- else }}
+          emptyDir: {}
+          {{- end }}
+        - name: log
+          emptyDir: {}
+        - name: run
+          emptyDir: {}
+        - name: share
+          emptyDir: {}
+        - name: tmp
+          emptyDir: {}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

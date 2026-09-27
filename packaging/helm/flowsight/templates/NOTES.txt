@@ -1,0 +1,17 @@
+FlowSight is starting as {{ include "flowsight.fullname" . }} in {{ .Release.Namespace }}.
+
+Reach the UI and API:
+  kubectl -n {{ .Release.Namespace }} port-forward svc/{{ include "flowsight.fullname" . }} 8080:{{ .Values.service.port }}
+  then open http://127.0.0.1:8080
+
+{{- if include "flowsight.secretName" . }}
+The API token is in the Secret {{ include "flowsight.secretName" . }} (key {{ .Values.apiToken.key }}).
+{{- else }}
+No token was given, so FlowSight generated one on first start and printed it once:
+  kubectl -n {{ .Release.Namespace }} logs deploy/{{ include "flowsight.fullname" . }} | grep "shown once"
+Set apiToken.existingSecret or apiToken.value to manage it yourself.
+{{- end }}
+
+FlowSight runs adjacent here: it reads what your firewall exports and
+serves DNS and web policy to clients that use it, but it cannot change the
+network from inside the cluster. Enforcement stays off until you turn it on.
