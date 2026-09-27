@@ -55,7 +55,16 @@ systemctl daemon-reload >/dev/null 2>&1 || true
 systemctl enable --now flowsight >/dev/null 2>&1 || true
 
 %preun
-if [ "\$1" = 0 ]; then systemctl disable --now flowsight >/dev/null 2>&1 || true; fi
+# On removal (not upgrade): take FlowSight's resolver files away before
+# stopping it; left in place, Unbound goes on applying its DNS blocks.
+if [ "\$1" = 0 ]; then
+    removed=
+    for f in /etc/unbound/unbound.conf.d/flowsight-*; do
+        [ -e "\$f" ] && rm -f "\$f" && removed=1
+    done
+    [ -n "\$removed" ] && unbound-control reload >/dev/null 2>&1 || true
+    systemctl disable --now flowsight >/dev/null 2>&1 || true
+fi
 
 %files
 /usr/local/sbin/flowsightd

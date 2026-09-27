@@ -13,6 +13,20 @@ name, and every release's assets carry that string in their file names.
 The newest entry is first.
 
 ## 0.9.8r202609270416
+<<<<<<< HEAD
+=======
+
+**Removing the Linux package removes FlowSight's DNS policy too.** `apt
+remove flowsight` and `dnf remove flowsight` stopped the service but left
+FlowSight's Unbound include and zone files in `/etc/unbound/unbound.conf.d`,
+so Unbound went on applying FlowSight's DNS blocks after FlowSight was gone.
+The removal scripts now delete those files and reload Unbound before
+stopping the service, as the OPNsense package already did. If you removed
+the package on an earlier version, delete
+`/etc/unbound/unbound.conf.d/flowsight-*` and run `unbound-control reload`.
+
+## 0.9.8rPENDING
+>>>>>>> origin/fix-linux-remove-withdraw
 
 **A bandwidth test from the firewall.** *Run a bandwidth test* on the
 Priority page, and on the qos panel under Settings, measures what the link
