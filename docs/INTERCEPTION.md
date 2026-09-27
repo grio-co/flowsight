@@ -64,6 +64,24 @@ openssl s_client -connect example.com:443 -servername example.com </dev/null | g
 An issuer of *FlowSight Inspection CA* on a device no policy inspects is a
 bug; the TLS page lists which clients were bumped (mode *bump*).
 
+## On pfSense
+
+pfSense writes its whole ruleset itself, from config.xml, on every change,
+so FlowSight's anchors come from pfSense's package filter hook rather than
+from an edit: `anchor "flowsight/*" quick` is the first filter rule, ahead
+of pfSense's own default blocks and the `openvpn/*` and `ipsec/*` anchors,
+and `nat-anchor`/`rdr-anchor "flowsight/*"` come after every port forward
+and its reflection rules, as on OPNsense. The one exception is 1:1 NAT
+reflection, which pfSense appends after all package rules: a LAN client
+reaching a 1:1-mapped host by its public address on port 80 or 443 is
+intercepted rather than reflected. Exclude such clients, or the mapped
+addresses, from interception if you use 1:1 NAT with reflection.
+
+The anchors are regenerated with every filter reload, and what FlowSight
+loaded into them survives the reload. `pfctl -sr | head -3` shows the
+filter anchor first; if it is missing, the package is not registered
+(see [Operations](OPERATIONS.md)).
+
 ## On a Linux gateway (nftables)
 
 nftables' `redirect` does not deliver to loopback: it rewrites the

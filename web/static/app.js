@@ -33,12 +33,15 @@
   FS.applyTheme();
   get('/api/ui/prefs').then(p => { if (p && p.theme) { FS.theme.pref = p.theme; FS.applyTheme(); } });
 
-  // Embedded in a host GUI (OPNsense): the host's own menu carries every
-  // page, so the app shows no sidebar of its own, keeps a one-line footer,
-  // and tells the host how tall it is so the host page scrolls, not a frame.
+  // Embedded in a host GUI: the app keeps a one-line footer and tells the
+  // host how tall it is so the host page scrolls, not a frame. Where the
+  // host's own menu carries every page (OPNsense) the app shows no sidebar
+  // of its own; a host with one menu entry (pfSense) sets FS_HOST_NAV false
+  // and the sidebar stays.
   FS.embedded = !!window.FS_API_BASE || window.self !== window.top || /[?&]embed=1/.test(location.search);
   if (FS.embedded) {
     document.body.classList.add('embedded');
+    if (window.FS_HOST_NAV !== false) document.body.classList.add('hostnav');
     const foot = document.createElement('div'); foot.id = 'foot';
     ['#health-pill', '#version', '#attrib'].forEach(sel => { const n = $(sel); if (n) foot.appendChild(n); });
     $('#main').appendChild(foot);

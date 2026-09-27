@@ -4,7 +4,9 @@ A release is a git tag `vX.Y.Z` plus a GitHub release whose assets the
 installed daemons read: `manifest.json` (signed asset list), the raw
 `flowsightd-<os>-<arch>` binaries the updater swaps in, the OPNsense packages
 `os-flowsight-<ver>-<amd64|aarch64>.pkg` (also uploaded under the stable
-names `os-flowsight-<arch>.pkg`), the Debian packages `flowsight_<ver>_<arch>.deb`,
+names `os-flowsight-<arch>.pkg`), the pfSense packages
+`pfSense-pkg-flowsight-<ver>-<amd64|aarch64>.pkg` (stable names
+`pfSense-pkg-flowsight-<arch>.pkg`), the Debian packages `flowsight_<ver>_<arch>.deb`,
 the RPMs `flowsight-<ver>-1.<x86_64|aarch64>.rpm`, the license server
 binaries, the manual (`flowsight-manual-<ver>.pdf`, one PDF per chapter under
 `chapters/`, and `flowsight-docs-<ver>.tar.gz` with Markdown and HTML),
@@ -43,6 +45,10 @@ packaging/release/release.sh build 0.9.3
 # 2. OPNsense packages on a FreeBSD/OPNsense host with pkg(8)
 sh packaging/freebsd/build-pkg.sh 0.9.3 amd64   dist/0.9.3/flowsightd-freebsd-amd64 plugin/os-flowsight/src dist/0.9.3
 sh packaging/freebsd/build-pkg.sh 0.9.3 aarch64 dist/0.9.3/flowsightd-freebsd-arm64 plugin/os-flowsight/src dist/0.9.3
+
+# 2b. pfSense packages, likewise on a FreeBSD or pfSense host with pkg(8)
+sh packaging/pfsense/build-pkg.sh 0.9.3 amd64   dist/0.9.3/flowsightd-freebsd-amd64 plugin/pfSense-pkg-flowsight/files dist/0.9.3
+sh packaging/pfsense/build-pkg.sh 0.9.3 aarch64 dist/0.9.3/flowsightd-freebsd-arm64 plugin/pfSense-pkg-flowsight/files dist/0.9.3
 
 # 3. Debian packages on a host with dpkg-deb
 sh packaging/debian/build-deb.sh 0.9.3 amd64 dist/0.9.3/flowsightd-linux-amd64 dist/0.9.3

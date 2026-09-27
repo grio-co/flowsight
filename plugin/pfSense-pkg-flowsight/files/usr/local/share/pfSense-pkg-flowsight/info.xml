@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<pfsensepkgs>
+	<package>
+		<name>flowsight</name>
+		<descr><![CDATA[FlowSight: application and web visibility per device, and DNS, web and application policy compiled onto pfSense's own resolver, proxy and packet filter.]]></descr>
+		<website>https://github.com/grioghar/flowsight</website>
+		<category>Security</category>
+		<version>%%PKGVERSION%%</version>
+		<configurationfile>flowsight.xml</configurationfile>
+		<include_file>/usr/local/pkg/flowsight.inc</include_file>
+		<filter_rule_function>flowsight_generate_rules</filter_rule_function>
+	</package>
+</pfsensepkgs>

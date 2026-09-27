@@ -12,6 +12,22 @@ name, and every release's assets carry that string in their file names.
 
 The newest entry is first.
 
+## 0.9.8r202609271715
+
+**FlowSight for pfSense.** A new package, `pfSense-pkg-flowsight`, installs
+FlowSight on pfSense CE 2.7 and later (Plus best effort) with `pkg add`. It
+appears under *Services › FlowSight*, runs under *Status › Services*, adds
+its firewall anchors through pfSense's package filter hook (so they survive
+every filter reload), and adds three marked lines to the DNS Resolver's
+*Custom options*, which removing the package takes out again. Non-admin
+users need the privilege *WebCfg - Services: FlowSight*. See the pfSense
+section of the installation guide.
+
+**Suricata with one log per interface.** *Settings › ids › EVE log path*
+may now be a pattern; every log it matches is read, and one added later is
+read from its start. On pfSense it defaults to
+`/var/log/suricata/*/eve.json`.
+
 ## 0.9.8r202609271704
 
 **Device names reach the DHCP server.** A name given in FlowSight now also
@@ -42,6 +58,7 @@ instead of sharing it with the module list, which only *Resolver* needs.
 **Gravity output hides the feed key.** The gravity output shown on the
 Pi-hole blocking tab named the URL of a subscribed FlowSight category with
 its feed key; the key is now masked there.
+
 
 ## 0.9.8r202609271630
 

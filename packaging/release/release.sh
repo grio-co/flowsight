@@ -10,7 +10,7 @@
 #       into release assets: the full PDF, the chapter PDFs and a docs tarball.
 #   release.sh manifest <version> [out dir]
 #       Sign every flowsightd-<os>-<arch> in <out dir> and write manifest.json.
-#       Packages (os-flowsight-*.pkg, flowsight_*.deb) already in <out dir>
+#       Packages (os-flowsight-*.pkg, pfSense-pkg-flowsight-*.pkg, flowsight_*.deb) already in <out dir>
 #       are listed with their sha256 but the updater only consumes binaries.
 #
 # The private key lives outside the repo: $FLOWSIGHT_SIGNING_KEY or
@@ -66,7 +66,7 @@ manifest)
         assets="$assets{\"os\":\"$os\",\"arch\":\"$arch\",\"url\":\"https://github.com/grioghar/flowsight/releases/download/v$VERSION/flowsightd-$os-$arch\",\"sha256\":\"$h\",\"size\":$(size "$f"),\"sig\":\"$sig\"},"
     done
     pkgs=""
-    for f in "$OUT"/os-flowsight-*.pkg "$OUT"/flowsight_*.deb "$OUT"/flowsight-*.rpm "$OUT"/flowsight-manual-*.pdf "$OUT"/flowsight-docs-*.tar.gz; do
+    for f in "$OUT"/os-flowsight-*.pkg "$OUT"/pfSense-pkg-flowsight-*.pkg "$OUT"/flowsight_*.deb "$OUT"/flowsight-*.rpm "$OUT"/flowsight-manual-*.pdf "$OUT"/flowsight-docs-*.tar.gz; do
         [ -f "$f" ] || continue
         pkgs="$pkgs{\"name\":\"$(basename "$f")\",\"sha256\":\"$(sha "$f")\",\"size\":$(size "$f")},"
     done

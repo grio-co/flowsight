@@ -14,9 +14,12 @@
   --nav-bg: #0b1016; --nav-ink: #aab4c3; --nav-active: #1b2430; --shadow: 0 1px 2px rgba(0,0,0,.4);
 }
 .cc { font-size: 11px; color: var(--muted); white-space: nowrap; }
-/* Embedded in a host GUI: no sidebar of our own, a one-line footer, no inner scrolling. */
-.embedded #app { grid-template-columns: 1fr; min-height: 0; }
-.embedded #nav, .embedded #navtoggle { display: none !important; }
+/* Embedded in a host GUI: a one-line footer, no inner scrolling, and no
+   sidebar of our own where the host's menu lists every page (hostnav:
+   OPNsense; pfSense has one menu entry, so the sidebar stays). */
+.embedded #app { min-height: 0; }
+.embedded.hostnav #app { grid-template-columns: 1fr; }
+.embedded.hostnav #nav, .embedded.hostnav #navtoggle { display: none !important; }
 .embedded #topbar { position: static; }
 .embedded #view { padding-bottom: 12px; }
 #foot { display: none; }

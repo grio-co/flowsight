@@ -162,6 +162,42 @@ interception and policy rules, removes the resolver includes and reloads the
 resolver and filter. The store under `/var/db/flowsight` and the policy under
 `/usr/local/etc/flowsight` are kept.
 
+## pfSense
+
+pfSense CE 2.7 and later is supported; Plus is best effort (the package is
+installed outside Netgate's repository, which a Plus upgrade may not keep).
+
+1. Install the package from a shell (*Diagnostics › Command Prompt*, or SSH):
+
+   ```sh
+   fetch https://github.com/grioghar/flowsight/releases/latest/download/pfSense-pkg-flowsight-amd64.pkg
+   pkg add pfSense-pkg-flowsight-amd64.pkg
+   ```
+
+   pkg installs squid from pfSense's own repository as a dependency (not
+   the deprecated squid GUI package; leave that without transparent
+   interception on the networks FlowSight will intercept). pfSense records
+   the package, adds **Services › FlowSight** to the menu and the daemon to
+   *Status › Services*, adds FlowSight's anchors to its ruleset through the
+   package filter hook, and adds three marked lines to the DNS Resolver's
+   *Custom options* that include `/var/unbound/flowsight/*.conf`. The
+   installer then starts the daemon and checks every module.
+2. Everything else is as on OPNsense (above): the Overview fills within a
+   minute; web interception is *Settings › web › Intercept web traffic*;
+   nothing is enforced until *Settings › policy › Enforce policy*.
+3. Application identification needs ntopng, which pfSense does not
+   package; point *Settings › visibility* at an ntopng elsewhere. For
+   Suricata, FlowSight reads every log matching
+   `/var/log/suricata/*/eve.json`, where pfSense's Suricata package keeps
+   one per interface; if yours are elsewhere, set *Settings › ids › EVE log
+   path* (a pattern is allowed).
+
+Uninstalling (`pkg delete pfSense-pkg-flowsight`) stops the service,
+withdraws every rule FlowSight loaded, removes its lines from the resolver's
+custom options and its include directory, and reloads the resolver and the
+filter. The store under `/var/db/flowsight` and the policy under
+`/usr/local/etc/flowsight` are kept.
+
 ## Debian and Ubuntu
 
 ```sh

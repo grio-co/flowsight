@@ -20,7 +20,16 @@ its value in the file; the daemon reads the file at start.
   OPNsense it is reached through the GUI, which authenticates the user and
   proxies with the session's CSRF token and a same-origin check; the
   proxied request carries the GUI user's name so the audit log names
-  people. Elsewhere, reach it through a reverse proxy you control or bind
+  people. On pfSense the same page does the same, behind pfSense's login
+  and the privilege *WebCfg - Services: FlowSight* (grant it to give a
+  non-admin user FlowSight, including changing its policy). pfSense's
+  csrf-magic reads its token from a form field, which FlowSight's JSON
+  requests do not have, so for the app, its files and its API the page
+  switches csrf-magic's automatic check off and checks the token itself,
+  with csrf-magic's own validation, from the `X-CSRFToken` header, on
+  every write, together with the Origin or Referer; a write missing
+  either is refused (tested: no token, a forged token, no Origin and a
+  foreign Origin each get 403, and no session gets pfSense's login page). Elsewhere, reach it through a reverse proxy you control or bind
   it to a LAN address and rely on the API token.
 - **In the container image** the daemon listens on the container's own
   interface (`0.0.0.0:8080` inside it), because a published port or a
@@ -44,17 +53,24 @@ its value in the file; the daemon reads the file at start.
   With interception on, the proxy listens on the LAN interfaces' own
   addresses (nftables redirects there, not to loopback), never on the WAN,
   and the table resets any connection to its ports that was not
-  redirected. With shaping on, FlowSight adds queueing to the LAN
-  interface (an HTB tree with the handle `f5:` and an ingress redirect) and
-  one ifb device, `fsifb0`; queueing delays packets and never passes or
-  blocks one. Turning shaping off removes exactly those, and nothing that
-  was there before. nftables
-  lets every table see a packet that another accepts, and makes a reject
-  final, so FlowSight can take traffic away but cannot open anything the
-  operator's firewall closes.
+  redirected. nftables lets every table see a packet that another accepts,
+  and makes a reject final, so FlowSight can take traffic away but cannot
+  open anything the operator's firewall closes. With shaping on, FlowSight
+  adds queueing to the LAN interface (an HTB tree with the handle `f5:` and
+  an ingress redirect) and one ifb device, `fsifb0`; queueing delays
+  packets and never passes or blocks one. Turning shaping off removes
+  exactly those, and nothing that was there before.
+- **On pfSense** the package changes three things outside FlowSight's own
+  files: pfSense's ruleset gains FlowSight's three anchors (through the
+  package filter hook, regenerated with every filter reload), the
+  resolver's custom options gain three marked lines including
+  `/var/unbound/flowsight/*.conf`, and the GUI gains the page and a
+  privilege. Removing the package stops the daemon, flushes every
+  FlowSight anchor, removes exactly those three lines and the directory,
+  and reloads the resolver and the filter; the policy and the store stay.
 - **Writes pass one gate.** Every state-changing route requires the header
   `X-Requested-With: Flowsight` (a browser cannot add it cross-site) and,
-  from anything other than the OPNsense GUI or loopback, the API token.
+  from anything other than the OPNsense or pfSense GUI or loopback, the API token.
   Reads from loopback need nothing.
 - **Some keys are locked**: `bind`, `port`, `api_token`, `data_dir`,
   `paths` and every setting that names a binary can only be changed in the

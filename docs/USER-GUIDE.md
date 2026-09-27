@@ -24,7 +24,10 @@ browser; press it again to resume and refresh at once.
 Inside the OPNsense GUI the pages are reached from the **FlowSight**
 section of OPNsense's own left-hand menu; the app shows no sidebar of its
 own there, only the page, a top bar and a one-line footer with health,
-version and attribution. Standalone (Linux, or the daemon opened directly)
+version and attribution. On pfSense FlowSight is under **Services ›
+FlowSight**, with its own sidebar inside the page; its daemon appears under
+*Status › Services*, and a user who is not an administrator needs the
+privilege *WebCfg - Services: FlowSight*. Standalone (Linux, or the daemon opened directly)
 the app has its own sidebar with the same entries.
 
 **Addresses.** Wherever a host would be shown as a bare address (a

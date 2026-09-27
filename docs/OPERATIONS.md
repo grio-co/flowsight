@@ -260,6 +260,31 @@ are left in place. An install made with `install.sh` or `flowsightd
 install` is removed with `flowsightd uninstall` (`-purge` to remove the
 configuration and data as well); see [Installing](INSTALL.md).
 
+## FlowSight on pfSense
+
+The daemon is a package service: *Status › Services* starts and stops it,
+as does `/usr/local/etc/rc.d/flowsight.sh start|stop|restart|status` from a
+shell (`service flowsight ...` does not know it: pfSense runs packages'
+`*.sh` scripts itself). Its output is `/var/log/flowsight/daemon.out`.
+
+**FlowSight's anchors are not in the ruleset** (the firewall module's
+*anchor-missing* finding). pfSense adds them only while the package is
+registered in config.xml. Check with `pfctl -sr | grep flowsight`; if
+nothing, reinstall the package (`pkg add -f pfSense-pkg-flowsight-*.pkg`),
+which registers it again and reloads the filter. A config.xml restored from
+before FlowSight was installed has the same effect.
+
+**DNS reports are empty.** The resolver's *Custom options* must still hold
+FlowSight's three marked lines (*Services › DNS Resolver*); saving that page
+with them deleted removes the include. Reinstalling the package puts them
+back without touching your own options.
+
+**Removing it** (`pkg delete pfSense-pkg-flowsight`) stops the daemon,
+flushes every FlowSight anchor, removes the three lines and
+`/var/unbound/flowsight`, and reloads the resolver and the filter. pkg may
+say the rc script was already missing: pfSense removes a package's service
+script itself before pkg does.
+
 ## FlowSight's rules on a Linux gateway
 
 Everything FlowSight enforces on Linux is in one nftables table:

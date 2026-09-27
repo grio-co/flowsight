@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<!DOCTYPE packagegui SYSTEM "../schema/packages.dtd">
+<packagegui>
+	<name>flowsight</name>
+	<title>Services/FlowSight</title>
+	<include_file>/usr/local/pkg/flowsight.inc</include_file>
+	<menu>
+		<name>FlowSight</name>
+		<section>Services</section>
+		<url>/flowsight.php</url>
+	</menu>
+	<service>
+		<name>flowsight</name>
+		<rcfile>flowsight.sh</rcfile>
+		<executable>flowsightd</executable>
+		<description><![CDATA[FlowSight daemon]]></description>
+	</service>
+	<custom_php_install_command>flowsight_install();</custom_php_install_command>
+	<custom_php_deinstall_command>flowsight_deinstall();</custom_php_deinstall_command>
+</packagegui>
