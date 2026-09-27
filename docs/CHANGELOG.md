@@ -12,6 +12,12 @@ name, and every release's assets carry that string in their file names.
 
 The newest entry is first.
 
+## 0.9.8r202609271634
+
+**DNS settings tabs use the full width.** *Device names*, *Pi-hole* and
+*Pi-hole blocking* on *Settings › dns* now take the page's full width
+instead of sharing it with the module list, which only *Resolver* needs.
+
 ## 0.9.8r202609271633
 
 **Gravity output hides the feed key.** The gravity output shown on the

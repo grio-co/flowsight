@@ -151,6 +151,9 @@
     const left = FS.$('.two > div', el) || el;
     const strip = await FS.dnsTabs(tab);
     if (tab === 'resolver') { left.insertAdjacentHTML('afterbegin', strip); return; }
+    // Device names and the Pi-hole tabs are wide tables: they take the
+    // page's full width, without the module list beside them.
+    const two = FS.$('.two', el); if (two) two.classList.add('dns-wide');
     left.innerHTML = strip + '<div class="dns-set"></div>';
     const host = FS.$('.dns-set', left);
     if (tab === 'pihole') await FS.renderPihole(host);

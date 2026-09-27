@@ -852,3 +852,5 @@ tr.ss-none td { text-align: center; padding: 10px; }
 .pg-list { display: flex; flex-wrap: wrap; gap: 6px 14px; margin-bottom: 10px; }
 .pg-list label { font-weight: normal; }
 form.row, .f .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 8px; }
+.two.dns-wide { grid-template-columns: minmax(0, 1fr); }
+.two.dns-wide > div:nth-child(2) { display: none; }
