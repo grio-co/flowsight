@@ -12,6 +12,12 @@ name, and every release's assets carry that string in their file names.
 
 The newest entry is first.
 
+## 0.9.8r202609270438
+
+**Inspection anomalies resolve themselves.** A SYN-flood or port-scan
+finding used to stay open forever; it now closes once ten minutes of polls
+have not seen the condition, and carries who and why like the others.
+
 ## 0.9.8r202609270437
 
 **Findings say who, what, where and why.** A finding now carries structure

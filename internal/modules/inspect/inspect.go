@@ -22,12 +22,13 @@ import (
 func init() { core.Register(func() core.Module { return &Module{} }) }
 
 type Module struct {
-	ctx       *core.Context
-	mu        sync.RWMutex
-	captureID string
-	capture   *CaptureSession
-	captures  map[string]*CaptureInfo
-	states    []*PFState
+	anomalySeen map[string]time.Time // finding key -> last poll that saw it
+	ctx         *core.Context
+	mu          sync.RWMutex
+	captureID   string
+	capture     *CaptureSession
+	captures    map[string]*CaptureInfo
+	states      []*PFState
 
 	// Settings
 	maxStates        int
@@ -459,14 +460,38 @@ func toPFStates(conns []core.ConnState, now time.Time) []*PFState {
 	return states
 }
 
+// anomalyGrace is how long a finding outlives the last poll that saw its
+// condition. A flood or a scan comes and goes between polls; resolving on
+// the first quiet poll would flap, and never resolving left the list full
+// of scans from days ago.
+const anomalyGrace = 10 * time.Minute
+
 func (m *Module) detectAnomalies(states []*PFState) {
 	// Skip anomaly detection if context is not available (e.g., in tests)
 	if m.ctx == nil || m.ctx.Store == nil {
 		return
 	}
-	for _, f := range findAnomalies(states, m.synFloodThresh, m.portScanThresh) {
-		m.ctx.Store.AddFinding("inspect", f.Kind, f.Severity, f.Subject, f.Title, f.Detail, f.Key)
+	now := time.Now()
+	m.mu.Lock()
+	if m.anomalySeen == nil {
+		m.anomalySeen = map[string]time.Time{}
 	}
+	for _, f := range findAnomalies(states, m.synFloodThresh, m.portScanThresh) {
+		m.anomalySeen[f.Key] = now
+		m.ctx.Store.AddFindingWith("inspect", f.Kind, f.Severity, f.Subject, f.Title, f.Detail, f.Key,
+			map[string]any{"who": map[string]any{"ip": f.Subject}, "why": map[string]any{"kind": f.Kind, "seen": now.Unix()}})
+	}
+	keep := map[string]bool{}
+	for k, t := range m.anomalySeen {
+		if now.Sub(t) > anomalyGrace {
+			delete(m.anomalySeen, k)
+			continue
+		}
+		keep[k] = true
+	}
+	m.mu.Unlock()
+	// Anything the last ten minutes of polls have not seen is over.
+	_, _ = m.ctx.Store.ResolveFindings("inspect", keep)
 }
 
 // anomaly is one finding from the state table.
