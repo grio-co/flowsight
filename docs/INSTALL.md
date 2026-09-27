@@ -106,9 +106,16 @@ resolver and filter. The store under `/var/db/flowsight` and the policy under
 curl -fsSL https://github.com/grioghar/flowsight/releases/latest/download/install.sh | sh
 ```
 
-or `apt install ./flowsight_<version>_<arch>.deb`. The installer writes
-`/etc/flowsight/flowsight.json` with a generated API token (printed once)
-and starts the `flowsight` unit. The UI is on `http://127.0.0.1:8080`; sign
+or `apt install ./flowsight_<version>_<arch>.deb`. `install.sh` only
+downloads the binary for this machine and runs `flowsightd install` (see
+*Checking a machine first* above): it shows the plan, asks when there is a
+terminal (`--yes` to skip the question, `--dry-run` to only see the plan),
+installs the binary and the unit, and writes `/etc/flowsight/flowsight.json`
+with a generated API token (printed once). The package installs its own
+binary and unit and then runs `flowsightd install -packaged`, which writes
+the configuration and token the same way, enables and starts the unit, and
+checks the daemon's health, without touching the package's files. Upgrading
+the package keeps the configuration. The UI is on `http://127.0.0.1:8080`; sign
 in with the token. To expose it on a LAN set `"bind"` in the config file
 (the token protects it) or put it behind a reverse proxy.
 
@@ -118,7 +125,8 @@ in with the token. To expose it on a LAN set `"bind"` in the config file
 dnf install ./flowsight-<version>-1.x86_64.rpm     # or .aarch64.rpm
 ```
 
-Same layout and behaviour as the Debian package. The RPM is built with
+Same layout and behaviour as the Debian package, including the
+`flowsightd install -packaged` step after installing. The RPM is built with
 `packaging/rpm/build-rpm.sh` and depends on `unbound`; squid, ntopng and
 Suricata are recommended, not required.
 
@@ -131,7 +139,9 @@ providers.
 
 ## FreeBSD (not OPNsense)
 
-The same installer works. Add to `pf.conf`:
+The same installer works; on FreeBSD it checks `pf.conf` and prints the
+lines below if they are missing, but never edits the file. Add to
+`pf.conf`:
 
 ```
 nat-anchor "flowsight/*"

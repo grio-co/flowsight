@@ -28,6 +28,10 @@ type Result struct {
 	Commands  []string     `json:"commands"`
 	Notes     []string     `json:"notes,omitempty"`
 	Verify    *Verify      `json:"verify,omitempty"`
+
+	// Token is a newly created API token, shown once in the summary. It is
+	// never written to install.json; the configuration file holds it.
+	Token string `json:"-"`
 }
 
 // FileChange is one file an apply touched.
@@ -137,6 +141,8 @@ func Apply(e Env, p Plan, version string, now time.Time, say func(string)) (Resu
 			err = r.copyBinary(e, stamp)
 		case "service":
 			err = r.installService(e, p, stamp)
+		case "enable":
+			err = r.enable(e, p)
 		case "container":
 			r.Notes = append(r.Notes, "in a container nothing is installed on a host; run flowsightd as the container's command")
 		case "config":
@@ -251,11 +257,20 @@ func (r *Result) installService(e Env, p Plan, stamp string) error {
 		if err := r.writeFile(e, rcPath, []byte(rcScript), 0o755, stamp); err != nil {
 			return err
 		}
-		return r.run(e, "sysrc", "-q", "flowsight_enable=YES")
 	case "systemd":
 		if err := r.writeFile(e, unitPath, []byte(systemdUnit), 0o644, stamp); err != nil {
 			return err
 		}
+	}
+	return r.enable(e, p)
+}
+
+// enable turns the service on at boot, whoever installed its file.
+func (r *Result) enable(e Env, p Plan) error {
+	switch p.Service {
+	case "rc.d":
+		return r.run(e, "sysrc", "-q", "flowsight_enable=YES")
+	case "systemd":
 		if err := r.run(e, "systemctl", "daemon-reload"); err != nil {
 			return err
 		}
@@ -275,13 +290,16 @@ func (r *Result) writeConfig(e Env, p Plan) error {
 		r.Files = append(r.Files, FileChange{Path: cfg, Action: "kept"})
 		return nil
 	}
+	if p.Platform == "opnsense" {
+		return nil // the GUI signs people in; the daemon writes its own defaults
+	}
 	tok, err := token()
 	if err != nil {
 		return err
 	}
 	b, _ := json.MarshalIndent(map[string]any{"api_token": tok}, "", "  ")
 	r.Files = append(r.Files, FileChange{Path: cfg, Action: "created"})
-	r.Notes = append(r.Notes, "a new API token is in "+cfg+" (readable by root only)")
+	r.Token = tok
 	return r.put(e, cfg, append(b, '\n'), 0o600)
 }
 
@@ -440,6 +458,9 @@ func (r Result) Summary() string {
 	}
 	for _, n := range r.Notes {
 		w("Note: %s.", n)
+	}
+	if r.Token != "" {
+		w("API token (shown once; it is also in the configuration file, readable by root only): %s", r.Token)
 	}
 	if v := r.Verify; v != nil {
 		if !v.Answering {

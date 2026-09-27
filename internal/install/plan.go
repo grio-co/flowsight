@@ -18,6 +18,11 @@ type Plan struct {
 	Reason    string `json:"reason,omitempty"` // why not, when not
 
 	Platform string `json:"platform"` // opnsense, freebsd, linux, darwin
+	// Packaged is set when a package manager has already put the binary
+	// and the service file in place (the .deb, .rpm and pkg scripts call
+	// the installer this way). Those files are the package's, so the
+	// installer leaves them alone.
+	Packaged bool `json:"packaged,omitempty"`
 	// Position is where FlowSight sits relative to the traffic: in-path (it
 	// runs on the device that routes), adjacent (beside it, working through
 	// what it exports and what is steered to FlowSight), or off-path (flow
@@ -56,10 +61,18 @@ const PlanFormat = 1
 // Roles a provider can fill (docs/DESIGN-PLATFORM.md, "Roles and providers").
 var roles = []string{"enforcer", "resolver", "interceptor", "classifier", "detector"}
 
+// Options adjust a plan.
+type Options struct {
+	Packaged bool // see Plan.Packaged
+}
+
 // MakePlan decides what to do from the facts. It never changes anything.
-func MakePlan(f Facts, now time.Time) Plan {
+func MakePlan(f Facts, now time.Time, opts ...Options) Plan {
 	p := Plan{Format: PlanFormat, CreatedAt: now.UTC(), Facts: f, Supported: true,
 		Providers: map[string]string{}, Paths: map[string]string{}}
+	for _, o := range opts {
+		p.Packaged = p.Packaged || o.Packaged
+	}
 
 	switch f.System {
 	case "opnsense":
@@ -189,22 +202,37 @@ func (p *Plan) steps(f Facts) {
 	add := func(id, do string, changes ...string) {
 		p.Steps = append(p.Steps, Step{ID: id, Do: do, Changes: changes})
 	}
-	switch p.Service {
-	case "opnsense-plugin":
+	switch {
+	case p.Packaged && p.Service == "rc.d":
+		add("enable", "enable the service the package installed", "flowsight_enable in /etc/rc.conf")
+	case p.Packaged && p.Service == "systemd":
+		add("enable", "enable the service the package installed", "systemd: flowsight.service enabled")
+	case p.Packaged:
+		// The package put everything in place, and on OPNsense its own
+		// script registers the service.
+	case p.Service == "opnsense-plugin":
 		add("package", "install the os-flowsight package (binary, GUI page, service, pf anchors)",
 			"/usr/local/sbin/flowsightd", "/usr/local/www/flowsight.php", "/usr/local/etc/rc.d/flowsight")
-	case "rc.d":
+	}
+	switch {
+	case p.Packaged || p.Service == "opnsense-plugin":
+	case p.Service == "rc.d":
 		add("binary", "install the flowsightd binary", "/usr/local/sbin/flowsightd")
 		add("service", "install the rc.d service and enable it", "/usr/local/etc/rc.d/flowsight", "flowsight_enable in /etc/rc.conf")
-	case "systemd":
+	case p.Service == "systemd":
 		add("binary", "install the flowsightd binary", "/usr/local/sbin/flowsightd")
 		add("service", "install the systemd unit and enable it", "/lib/systemd/system/flowsight.service")
-	case "container":
+	case p.Service == "container":
 		add("container", "run flowsightd as the container's process; nothing is installed on a host")
 	}
-	if f.Installed {
+	switch {
+	case f.Installed:
 		add("config", "keep the existing configuration", cfg)
-	} else {
+	case p.Platform == "opnsense":
+		// The GUI authenticates and proxies over loopback, so OPNsense has
+		// never needed a token; the daemon writes its defaults itself.
+		add("config", "leave the configuration to the daemon: on OPNsense the GUI signs you in, so no API token is created")
+	default:
 		add("config", "write a configuration with a new API token (readable by root only)", cfg)
 	}
 	if p.Providers["enforcer"] == "pf" && p.Platform == "freebsd" {

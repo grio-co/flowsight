@@ -96,7 +96,10 @@ if (!isset($config["OPNsense"]["flowsight"]["general"]["enabled"])) {
     /usr/sbin/daemon -f /bin/sh -c 'sleep 1; /usr/local/etc/rc.d/configd restart; sleep 3; configctl filter reload; configctl webgui restart' \
         </dev/null >/dev/null 2>&1
 fi
-service flowsight restart </dev/null >/dev/null 2>&1 || service flowsight start </dev/null >/dev/null 2>&1 || true
+# The package put the binary and the service in place; flowsightd install
+# starts it and checks it, and leaves the package's files alone.
+/usr/local/sbin/flowsightd install -yes -packaged </dev/null ||
+    echo "FlowSight is installed, but the installer reported a problem above."
 echo ""
 echo "FlowSight is installed. Open Services > FlowSight in the GUI."
 echo "Nothing is enforced until you turn on policy enforcement there."

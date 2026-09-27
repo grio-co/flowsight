@@ -284,3 +284,99 @@ func TestRCScriptStartsThroughTheSupervisor(t *testing.T) {
 		}
 	}
 }
+
+func (b *applyBed) applyPackaged(t *testing.T) (Result, error) {
+	t.Helper()
+	p := MakePlan(Detect(b.env), time.Now(), Options{Packaged: true})
+	b.applying = true
+	defer func() { b.applying = false }()
+	return Apply(b.env, p, "0.9.8-test", time.Date(2026, 9, 26, 22, 0, 0, 0, time.UTC), func(string) {})
+}
+
+// A .deb or .rpm owns the binary and the unit: the installer must neither
+// replace nor back them up, only enable, configure, start and verify.
+func TestPackagedLinuxLeavesThePackagesFilesAlone(t *testing.T) {
+	const unit = "[Unit]\nDescription=FlowSight (from the package)\n"
+	b := newApplyBed(t, "linux", func(m *fakeMachine) {
+		debianRoot(m)
+		m.files[binaryPath] = "package build"
+		m.files[unitPath] = unit
+	})
+	r, err := b.applyPackaged(t)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if b.read(t, binaryPath) != "package build" || b.read(t, unitPath) != unit {
+		t.Fatal("a package-owned file was changed")
+	}
+	a := actions(r)
+	if _, touched := a[binaryPath]; touched {
+		t.Fatalf("the binary is the package's: %+v", r.Files)
+	}
+	if _, touched := a[unitPath]; touched {
+		t.Fatalf("the unit is the package's: %+v", r.Files)
+	}
+	if a["/etc/flowsight/flowsight.json"] != "created" {
+		t.Fatalf("the configuration is the installer's to write: %+v", r.Files)
+	}
+	want := "systemctl daemon-reload|systemctl enable flowsight|systemctl restart flowsight"
+	if strings.Join(b.cmds, "|") != want {
+		t.Fatalf("commands: %v", b.cmds)
+	}
+}
+
+// The OPNsense package runs the installer before any configuration exists.
+// OPNsense has never needed a token (the GUI signs people in), so none is
+// created; the service is restarted and checked.
+func TestPackagedOPNsenseCreatesNoToken(t *testing.T) {
+	b := newApplyBed(t, "freebsd", func(m *fakeMachine) {
+		m.files["/usr/local/sbin/opnsense-version"] = ""
+		m.files["/dev/pf"] = ""
+		m.files[binaryPath] = "package build"
+	})
+	r, err := b.applyPackaged(t)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(b.env.path("/usr/local/etc/flowsight/flowsight.json")); err == nil {
+		t.Fatal("a configuration with a token was written on OPNsense")
+	}
+	if strings.Join(b.cmds, "|") != "service flowsight restart" {
+		t.Fatalf("commands: %v", b.cmds)
+	}
+	if r.Verify == nil || !r.Verify.Answering {
+		t.Fatalf("verify: %+v", r.Verify)
+	}
+}
+
+func TestPackagedFreeBSDEnablesWithoutWritingRC(t *testing.T) {
+	b := newApplyBed(t, "freebsd", func(m *fakeMachine) {
+		m.files["/dev/pf"] = ""
+		m.files[binaryPath] = "package build"
+		m.files[rcPath] = "#!/bin/sh\n# from the package\n"
+	})
+	if _, err := b.applyPackaged(t); err != nil {
+		t.Fatal(err)
+	}
+	if b.read(t, rcPath) != "#!/bin/sh\n# from the package\n" {
+		t.Fatal("the package's rc script was changed")
+	}
+	if !strings.Contains(strings.Join(b.cmds, "|"), "sysrc -q flowsight_enable=YES") {
+		t.Fatalf("commands: %v", b.cmds)
+	}
+}
+
+// The new token is shown once and never stored in install.json.
+func TestTokenIsShownOnceAndNotRecorded(t *testing.T) {
+	b := newApplyBed(t, "linux", debianRoot)
+	r, err := b.apply(t)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(r.Token) != 32 || !strings.Contains(r.Summary(), r.Token) {
+		t.Fatalf("token not shown: %q", r.Token)
+	}
+	if strings.Contains(b.read(t, "/var/lib/flowsight/install.json"), r.Token) {
+		t.Fatal("the token was written to install.json")
+	}
+}

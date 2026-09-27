@@ -20,11 +20,12 @@ func runInstall(args []string) int {
 	yes := fs.Bool("yes", false, "apply without asking (for unattended installs)")
 	asJSON := fs.Bool("json", false, "print the plan as JSON (the plan file format) instead of plain words")
 	out := fs.String("plan-out", "", "also write the plan to this file")
+	packaged := fs.Bool("packaged", false, "a package manager installed the binary and service file; leave them alone (used by the .deb, .rpm and pkg scripts)")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
 	env := install.LocalEnv()
-	plan := install.MakePlan(install.Detect(env), time.Now())
+	plan := install.MakePlan(install.Detect(env), time.Now(), install.Options{Packaged: *packaged})
 	if *asJSON {
 		b, _ := json.MarshalIndent(plan, "", "  ")
 		fmt.Println(string(b))

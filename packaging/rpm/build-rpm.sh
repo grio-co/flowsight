@@ -45,14 +45,11 @@ reports and alerting. One static binary, embedded store, no cloud.
 cp -a $R/. %{buildroot}/
 
 %post
-if [ ! -f /etc/flowsight/flowsight.json ]; then
-    TOKEN="\$(head -c 24 /dev/urandom | base64 | tr -dc 'A-Za-z0-9' | head -c 32)"
-    printf '{\n  "api_token": "%s"\n}\n' "\$TOKEN" > /etc/flowsight/flowsight.json
-    chmod 600 /etc/flowsight/flowsight.json
-    echo "FlowSight API token (also in /etc/flowsight/flowsight.json): \$TOKEN"
-fi
-systemctl daemon-reload >/dev/null 2>&1 || true
-systemctl enable --now flowsight >/dev/null 2>&1 || true
+# The package put the binary and the unit in place; flowsightd install does
+# the rest (configuration, enabling, starting, checking) and leaves the
+# package's files alone. A problem it reports does not fail the package.
+/usr/local/sbin/flowsightd install -yes -packaged </dev/null ||
+    echo "FlowSight is installed, but the installer reported a problem above."
 
 %preun
 # On removal (not upgrade): take FlowSight's resolver files away before

@@ -31,15 +31,12 @@ Description: L7 visibility, policy and enforcement for gateways
 CTRL
 cat > "$STAGE/DEBIAN/postinst" <<'PI'
 #!/bin/sh
-set -e
-if [ ! -f /etc/flowsight/flowsight.json ]; then
-    TOKEN="$(head -c 24 /dev/urandom | base64 | tr -dc 'A-Za-z0-9' | head -c 32)"
-    printf '{\n  "api_token": "%s"\n}\n' "$TOKEN" > /etc/flowsight/flowsight.json
-    chmod 600 /etc/flowsight/flowsight.json
-    echo "FlowSight API token (also in /etc/flowsight/flowsight.json): $TOKEN"
-fi
-systemctl daemon-reload || true
-systemctl enable --now flowsight || true
+# The package put the binary and the unit in place; flowsightd install does
+# the rest (configuration, enabling, starting, checking) and leaves the
+# package's files alone. A problem it reports does not fail the package.
+/usr/local/sbin/flowsightd install -yes -packaged </dev/null ||
+    echo "FlowSight is installed, but the installer reported a problem above."
+exit 0
 PI
 cat > "$STAGE/DEBIAN/prerm" <<'PR'
 #!/bin/sh
