@@ -751,6 +751,14 @@ func (c *Core) apiFindings(r *Req) (any, error) {
 	q += ` ORDER BY CASE severity WHEN 'critical' THEN 0 WHEN 'high' THEN 1 WHEN 'medium' THEN 2
 		WHEN 'low' THEN 3 ELSE 4 END, ts DESC LIMIT 500`
 	rows, err := c.Store.Rows(q, args...)
+	for _, r := range rows {
+		if a, _ := r["attrs"].(string); a != "" {
+			var obj map[string]any
+			if json.Unmarshal([]byte(a), &obj) == nil {
+				r["attrs"] = obj
+			}
+		}
+	}
 	return map[string]any{"findings": rows}, err
 }
 

@@ -345,7 +345,7 @@
     title: 'Findings', refresh: 60,
     async render(el) {
       const d = await get('/api/system/findings'); if (d.error) { el.innerHTML = FS.err(d.error); return; }
-      el.innerHTML = card(`${(d.findings || []).length} open findings`, table(d.findings || [], [{ t: 'Severity', f: r => FS.sevPill(r.severity), sort: 'severity' }, { t: 'Finding', f: r => `<b>${esc(r.title)}</b><div class="muted small">${esc(r.detail || '')}</div>` }, { t: 'Subject', f: r => `<span class="mono small">${esc(r.subject || '')}</span>` }, { t: 'Module', k: 'module' }, { t: 'Since', f: r => ago(r.ts), sort: 'ts' }, { t: '', f: r => r.acked ? pill('acknowledged', '') : `<button class="btn small" data-ack="${r.id}">Acknowledge</button>` }]));
+      el.innerHTML = card(`${(d.findings || []).length} open findings`, table(d.findings || [], FS.findingCols({ ack: true })), 'who sent what, where, and why; every address links to its page, every far end to the map');
       FS.$$('[data-ack]', el).forEach(b => b.onclick = async () => { await post('/api/system/findings/ack', { id: Number(b.dataset.ack) }); FS.render(); });
     }
   });

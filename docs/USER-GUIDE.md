@@ -115,6 +115,8 @@ lookup* is on under *Settings › enrich*), and a country pill narrows to that
 country. The DLP page's **Leaving the country** card lists this per device.
 There is a step-by-step guide in [See what your IoT devices send abroad, and block it](howto/iot-abroad.md).
 
+**Findings say who, what, where and why.** Each open finding on the Overview, and on the Findings page, is read in columns: *Who* is the device (name, maker, address, hardware address, linking to its page); *What* is the title with the application, name, payload reading and volume behind it; *Where* is the far end with port, place, network and links to the Map and the sessions; *Why* is the rule that fired and the numbers that tripped it (days of history, what was known before, the beacon period, the threshold). Modules attach this structure when they raise a finding; a finding raised without it still shows its subject and sentence.
+
 ### Applications
 
 Applications ranked by activity: sessions first, then who did it. Each row

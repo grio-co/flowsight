@@ -375,8 +375,8 @@ func (m *Module) evaluate(t *Transfer, now time.Time) []Event {
 		m.ctx.Event("egress", msg, map[string]any{
 			"device": t.Local, "peer": t.Peer, "name": t.PeerName, "group": t.Group,
 			"sent": t.Out, "received": t.In, "kind": kind})
-		_, _ = m.ctx.Store.AddFinding("egress", kind, sev, t.Local, msg,
-			m.detail(t), "egress:"+kind+":"+t.Key)
+		_, _ = m.ctx.Store.AddFindingWith("egress", kind, sev, t.Local, msg,
+			m.detail(t), "egress:"+kind+":"+t.Key, findingAttrs(t, kind))
 	}
 	who := t.describe()
 
@@ -763,4 +763,27 @@ func (m *Module) apiStop(r *core.Req) (any, error) {
 	m.ctx.Event("egress", fmt.Sprintf("transfer from %s to %s was stopped by hand", in.Local, in.Peer),
 		map[string]any{"device": in.Local, "peer": in.Peer})
 	return map[string]any{"ok": true}, nil
+}
+
+// findingAttrs is the who / what / where / why of a flagged transfer, for
+// the findings list to show in columns.
+func findingAttrs(t *Transfer, kind string) map[string]any {
+	in := t.Intel
+	if in == nil {
+		in = &Intel{}
+	}
+	who := map[string]any{"ip": t.Local, "name": t.LocalName, "mac": in.MAC, "vendor": in.Vendor}
+	what := map[string]any{"app": in.App, "app_category": in.AppCategory, "domain": firstOf(in.SNI, in.Domain), "payload": in.Payload,
+		"visibility": in.Visibility, "content_types": in.ContentTypes, "bytes_out": t.Out, "bytes_in": t.In, "rate_out": t.RateOut, "kind": t.GroupName}
+	where := map[string]any{"ip": t.Peer, "port": t.PeerPort, "proto": t.Proto, "name": firstOf(t.Service, t.PeerName), "country": in.Country, "city": in.City,
+		"asn": in.ASN, "as_name": in.ASName, "anycast": in.Anycast, "provider": in.Provider}
+	why := map[string]any{"kind": kind, "group": t.Group, "since": t.Since, "age_s": t.Age}
+	return map[string]any{"who": who, "what": what, "where": where, "why": why}
+}
+
+func firstOf(a, b string) string {
+	if a != "" {
+		return a
+	}
+	return b
 }

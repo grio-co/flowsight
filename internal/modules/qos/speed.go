@@ -533,7 +533,7 @@ func (c *countingReader) Read(p []byte) (int, error) {
 }
 
 const (
-	cfDown = "https://speed.cloudflare.com/__down?bytes=100000000"
+	cfDown = "https://speed.cloudflare.com/__down?bytes=25000000"
 	cfUp   = "https://speed.cloudflare.com/__up"
 )
 
@@ -756,7 +756,7 @@ func (m *Module) runSpeedTest(ctx context.Context, attempt int, rerun bool) (t S
 		// The built-in endpoint refused the download (it rate-limits repeated
 		// bursts from one address): the comparison server's download stands
 		// in for that leg, and the row says so.
-		if dBytes == 0 && dErr != nil && strings.Contains(dErr.Error(), "429") && ob > 0 {
+		if dBytes == 0 && dErr != nil && (strings.Contains(dErr.Error(), "429") || strings.Contains(dErr.Error(), "403")) && ob > 0 {
 			t.DownMbit, dErr, dBytes = t.OoklaDownMbit, nil, ob
 			if p := mbitPerSec(peakRate(odin), 1); p > t.IfaceDownMbit {
 				t.IfaceDownMbit = p

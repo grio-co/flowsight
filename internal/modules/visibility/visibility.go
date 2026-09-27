@@ -1785,7 +1785,7 @@ func (m *Module) checkDarkTraffic(hours int) error {
 			title := fmt.Sprintf("Device %s: %d%% dark traffic", ip, darkPct)
 			detail := fmt.Sprintf("Over the last %d hours, %d of %d sessions (%d%%) are encrypted with no name visible (opaque, ECH, or QUIC).",
 				hours, darkFlows, totalFlows, darkPct)
-			st.AddFinding("visibility", "dark_traffic", "info", ip, title, detail, fp)
+			st.AddFindingWith("visibility", "dark_traffic", "info", ip, title, detail, fp, map[string]any{"who": map[string]any{"ip": ip, "name": m.name(ip)}, "what": map[string]any{"dark_sessions": darkFlows, "sessions": totalFlows}, "why": map[string]any{"percent": darkPct, "threshold": threshold, "hours": hours}})
 		}
 	}
 

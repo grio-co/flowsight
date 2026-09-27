@@ -12,6 +12,21 @@ name, and every release's assets carry that string in their file names.
 
 The newest entry is first.
 
+## 0.9.8r202609270437
+
+**Findings say who, what, where and why.** A finding now carries structure
+beside its sentence: the device (name, maker, address, hardware address),
+what it was doing (application, name, payload reading, bytes and rate),
+the far end (address and port, place, network, anycast) and the rule and
+numbers that tripped it. The DLP, anomaly and dark-traffic findings fill
+it in; the Overview's *Open findings* and the Findings page read it in
+columns, with every address a link to its page and every far end a link
+to the map. `/api/system/findings` returns it as `attrs`.
+
+**Bandwidth test.** The built-in download asks for 25 MB objects again
+(the endpoint refuses larger ones) and falls back to the comparison
+server on a 403 as well as a 429.
+
 ## 0.9.8r202609270432
 
 **Applications have pages.** An application's name opens a page that says

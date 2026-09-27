@@ -70,7 +70,7 @@
       </div>
       <div class="grid cols-2" style="margin-top:14px">
         ${card('Modules', Object.entries(health.modules || {}).map(([n, m]) => `<div class="barrow" style="grid-template-columns:auto 1fr auto"><span><i class="dot ${m.ok ? 'ok' : 'bad'}"></i><b>${esc(n)}</b></span><span class="muted small" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(m.detail || '')}</span><span class="small muted">${(m.capabilities || []).join(', ')}</span></div>`).join(''), `<a href="#system">details</a>`)}
-        ${card('Open findings', openF.length ? table(openF.slice(0, 8), [{ t: 'Severity', f: r => FS.sevPill(r.severity), sort: 'severity' }, { t: 'Finding', f: r => `<b>${esc(r.title)}</b><div class="muted small">${esc(r.detail || '').slice(0, 140)}</div>` }, { t: 'Module', k: 'module' }, { t: 'Since', f: r => ago(r.ts), sort: 'ts' }]) : FS.empty('No open findings'), `<a href="#findings">all</a>`)}
+        ${card('Open findings', openF.length ? table(openF.slice(0, 10), FS.findingCols()) : FS.empty('No open findings'), `who sent what, where, and why \u00b7 <a href="#findings">all ${num(openF.length)}</a>`)}
       </div>`;
 
       // Handle dismiss button for setup banner

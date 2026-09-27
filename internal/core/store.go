@@ -246,6 +246,9 @@ func (s *Store) migrate() error {
 	if err := s.ensureColumn("flows", "country_source", "TEXT"); err != nil {
 		return err
 	}
+	if err := s.ensureColumn("findings", "attrs", "TEXT"); err != nil {
+		return err
+	}
 	if err := s.ensureColumn("flows", "visibility", "TEXT"); err != nil {
 		return err
 	}
@@ -915,8 +918,24 @@ func (s *Store) UpsertHosts(ups []HostUpdate) error {
 // AddFinding is idempotent on fingerprint: an open finding is refreshed, not
 // duplicated. It returns true when the finding is new.
 func (s *Store) AddFinding(module, kind, severity, subject, title, detail, fingerprint string) (bool, error) {
+	return s.AddFindingWith(module, kind, severity, subject, title, detail, fingerprint, nil)
+}
+
+// AddFindingWith records a finding with structured detail beside the prose:
+// who (the device), what (application, name, payload, volume), where (the
+// far end, its place and network) and why (the rule and the numbers that
+// tripped it). The prose stays for readers and for exports; the structure
+// is what lets a page answer "which host sent what, where, and why" in
+// columns rather than in a sentence. attrs may be nil.
+func (s *Store) AddFindingWith(module, kind, severity, subject, title, detail, fingerprint string, attrs map[string]any) (bool, error) {
 	if fingerprint == "" {
 		fingerprint = module + ":" + kind + ":" + subject
+	}
+	var attrsJSON any
+	if len(attrs) > 0 {
+		if b, err := json.Marshal(attrs); err == nil {
+			attrsJSON = string(b)
+		}
 	}
 	isNew := false
 	err := s.Tx(func(tx *sql.Tx) error {
@@ -924,14 +943,19 @@ func (s *Store) AddFinding(module, kind, severity, subject, title, detail, finge
 		err := tx.QueryRow(`SELECT id FROM findings WHERE fingerprint=? AND resolved_ts IS NULL`,
 			fingerprint).Scan(&id)
 		if err == nil {
-			_, err = tx.Exec(`UPDATE findings SET severity=?, title=?, detail=? WHERE id=?`,
-				severity, title, detail, id)
+			if attrsJSON != nil {
+				_, err = tx.Exec(`UPDATE findings SET severity=?, title=?, detail=?, attrs=? WHERE id=?`,
+					severity, title, detail, attrsJSON, id)
+			} else {
+				_, err = tx.Exec(`UPDATE findings SET severity=?, title=?, detail=? WHERE id=?`,
+					severity, title, detail, id)
+			}
 			return err
 		}
 		isNew = true
-		_, err = tx.Exec(`INSERT INTO findings(ts,module,kind,severity,subject,title,detail,fingerprint)
-			VALUES(?,?,?,?,?,?,?,?)`, time.Now().Unix(), module, kind, severity, subject, title, detail,
-			fingerprint)
+		_, err = tx.Exec(`INSERT INTO findings(ts,module,kind,severity,subject,title,detail,fingerprint,attrs)
+			VALUES(?,?,?,?,?,?,?,?,?)`, time.Now().Unix(), module, kind, severity, subject, title, detail,
+			fingerprint, attrsJSON)
 		return err
 	})
 	return isNew, err

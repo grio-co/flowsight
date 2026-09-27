@@ -512,7 +512,7 @@ func (m *Module) detectCountries(mac, name, ip string, state *deviceState, keep 
 				m.addAnomaly(mac, name, "new_country", "high",
 					fmt.Sprintf("First time in %s", country),
 					fmt.Sprintf("First time %s (%s) talked to %s; %d days of history had %s",
-						deviceName, mac, country, days, baselineCountries))
+						deviceName, mac, country, days, baselineCountries), anomalyAttrs(ip, mac, deviceName, map[string]any{"country": country}, map[string]any{"days": days, "baseline": baselineCountries}))
 			}
 		}
 	}
@@ -549,7 +549,7 @@ func (m *Module) detectPorts(mac, name, ip string, state *deviceState, keep map[
 				m.addAnomaly(mac, name, "new_port", "medium",
 					fmt.Sprintf("First connection to %s/%d", proto, port),
 					fmt.Sprintf("First time %s (%s) talked to %s/%d; %d days of history had %s",
-						deviceName, mac, proto, port, days, baselinePorts))
+						deviceName, mac, proto, port, days, baselinePorts), anomalyAttrs(ip, mac, m.identity.Name(ip), map[string]any{"port": port, "proto": proto}, map[string]any{"days": days, "baseline": baselinePorts}))
 			}
 		}
 	}
@@ -589,7 +589,7 @@ func (m *Module) detectDestinations(mac, name, ip string, state *deviceState, ke
 				m.addAnomaly(mac, name, "new_destination", "medium",
 					fmt.Sprintf("First connection to %s", dst),
 					fmt.Sprintf("First time %s (%s) talked to %s; %d days of history had %s",
-						deviceName, mac, dst, days, baselineDestinations))
+						deviceName, mac, dst, days, baselineDestinations), anomalyAttrs(ip, mac, deviceName, map[string]any{"ip": dst}, map[string]any{"days": days, "baseline": baselineDestinations}))
 			}
 		}
 	}
@@ -648,7 +648,8 @@ func (m *Module) detectBeaconing(mac, name, ip string, state *deviceState, keep 
 			m.addAnomaly(mac, name, "beaconing", "high",
 				fmt.Sprintf("Beacon to %s (~%.0fs period)", dst, period.Seconds()),
 				fmt.Sprintf("Regular beacon from %s (%s) to %s: ~%.0fs interval, %.0f bytes per packet; %d days of history showed no such pattern",
-					deviceName, mac, dst, period.Seconds(), avgBytesVal, days))
+					deviceName, mac, dst, period.Seconds(), avgBytesVal, days),
+				anomalyAttrs(ip, mac, deviceName, map[string]any{"ip": dst}, map[string]any{"period_s": period.Seconds(), "bytes_per_packet": avgBytesVal, "days": days}))
 		}
 	}
 }
@@ -693,13 +694,13 @@ func (m *Module) detectDNSTunneling(mac, name, ip string, state *deviceState, ke
 				m.addAnomaly(mac, name, "dns_tunneling", "high",
 					fmt.Sprintf("Possible DNS tunneling to %s", domain),
 					fmt.Sprintf("DNS tunneling indicators from %s (%s) to %s: %d%% NXDOMAIN (far above baseline), entropy %.1f, label length %.0f; %d days of history showed normal patterns",
-						deviceName, mac, domain, int(nxRate*100), entropy, meanLabelLen, days))
+						deviceName, mac, domain, int(nxRate*100), entropy, meanLabelLen, days), anomalyAttrs(ip, mac, deviceName, map[string]any{"domain": domain}, map[string]any{"nxdomain_pct": int(nxRate * 100), "entropy": entropy, "mean_label_len": meanLabelLen, "days": days}))
 			}
 		}
 	}
 }
 
-func (m *Module) addAnomaly(mac, name, kind, severity, title, detail string) {
+func (m *Module) addAnomaly(mac, name, kind, severity, title, detail string, attrs map[string]any) {
 	now := time.Now()
 	fp := fmt.Sprintf("baseline:%s:%s", mac, kind)
 	cooldown, hasCooldown := m.cooldowns[fp]
@@ -720,7 +721,7 @@ func (m *Module) addAnomaly(mac, name, kind, severity, title, detail string) {
 	m.cooldowns[fp] = now.Add(time.Duration(m.settings.CooldownMinutes) * time.Minute)
 
 	// Also create a finding in the main findings table
-	_, _ = m.ctx.Store.AddFinding("baseline", kind, severity, mac, title, detail, fp)
+	_, _ = m.ctx.Store.AddFindingWith("baseline", kind, severity, mac, title, detail, fp, attrs)
 
 	// Send alert if alerting is available
 	if m.alerting != nil {
@@ -984,4 +985,10 @@ type Flow struct {
 	Country  string
 	ASN      string
 	BytesOut int64
+}
+
+// anomalyAttrs is the who / where / why of an anomaly, for the findings
+// list to show in columns beside the sentence.
+func anomalyAttrs(ip, mac, name string, where, why map[string]any) map[string]any {
+	return map[string]any{"who": map[string]any{"ip": ip, "mac": mac, "name": name}, "where": where, "why": why}
 }

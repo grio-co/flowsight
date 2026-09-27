@@ -963,3 +963,69 @@ FS.speedTestsWire = (root, after) => {
     if (after) after();
   });
 };
+
+// --------------------------------------------------------------- findings
+// The columns a finding is read in: who, what, where, why. Findings carry
+// structure (attrs) where the module that raised them could say; older or
+// thinner ones fall back to the subject and the sentence, so a row is
+// never empty. Every address is a link to its page, every far end to the
+// map, so the question a finding raises can be followed without leaving it.
+FS.findingCols = (opts) => {
+  opts = opts || {};
+  const A = (r) => (r.attrs && typeof r.attrs === 'object') ? r.attrs : {};
+  const isIP = (s) => /^\d+\.\d+\.\d+\.\d+$/.test(s || '') || /^[0-9a-f:]+:[0-9a-f:]*$/i.test(s || '');
+  const who = (r) => {
+    const w = A(r).who || {};
+    const ip = w.ip || (isIP(r.subject) ? r.subject : '');
+    if (!ip && !w.name && !w.mac) return `<span class="muted small">${FS.esc(r.subject || '')}</span>`;
+    return `${ip ? FS.hostLink(ip, w.name) : `<b>${FS.esc(w.name || '')}</b>`}<div class="muted small">${FS.esc([w.vendor, w.name && ip ? ip : '', w.mac].filter(Boolean).join(' \u00b7 '))}</div>`;
+  };
+  const what = (r) => {
+    const w = A(r).what || {};
+    const lines = [`<b>${FS.esc(r.title || '')}</b>`];
+    const meta = [w.payload, w.app, w.app_category && w.app_category !== w.app ? w.app_category : '', w.domain, w.kind].filter(Boolean).join(' \u00b7 ');
+    if (meta) lines.push(`<div class="small">${FS.esc(meta)}</div>`);
+    if (w.bytes_out != null || w.bytes_in != null) lines.push(`<div class="muted small">${FS.bytes(w.bytes_out || 0)} sent \u00b7 ${FS.bytes(w.bytes_in || 0)} received${w.rate_out ? ' \u00b7 ' + FS.bps(w.rate_out * 8) : ''}</div>`);
+    if (w.dark_sessions != null) lines.push(`<div class="muted small">${FS.num(w.dark_sessions)} of ${FS.num(w.sessions)} sessions unreadable</div>`);
+    if ((w.content_types || []).length) lines.push(`<div class="muted small mono">${FS.esc(w.content_types.slice(0, 3).join(', '))}</div>`);
+    return lines.join('');
+  };
+  const where = (r) => {
+    const w = A(r).where || {};
+    if (!w.ip && !w.name && !w.domain && !w.country && !w.port) return '<span class="muted small">\u2014</span>';
+    const head = w.name || w.domain || w.ip || '';
+    const lines = [];
+    if (head) lines.push(`<b>${FS.esc(head)}</b>`);
+    if (w.ip && w.ip !== head) lines.push(`<div class="muted small mono">${FS.esc(w.ip)}${w.port ? ':' + w.port : ''}${w.proto ? ' ' + FS.esc(w.proto) : ''}</div>`);
+    else if (w.port) lines.push(`<div class="muted small">${w.proto ? FS.esc(w.proto) + ' ' : ''}port ${w.port}</div>`);
+    const place = [w.country ? FS.cc(w.country, { cls: 'pill' }) : '', FS.esc(w.city || ''), w.anycast ? FS.pill('anycast', '') : ''].filter(Boolean).join(' ');
+    if (place) lines.push(`<div class="small">${place}</div>`);
+    if (w.as_name || w.asn) lines.push(`<div class="muted small">${FS.esc(w.as_name || '')}${w.asn ? ' (AS' + FS.esc(w.asn) + ')' : ''}</div>`);
+    if (w.ip && isIP(w.ip)) lines.push(`<div class="small"><a href="#paths?dst=${encodeURIComponent(w.ip)}">map</a>${A(r).who && A(r).who.ip ? ` \u00b7 <a href="#flows?ip=${encodeURIComponent(A(r).who.ip)}&dst=${encodeURIComponent(w.ip)}">sessions</a>` : ''}</div>`);
+    else if (w.domain) lines.push(`<div class="small"><a href="#flows?domain=${encodeURIComponent(w.domain)}">sessions</a></div>`);
+    return lines.join('');
+  };
+  const why = (r) => {
+    const w = A(r).why || {};
+    const bits = [];
+    if (w.kind) bits.push(FS.pill(w.kind, 'warn'));
+    else if (r.kind) bits.push(FS.pill(r.kind, ''));
+    const facts = [];
+    if (w.days != null) facts.push(`${FS.num(w.days)} days of history`);
+    if (w.baseline) facts.push(`known before: ${w.baseline}`);
+    if (w.period_s) facts.push(`every ${Math.round(w.period_s)} s`);
+    if (w.percent != null) facts.push(`${w.percent}% (threshold ${w.threshold}%)`);
+    if (w.nxdomain_pct != null) facts.push(`${w.nxdomain_pct}% NXDOMAIN, entropy ${Number(w.entropy || 0).toFixed(1)}`);
+    if (w.since) facts.push(`open since ${FS.when(w.since)}`);
+    return `<div>${bits.join(' ')}</div><div class="small">${FS.esc(r.detail || '')}</div>${facts.length ? `<div class="muted small">${FS.esc(facts.join(' \u00b7 '))}</div>` : ''}<div class="muted small">${FS.esc(r.module || '')}</div>`;
+  };
+  const cols = [
+    { t: 'Severity', f: r => FS.sevPill(r.severity), sort: 'severity' },
+    { t: 'Who', f: who, sort: 'subject' },
+    { t: 'What', f: what, sort: 'title' },
+    { t: 'Where', f: where },
+    { t: 'Why', f: why, sort: 'kind' },
+    { t: 'Since', f: r => FS.ago(r.ts), sort: 'ts' }];
+  if (opts.ack) cols.push({ t: '', f: r => r.acked ? FS.pill('acked', '') : `<button class="btn small" data-ack="${r.id}">Ack</button>` });
+  return cols;
+};
