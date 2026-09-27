@@ -343,8 +343,9 @@ site installed by hand once can be copied.
 | Step | State |
 |---|---|
 | Detection (`internal/install`): system, container and Kubernetes, hypervisor and cloud from DMI, firewall, routing and NAT, guest hosts, backends, existing install; the plan (position, providers, steps, questions, warnings); `flowsightd install -dry-run [-json] [-plan-out]`. Tested with faked machines, and run for real on the OPNsense test bed, on PVE2 (a Proxmox host beside the firewall) and in a Docker container. Those runs corrected two things: forwarding alone does not make a host the gateway (Proxmox forwards for its guests; a gateway also translates addresses), and a minimal container has no ip(8), so the default route is read from /proc | Done |
-| Apply: binary, service, configuration, for the platforms supported today; `install.sh` and the packages call it | Next |
-| Verify: each provider's health check after start | Next |
+| Apply: confirmation (or `-yes`), binary, service, configuration, start; every replaced file kept, an existing configuration never overwritten, each run recorded in `install.json`; OPNsense keeps the package's binary; pf.conf only checked | Done. Tested with faked machines and for real: a fresh install and a no-change re-run on the Debian test client (snapshot, then rolled back), and on the OPNsense test bed. Those runs found that an LXC system container must be installed like a host, and that the rc script's stop and restart acted on the wrong pid (fixed for production separately) |
+| Verify: the daemon's health over loopback after start, with each module that is not well and why | Done |
+| `install.sh` and the packages call `flowsightd install` | Next |
 | `-plan <file>` for unattended installs; `uninstall` restoring every backup | Next |
 `flowsightd uninstall` restores every backup the install took and removes
 every object FlowSight created on other systems.

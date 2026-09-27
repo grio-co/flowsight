@@ -38,8 +38,28 @@ take, and the questions it could not answer. `-json` prints the same plan
 as JSON and `-plan-out <file>` saves it. Enforcement is never switched on by
 the installer.
 
-Applying a plan is not built yet: without `-dry-run` the command says so
-and changes nothing. Install with the package for your platform below.
+Without `-dry-run`, `flowsightd install` shows the plan, asks before it
+changes anything (`-yes` skips the question for unattended installs), and
+then applies it:
+
+- on FreeBSD and Linux it installs the running binary as
+  `/usr/local/sbin/flowsightd`, the rc script or systemd unit (enabled),
+  and a configuration with a new API token readable by root only;
+- on OPNsense the os-flowsight package installs the binary and the GUI
+  page, so the installer only keeps the configuration and restarts the
+  service; install the package first;
+- in an application container (Docker, a Kubernetes pod) it writes the
+  configuration, and flowsightd runs as the container's own process. An LXC
+  system container with systemd is installed like a host.
+
+Every file it replaces is kept beside the new one (the binary as
+`flowsightd.previous`, anything else as `<file>.flowsight-backup-<time>`),
+an existing configuration is never overwritten, running it again changes
+nothing, and each run is recorded in `install.json` in the data directory.
+On FreeBSD it checks that `/etc/pf.conf` references FlowSight's anchors and
+says what to add if not; it never edits `pf.conf`. After starting the
+service it asks the daemon for its health over loopback and lists every
+module that is not well, with the reason.
 
 ## OPNsense
 

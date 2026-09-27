@@ -287,3 +287,37 @@ func TestContainerGatewayWithoutTools(t *testing.T) {
 		t.Fatalf("container default route: %q %q", f.Gateway, f.GatewayIf)
 	}
 }
+
+// An LXC system container runs systemd as process 1 and is installed like a
+// host. Found on the test client, which the first version treated as an
+// application container and gave no service.
+func TestSystemContainerIsInstalledLikeAHost(t *testing.T) {
+	m := machine(t, "linux")
+	m.files["/etc/os-release"] = "ID=debian\nVERSION_ID=\"13\"\n"
+	m.files["/proc/1/environ"] = "container=lxc\x00"
+	m.files["/proc/1/comm"] = "systemd"
+	p := plan(m)
+	if p.Facts.Container != "lxc" || p.Service != "systemd" {
+		t.Fatalf("lxc with systemd: container=%q service=%q", p.Facts.Container, p.Service)
+	}
+	ids := []string{}
+	for _, s := range p.Steps {
+		ids = append(ids, s.ID)
+	}
+	if strings.Join(ids, ",") != "binary,service,config,start,verify" {
+		t.Fatalf("steps: %v", ids)
+	}
+}
+
+// An application container starts nothing itself, so its plan must not
+// promise to start or verify a service.
+func TestApplicationContainerPlanHasNoServiceSteps(t *testing.T) {
+	m := machine(t, "linux")
+	m.files["/.dockerenv"] = ""
+	m.files["/proc/1/comm"] = "flowsightd"
+	for _, s := range plan(m).Steps {
+		if s.ID == "start" || s.ID == "verify" || s.ID == "service" {
+			t.Fatalf("an application container got a %s step", s.ID)
+		}
+	}
+}

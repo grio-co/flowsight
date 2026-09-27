@@ -85,7 +85,7 @@ func MakePlan(f Facts, now time.Time) Plan {
 		p.Platform, p.Service = "linux", "systemd"
 		p.Paths = map[string]string{"config": "/etc/flowsight/flowsight.json", "data": "/var/lib/flowsight", "log": "/var/log/flowsight"}
 	}
-	if f.Container != "" {
+	if f.Container != "" && f.Init != "systemd" && p.Service != "" {
 		p.Service = "container"
 	}
 
@@ -211,8 +211,10 @@ func (p *Plan) steps(f Facts) {
 		add("anchors", "check that pf.conf references FlowSight's anchors, and say what to add if not; pf.conf is not edited",
 			"/etc/pf.conf (read only)")
 	}
-	add("start", "start the service and check that every module loads")
-	add("verify", "run each provider's own health check and report what works, what is degraded and why")
+	if p.Service != "container" {
+		add("start", "start the service and check that every module loads")
+		add("verify", "run each provider's own health check and report what works, what is degraded and why")
+	}
 	p.Warnings = append(p.Warnings, "enforcement stays off: the installer never turns it on")
 }
 

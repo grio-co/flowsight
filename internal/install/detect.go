@@ -30,6 +30,11 @@ type Env struct {
 	LookPath func(string) (string, error)
 	Run      func(name string, args ...string) (string, error)
 	Ifaces   func() ([]Iface, error)
+
+	// Used by Apply.
+	Exe   string // the running binary, installed as flowsightd
+	Get   func(url string, header map[string]string) (int, []byte, error)
+	Sleep func(time.Duration)
 }
 
 // Iface is a network interface with its addresses.
@@ -59,7 +64,20 @@ func LocalEnv() Env {
 			return strings.TrimSpace(string(out)), err
 		},
 		Ifaces: localIfaces,
+		Exe:    executable(),
+		Sleep:  time.Sleep,
 	}
+}
+
+func executable() string {
+	p, err := os.Executable()
+	if err != nil {
+		return ""
+	}
+	if r, err := filepath.EvalSymlinks(p); err == nil {
+		return r
+	}
+	return p
 }
 
 func localIfaces() ([]Iface, error) {
@@ -127,7 +145,11 @@ type Facts struct {
 	CPUs     int    `json:"cpus"`
 	MemoryMB int    `json:"memory_mb"`
 
-	Container  string `json:"container,omitempty"`  // docker, podman, containerd, lxc; empty on a host
+	Container string `json:"container,omitempty"` // docker, podman, containerd, lxc; empty on a host
+	// Init is what runs as process 1. A system container (LXC with
+	// systemd) is installed like a host; an application container, whose
+	// process 1 is the application, runs flowsightd as that process.
+	Init       string `json:"init,omitempty"`
 	Kubernetes bool   `json:"kubernetes,omitempty"` // inside a pod
 	Virtual    string `json:"virtual,omitempty"`    // kvm, vmware, hyper-v, xen, ...; empty on bare metal or unknown
 	Cloud      string `json:"cloud,omitempty"`      // aws, gcp, azure, digitalocean, hetzner, oracle; from DMI only
@@ -165,6 +187,7 @@ func Detect(e Env) Facts {
 	f.System, f.Version = detectSystem(e)
 	f.CPUs, f.MemoryMB = detectSize(e)
 	f.Container, f.Kubernetes = detectContainer(e)
+	f.Init = e.read("/proc/1/comm")
 	f.Virtual, f.Cloud = detectVirtual(e)
 	f.Firewall = detectFirewall(e, f.System)
 	f.NetAdmin = f.Root && f.Container == "" || detectNetAdmin(e)
