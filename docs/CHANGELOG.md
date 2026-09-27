@@ -12,6 +12,13 @@ name, and every release's assets carry that string in their file names.
 
 The newest entry is first.
 
+## 0.9.8r202609270443
+
+**Inspection state poll unblocked.** The two previous revisions' anomaly
+resolve took the module lock while the state poller already held it, so the
+poller stalled on its first run: the connection-state view froze and no
+finding resolved. Fixed; the stale port-scan findings now close.
+
 ## 0.9.8r202609270441
 
 **The gateway is not a scanner.** The port-scan check counted the

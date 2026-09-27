@@ -472,8 +472,8 @@ func (m *Module) detectAnomalies(states []*PFState) {
 	if m.ctx == nil || m.ctx.Store == nil {
 		return
 	}
+	// The caller (pollStates) holds m.mu; nothing here may take it again.
 	now := time.Now()
-	m.mu.Lock()
 	if m.anomalySeen == nil {
 		m.anomalySeen = map[string]time.Time{}
 	}
@@ -497,7 +497,6 @@ func (m *Module) detectAnomalies(states []*PFState) {
 		}
 		keep[k] = true
 	}
-	m.mu.Unlock()
 	// Anything the last ten minutes of polls have not seen is over.
 	_, _ = m.ctx.Store.ResolveFindings("inspect", keep)
 }
