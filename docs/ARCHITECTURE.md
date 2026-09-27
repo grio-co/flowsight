@@ -82,6 +82,7 @@ defined in `internal/core/enforce.go`:
 | `shaper` | `core.Shaper`: link rates, three weighted classes and per-rule ceilings as a plan; the backend configures its pipes and queues and the rules that feed them, clears exactly what it configured, and reports queue statistics | qos |
 | `flow_bus` | `core.FlowBus`, owned by core: flows as they are observed, from any source, to any module that reacts to them; a subscriber that panics is contained | appcontrol (published by visibility) |
 | `classifier` | `core.Classifier`: the engine's name and its application catalogue, the vocabulary application policy is written in | appcontrol, policy (provided by visibility, nDPI through ntopng) |
+| `provider_hub` | `core.ProviderHub`: formats a module consumes from providers in other processes, containers or hosts (the provider protocol, `/api/provider/v1/`) | ids consumes `suricata-eve` |
 
 The firewall module provides all of them over pf: sets are tables in the
 `flowsight/policy` anchor, connections come from `pfctl -ss -v`, rules from

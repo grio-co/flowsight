@@ -397,6 +397,16 @@ Download the full OpenAPI 3.0 specification at `GET /api/openapi.json` for use w
 | POST | `/api/policy/policy/move` | Reorder policies in the document list for evaluation priority and display order | none |
 | GET | `/api/policy/schedules/{name}` | Retrieve a specific schedule definition with its time windows and active days | name |
 
+### providers
+
+The provider protocol (version 1): how a backend in another process, container or host sends to the core. A provider authenticates with a **named** API token (`api_tokens`); the token's name is the provider's name. `flowsightd provider suricata` is the first provider. See [Architecture](ARCHITECTURE.md).
+
+| Method | Path | What | Parameters |
+|---|---|---|---|
+| POST | `/api/provider/v1/hello` | Introduce a provider to the core, or keep it marked alive (every 30 seconds); answers with its name and the formats the core consumes | none |
+| POST | `/api/provider/v1/events` | Deliver a batch of up to 5000 records in one format (`suricata-eve`) to the module that consumes it; `dropped` reports records the provider discarded while it could not reach the core | none |
+| GET | `/api/provider/v1/providers` | List the providers that have introduced themselves, whether each is connected, and what it has sent | none |
+
 ### proxmox
 
 **List operations**

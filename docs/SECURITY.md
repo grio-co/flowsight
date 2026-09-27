@@ -31,6 +31,14 @@ its value in the file; the daemon reads the file at start.
   user (uid 65532), has no shell, and the Helm chart adds a read-only root
   filesystem and drops every capability. Only what you publish is
   reachable from outside the container.
+- **Providers** (a backend such as Suricata in another container or on
+  another host, running `flowsightd provider`) authenticate with a named
+  API token; nothing else can act as one, the token's name is the
+  provider's name in the audit log and the provider list, and removing the
+  token from `api_tokens` disconnects it. Version 1 of the protocol is
+  plain HTTP: use it over loopback, inside a pod, or on a network you
+  trust, or put the core behind a TLS reverse proxy; the token would
+  otherwise cross the network in clear.
 - **Writes pass one gate.** Every state-changing route requires the header
   `X-Requested-With: Flowsight` (a browser cannot add it cross-site) and,
   from anything other than the OPNsense GUI or loopback, the API token.

@@ -27,6 +27,10 @@ type Module struct {
 	alerts   int64
 	tls      int64
 	identity core.Identity
+	// localMissing: there is no EVE log on this machine, which is normal
+	// when Suricata runs elsewhere and sends its events as a provider.
+	localMissing bool
+	remote       int64 // records received from providers
 }
 
 func (m *Module) Info() core.ModuleInfo {
@@ -35,7 +39,7 @@ func (m *Module) Info() core.ModuleInfo {
 		Description:  "Suricata alerts and TLS observations from the EVE log.",
 		Capabilities: []string{core.CapThreatDetect, core.CapTLSObserve},
 		Requires:     []string{"suricata"},
-		After:        []string{"identity"},
+		After:        []string{"identity", "providers"},
 		Defaults: map[string]any{
 			"eve_path":     "",
 			"poll_seconds": 5,
@@ -60,6 +64,12 @@ func (m *Module) Setup(ctx *core.Context) error {
 	m.evePath = path
 	every := time.Duration(core.Int(ctx.Settings(), "poll_seconds", 5)) * time.Second
 	ctx.Every("tail", every, m.poll)
+	// Suricata in another container or on another host sends the same EVE
+	// events through the provider protocol; they are read exactly as the
+	// local log is, and marked with the provider's name.
+	if hub, ok := ctx.Service(core.ServiceProviderHub).(core.ProviderHub); ok {
+		hub.Accept("suricata-eve", m.fromProvider)
+	}
 	ctx.Route("GET", "/api/ids/summary", m.apiSummary,
 		core.Query("hours", "integer", "Time window in hours for alert analysis (default 24)", false, 24),
 		core.Doc("Get summary of IDS alerts grouped by severity, category, signature and source host"),
@@ -102,7 +112,10 @@ func (m *Module) Health() core.Health {
 	if m.lastErr != "" {
 		return core.Health{OK: false, Detail: m.lastErr}
 	}
-	return core.Health{OK: true, Detail: fmt.Sprintf("%d alerts, %d tls records read", m.alerts, m.tls)}
+	if m.localMissing && m.remote == 0 {
+		return core.Health{OK: false, Detail: "no EVE log at " + m.evePath + " and no Suricata provider has sent events"}
+	}
+	return core.Health{OK: true, Detail: fmt.Sprintf("%d alerts, %d tls records read (%d from providers)", m.alerts, m.tls, m.remote)}
 }
 
 var severityMap = map[int]string{1: "critical", 2: "high", 3: "medium", 4: "low"}
@@ -157,19 +170,60 @@ func parseTS(s string) int64 {
 }
 
 func (m *Module) poll() error {
+	var lines [][]byte
+	_, err := m.tail.Lines(func(line []byte) {
+		lines = append(lines, append([]byte(nil), line...))
+	})
+	m.mu.Lock()
+	m.localMissing = err != nil && os.IsNotExist(err)
+	switch {
+	case err != nil && !m.localMissing:
+		m.lastErr = "cannot read " + m.tail.Path + ": " + err.Error()
+	default:
+		m.lastErr = ""
+	}
+	m.mu.Unlock()
+	if err != nil {
+		if m.localMissing {
+			return nil // reported through Health; not a failure worth a log line every cycle
+		}
+		return err
+	}
+	_, err = m.ingest(lines, "suricata")
+	return err
+}
+
+// fromProvider takes a batch of EVE events from a Suricata provider.
+func (m *Module) fromProvider(name string, records []json.RawMessage) (int, error) {
+	lines := make([][]byte, len(records))
+	for i, r := range records {
+		lines[i] = r
+	}
+	n, err := m.ingest(lines, "suricata@"+name)
+	m.mu.Lock()
+	m.remote += int64(len(records))
+	m.mu.Unlock()
+	return n, err
+}
+
+// ingest reads EVE events, from the local log or from a provider, into
+// alerts, TLS sessions and the certificate inventory. It returns how many
+// records it used.
+func (m *Module) ingest(lines [][]byte, source string) (int, error) {
 	var alerts []core.Alert
 	var sessions []tlsSession
 	certs := map[string]certSeen{}
 	wantTLS := core.Bool(m.ctx.Settings(), "tls_records", true)
-	n, err := m.tail.Lines(func(line []byte) {
+	used := 0
+	for _, line := range lines {
 		var e eve
 		if json.Unmarshal(line, &e) != nil {
-			return
+			continue
 		}
 		switch e.EventType {
 		case "alert":
 			if e.Alert == nil {
-				return
+				continue
 			}
 			sev := severityMap[e.Alert.Severity]
 			if sev == "" {
@@ -179,14 +233,15 @@ func (m *Module) poll() error {
 			if e.Alert.Action == "blocked" {
 				verdict = "blocked"
 			}
-			alerts = append(alerts, core.Alert{TS: parseTS(e.Timestamp), Source: "suricata", Severity: sev,
+			alerts = append(alerts, core.Alert{TS: parseTS(e.Timestamp), Source: source, Severity: sev,
 				Verdict: verdict, SigID: fmt.Sprint(e.Alert.SignatureID), Signature: e.Alert.Signature,
 				Category: e.Alert.Category, SrcIP: e.SrcIP, SrcPort: e.SrcPort, DstIP: e.DestIP,
 				DstPort: e.DestPort, Proto: strings.ToLower(e.Proto), Iface: e.InIface,
 				Message: e.Alert.Signature})
+			used++
 		case "tls":
 			if !wantTLS || e.TLS == nil {
-				return
+				continue
 			}
 			ts := parseTS(e.Timestamp)
 			s := tlsSession{ts: ts, src: e.SrcIP, dst: e.DestIP, port: e.DestPort, sni: e.TLS.SNI,
@@ -205,26 +260,15 @@ func (m *Module) poll() error {
 				c.host, c.sni = e.DestIP, e.TLS.SNI
 				certs[e.TLS.Fingerprint] = c
 			}
+			used++
 		}
-	})
-	m.mu.Lock()
-	if err != nil {
-		m.lastErr = "cannot read " + m.tail.Path + ": " + err.Error()
-	} else {
-		m.lastErr = ""
 	}
+	m.mu.Lock()
 	m.alerts += int64(len(alerts))
 	m.tls += int64(len(sessions))
 	m.mu.Unlock()
-	if err != nil {
-		if os.IsNotExist(err) {
-			return nil // reported through Health; not a failure worth a log line every cycle
-		}
-		return err
-	}
-	_ = n
 	if err := m.ctx.Store.AddAlerts(alerts); err != nil {
-		return err
+		return used, err
 	}
 	agg := map[string]*core.HostUpdate{}
 	for _, a := range alerts {
@@ -246,10 +290,10 @@ func (m *Module) poll() error {
 	_ = m.ctx.Store.UpsertHosts(ups)
 	if len(sessions) > 0 {
 		if err := m.writeTLS(sessions, certs); err != nil {
-			return err
+			return used, err
 		}
 	}
-	return nil
+	return used, nil
 }
 
 type tlsSession struct {

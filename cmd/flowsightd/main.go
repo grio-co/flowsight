@@ -55,6 +55,8 @@ func run() int {
 			return runContainer(args[1:])
 		case "health":
 			return runHealth(args[1:])
+		case "provider":
+			return runProvider(args[1:])
 		}
 	}
 
