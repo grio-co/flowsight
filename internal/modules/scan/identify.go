@@ -16,6 +16,8 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+
+	"github.com/grioghar/flowsight/internal/core"
 )
 
 // iotPorts are the consumer and appliance ports the top-100 list lacks;
@@ -110,6 +112,16 @@ func (m *Module) inventoryFor(result *ScanResult) inventory {
 	}
 	if inv.Vendor == "" && m.identity != nil {
 		inv.Vendor = m.identity.Vendor(result.MAC)
+	}
+	return privateVendor(result.MAC, inv)
+}
+
+// privateVendor drops a registered maker from a private (locally
+// administered) hardware address: such an address has none, so the name
+// came from another device and would make a laptop a vacuum.
+func privateVendor(mac string, inv inventory) inventory {
+	if core.LocallyAdministered(mac) && !strings.Contains(inv.Vendor, "private address") {
+		inv.Vendor = ""
 	}
 	return inv
 }

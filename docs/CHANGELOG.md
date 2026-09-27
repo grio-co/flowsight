@@ -12,6 +12,18 @@ name, and every release's assets carry that string in their file names.
 
 The newest entry is first.
 
+## 0.9.8r202609271458
+
+**A device no longer inherits the device that held its address before.**
+Host records are kept per IP address, and when an address passed to another
+device the previous holder's maker, name, type and operating system stayed
+on the record. A Mac that took over a Roborock vacuum's old lease was shown
+as made by Roborock, scanned as a vacuum, and left in quarantine. Now a
+change of hardware address on an IP resets what was learned about the
+previous device, a private (randomised) hardware address never carries a
+registered maker, and records already affected are repaired at start. A
+device the owner names "Mac …" is recognised as Apple.
+
 ## 0.9.8r202609271447
 
 **Device names on a Pi-hole answer only the device.** A name looked up

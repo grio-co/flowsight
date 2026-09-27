@@ -252,6 +252,19 @@ func (s *Store) migrate() error {
 	if err := s.ensureColumn("flows", "visibility", "TEXT"); err != nil {
 		return err
 	}
+	// Repair: a maker name on a private hardware address came from the
+	// device that held the IP address before (see macChanged). Cleared on
+	// every start; the real maker, if any, is learned again.
+	for _, q := range []string{
+		`UPDATE hosts SET vendor=NULL WHERE vendor IS NOT NULL AND vendor<>'' AND vendor NOT LIKE '%private address%'
+			AND length(mac)>=2 AND substr(lower(mac),2,1) IN ('2','3','6','7','a','b','e','f')`,
+		`UPDATE devices SET vendor='' WHERE vendor IS NOT NULL AND vendor<>'' AND vendor NOT LIKE '%private address%'
+			AND length(mac)>=2 AND substr(lower(mac),2,1) IN ('2','3','6','7','a','b','e','f')`,
+	} {
+		if _, err := s.db.Exec(q); err != nil {
+			return err
+		}
+	}
 	_, err := s.db.Exec(`INSERT OR REPLACE INTO meta VALUES('schema_version', ?)`, fmt.Sprint(schemaVersion))
 	return err
 }
@@ -867,6 +880,37 @@ type HostUpdate struct {
 	LastSeen                                            int64
 }
 
+// macChanged is true in a hosts upsert when the address now belongs to a
+// different hardware address than the row remembers. The name, maker,
+// operating system, type and zone were learned about the previous device:
+// an address that moves to another device (a lease reused) must not carry
+// them over, or a laptop inherits the vacuum that held the address before.
+const macChanged = `(excluded.mac IS NOT NULL AND mac IS NOT NULL AND lower(excluded.mac)<>lower(mac))`
+
+// LocallyAdministered reports whether a hardware address is locally
+// administered (bit 1 of the first byte): a private, randomised address
+// such as phones and laptops use per network, or a virtual one. Such an
+// address has no registered maker.
+func LocallyAdministered(mac string) bool {
+	mac = strings.TrimSpace(mac)
+	if len(mac) < 2 {
+		return false
+	}
+	var b byte
+	for _, c := range strings.ToLower(mac[:2]) {
+		b <<= 4
+		switch {
+		case c >= '0' && c <= '9':
+			b |= byte(c - '0')
+		case c >= 'a' && c <= 'f':
+			b |= byte(c-'a') + 10
+		default:
+			return false
+		}
+	}
+	return b&0x02 != 0
+}
+
 func (s *Store) UpsertHosts(ups []HostUpdate) error {
 	if len(ups) == 0 {
 		return nil
@@ -876,9 +920,12 @@ func (s *Store) UpsertHosts(ups []HostUpdate) error {
 		ins, err := tx.Prepare(`INSERT INTO hosts(ip,mac,name,vendor,zone,os,device_type,first_seen,last_seen,
 			bytes_in,bytes_out,flows,blocked,alerts,is_local,source) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
 			ON CONFLICT(ip) DO UPDATE SET
-			  mac=COALESCE(excluded.mac,mac), name=COALESCE(excluded.name,name),
-			  vendor=COALESCE(excluded.vendor,vendor), zone=COALESCE(excluded.zone,zone),
-			  os=COALESCE(excluded.os,os), device_type=COALESCE(excluded.device_type,device_type),
+			  mac=COALESCE(excluded.mac,mac),
+			  name=CASE WHEN ` + macChanged + ` THEN excluded.name ELSE COALESCE(excluded.name,name) END,
+			  vendor=CASE WHEN ` + macChanged + ` THEN excluded.vendor ELSE COALESCE(excluded.vendor,vendor) END,
+			  zone=CASE WHEN ` + macChanged + ` THEN excluded.zone ELSE COALESCE(excluded.zone,zone) END,
+			  os=CASE WHEN ` + macChanged + ` THEN excluded.os ELSE COALESCE(excluded.os,os) END,
+			  device_type=CASE WHEN ` + macChanged + ` THEN excluded.device_type ELSE COALESCE(excluded.device_type,device_type) END,
 			  last_seen=MAX(last_seen, excluded.last_seen),
 			  bytes_in=bytes_in+excluded.bytes_in, bytes_out=bytes_out+excluded.bytes_out,
 			  flows=flows+excluded.flows, blocked=blocked+excluded.blocked, alerts=alerts+excluded.alerts,
@@ -890,6 +937,11 @@ func (s *Store) UpsertHosts(ups []HostUpdate) error {
 		for _, u := range ups {
 			if u.IP == "" {
 				continue
+			}
+			// A private (locally administered) hardware address has no
+			// registered maker; a maker name on one is someone else's.
+			if LocallyAdministered(u.MAC) && !strings.Contains(u.Vendor, "private address") {
+				u.Vendor = ""
 			}
 			ls := u.LastSeen
 			if ls == 0 {

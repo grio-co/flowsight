@@ -347,7 +347,7 @@ func guessVendor(d *Device) string {
 		return "Android device (private address)"
 	case strings.Contains(vc, "msft"):
 		return "Microsoft Windows (private address)"
-	case strings.Contains(name, "iphone") || strings.Contains(name, "ipad") || strings.Contains(name, "macbook") || strings.HasPrefix(name, "mac") && (len(name) < 5 || strings.Contains(name, "mac-") || strings.Contains(name, "macbook") || strings.Contains(name, "mac.")) || strings.Contains(name, "apple") || strings.Contains(name, "watch"):
+	case strings.Contains(name, "iphone") || strings.Contains(name, "ipad") || strings.Contains(name, "macbook") || strings.HasPrefix(name, "mac") && (len(name) < 5 || strings.Contains(name, "mac-") || strings.Contains(name, "macbook") || strings.Contains(name, "mac.") || strings.HasPrefix(name, "mac ")) || strings.Contains(name, "apple") || strings.Contains(name, "watch"):
 		return "Apple (private address)"
 	case strings.Contains(name, "galaxy") || strings.Contains(name, "samsung") || strings.Contains(name, "pixel") || strings.Contains(name, "-s2") && strings.Contains(name, "ultra"):
 		return "Android device (private address)"

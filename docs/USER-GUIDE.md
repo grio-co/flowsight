@@ -1060,7 +1060,11 @@ device's newest sighting: when a lease moves, the row moves with it, and a
 name nothing live vouches for is dropped rather than left on the wrong
 device. A device with a private (randomised) hardware address has no
 registered maker; FlowSight reads the maker from its DHCP fingerprint,
-vendor class or name and says so (*Apple (private address)*).
+vendor class or name and says so (*Apple (private address)*). A maker name
+is never attached to a private address: when an IP address passes from one
+device to another (a lease reused), what was learned about the previous
+holder (maker, name, type) stays with that device and is not inherited by
+the new one.
 
 **Services** is what the device did in the last day: the applications it
 used, and the ports other local hosts connected to on it with how many came,

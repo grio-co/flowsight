@@ -644,6 +644,11 @@ func (m *Module) reconcile() error {
 		// unnamed row beats one wearing another device's name, and the
 		// name comes back with the device's next lease.
 		d.Hostname = sig.Hostname
+		// A private address cannot carry a registered maker; one stored
+		// earlier came from another device and is dropped.
+		if core.LocallyAdministered(mac) && d.Vendor != "" && !strings.Contains(d.Vendor, "private address") {
+			d.Vendor = ""
+		}
 		if sig.Vendor != "" && d.Vendor == "" {
 			d.Vendor = sig.Vendor
 		}
@@ -777,8 +782,8 @@ func (m *Module) gatherSignals() map[string]*Signal {
 		if sig.Hostname == "" {
 			sig.Hostname = getStr(r, "name")
 		}
-		if sig.Vendor == "" {
-			sig.Vendor = getStr(r, "vendor")
+		if v := getStr(r, "vendor"); sig.Vendor == "" && (!core.LocallyAdministered(mac) || strings.Contains(v, "private address")) {
+			sig.Vendor = v
 		}
 	}
 	if m.identity != nil {
