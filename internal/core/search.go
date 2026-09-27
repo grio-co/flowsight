@@ -133,32 +133,61 @@ func (c *Core) apiSearch(r *Req) (any, error) {
 			WHERE h.last_seen>=? AND h.is_local=1 AND (lower(h.ip) LIKE ? ESCAPE '\' OR lower(h.mac) LIKE ? ESCAPE '\'
 			  OR lower(h.name) LIKE ? ESCAPE '\' OR lower(h.vendor) LIKE ? ESCAPE '\' OR lower(d.hostname) LIKE ? ESCAPE '\')
 			ORDER BY h.last_seen DESC LIMIT 200`, month, like, like, like, like, like)
-		seen := map[string]bool{}
-		var hits []searchHit
+		// One device has several address rows (IPv4, IPv6, old leases):
+		// merge them, and take the name and the IPv4 address from
+		// whichever row has them.
+		type devAgg struct {
+			ip, mac, name, vendor, zone, host string
+			fields                            []string
+		}
+		var order []string
+		devs := map[string]*devAgg{}
 		for _, row := range rows {
 			ip, mac := sOf(row["ip"]), strings.ToLower(sOf(row["mac"]))
-			name := sOf(row["name"])
-			if name == "" {
-				name = sOf(row["hostname"])
-			}
 			k := mac
 			if k == "" {
 				k = ip
 			}
-			if seen[k] {
-				continue
+			d := devs[k]
+			if d == nil {
+				d = &devAgg{ip: ip, mac: mac}
+				devs[k] = d
+				order = append(order, k)
 			}
-			sc := matchScore(terms, name, ip, mac, sOf(row["vendor"]), sOf(row["hostname"]))
+			if strings.Contains(d.ip, ":") && !strings.Contains(ip, ":") {
+				d.ip = ip // a device page reads best under its IPv4 address
+			}
+			if d.name == "" {
+				d.name = sOf(row["name"])
+			}
+			if d.host == "" {
+				d.host = sOf(row["hostname"])
+			}
+			if d.vendor == "" {
+				d.vendor = sOf(row["vendor"])
+			}
+			if d.zone == "" {
+				d.zone = sOf(row["zone"])
+			}
+			d.fields = append(d.fields, ip)
+		}
+		var hits []searchHit
+		for _, k := range order {
+			d := devs[k]
+			name := d.name
+			if name == "" {
+				name = d.host
+			}
+			sc := matchScore(terms, append([]string{name, d.mac, d.vendor, d.host}, d.fields...)...)
 			if sc == 0 {
 				continue
 			}
-			seen[k] = true
 			title := name
 			if title == "" {
-				title = ip
+				title = d.ip
 			}
-			sub := strings.Join(nonEmpty(ip, mac, sOf(row["vendor"]), sOf(row["zone"])), " · ")
-			hits = append(hits, searchHit{Title: title, Sub: sub, Href: "#host/" + esc(ip), Links: deviceLinks(ip), score: sc + 0.5})
+			sub := strings.Join(nonEmpty(d.ip, d.mac, d.vendor, d.zone), " · ")
+			hits = append(hits, searchHit{Title: title, Sub: sub, Href: "#host/" + esc(d.ip), Links: deviceLinks(d.ip), score: sc + 0.5})
 		}
 		add("devices", "Devices", hits)
 	}
@@ -256,7 +285,12 @@ func (c *Core) apiSearch(r *Req) (any, error) {
 		for _, row := range rows {
 			sc := matchScore(terms, sOf(row["title"]), sOf(row["subject"]), sOf(row["detail"]))
 			if sc == 0 {
-				sc = 0.5 // matched inside the structured detail
+				// Matched only inside the structured detail: worth showing for
+				// an address or hardware address, noise for a word.
+				if !strings.ContainsAny(raw, "0123456789:") {
+					continue
+				}
+				sc = 0.5
 			}
 			links := []searchLink{{"Findings", "#findings"}}
 			subj := sOf(row["subject"])

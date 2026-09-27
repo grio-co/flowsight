@@ -12,6 +12,15 @@ name, and every release's assets carry that string in their file names.
 
 The newest entry is first.
 
+## 0.9.8r202609271517
+
+**SmartSearch: devices by name, fewer stray findings.** A device with
+several addresses (IPv4, IPv6, old leases) is one result, named from
+whichever address carries its name and linked under its IPv4 address; some
+devices appeared as a bare address, and "echo show" missed the Echo Show.
+Findings that match a word only inside their structured detail are left out;
+they are still found by an address or hardware address.
+
 ## 0.9.8r202609271515
 
 **SmartSearch.** The search box at the top of every page (press `/`) now
