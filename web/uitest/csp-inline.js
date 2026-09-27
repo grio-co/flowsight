@@ -6,7 +6,7 @@ var readText = (typeof readFile === 'function') ? readFile
   : null;
 if (!readText) { print('csp-inline: no file reader in this engine; skipped'); }
 else {
-  var files = ['lib.js', 'app.js', 'land.js', 'pages.js', 'pages2.js', 'pages3.js', 'api.js', 'proxmox.js', 'space.js', 'space-gl.js', 'inspect.js', 'setup.js', 'reports.js'];
+  var files = ['lib.js', 'app.js', 'land.js', 'pages.js', 'pages2.js', 'pages3.js', 'api.js', 'proxmox.js', 'space.js', 'space-gl.js', 'inspect.js', 'setup.js', 'reports.js', 'apps.js', 'advice.js', 'names.js', 'smartsearch.js', 'panels.js'];
   var bad = [];
   files.forEach(function (f) {
     var src; try { src = readText('web/static/' + f); } catch (e) { return; }

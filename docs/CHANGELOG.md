@@ -12,6 +12,21 @@ name, and every release's assets carry that string in their file names.
 
 The newest entry is first.
 
+## 0.9.8r202609271515
+
+**SmartSearch.** The search box at the top of every page (press `/`) now
+filters the page you are on as you type: tables keep only their matching
+rows, counted across all rows rather than only those on screen; lists keep
+their matching items; panels with nothing matching fold away; matches are
+highlighted; a panel whose title matches, or a page that is about what you
+searched for, is shown whole. Its dropdown lists this page's matching panels
+first, then devices, device DNS names, domains, applications, open findings,
+policies and groups, settings and pages from across FlowSight, each with
+links to every page showing the same thing. The search carries over as you
+follow those links and survives a reload; Esc twice or *Clear search* ends
+it. New endpoint `GET /api/search`, reading the hourly summaries so it is
+fast enough to run on every keystroke.
+
 ## 0.9.8r202609271458
 
 **A device no longer inherits the device that held its address before.**

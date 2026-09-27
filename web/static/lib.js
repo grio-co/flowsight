@@ -238,7 +238,11 @@ FS.table = (rows, cols, opts) => {
   // opts.rowAttr(row) lets a page mark rows it wants to react to; paging
   // rebuilds the body from the same function, so the marks survive.
   const bodyOf = (list) => list.map(r => `<tr ${opts.rowAttr ? opts.rowAttr(r) : ''}>` + cols.map(c => `<td class="${c.num ? 'num' : ''} ${c.cls || ''}">${c.f ? c.f(r) : FS.esc(r[c.k])}</td>`).join('') + '</tr>').join('');
-  const all = st.i >= 0 ? order(rows, st.i, st.dir) : rows;
+  // SmartSearch narrows the rows to those matching what is typed at the top;
+  // it can re-filter later without a new render (T.refilter).
+  const T = {};
+  const base = () => (FS.smart && FS.smart.active()) ? FS.smart.filterRows(rows, cols) : rows;
+  let all = st.i >= 0 ? order(base(), st.i, st.dir) : base();
   // Long tables are paged; the reader can switch to continuous scrolling,
   // which is remembered for every table in this browser.
   const pageSize = opts.pageSize || 100;
@@ -250,7 +254,20 @@ FS.table = (rows, cols, opts) => {
   const foot = all.length > pageSize
     ? `<div class="tfoot"><span class="muted">${FS.num(shown.length)} of ${FS.num(all.length)}</span>${more > 0 ? `<button class="btn small" data-more="1">Show ${FS.num(Math.min(pageSize, more))} more</button><button class="btn small" data-all="1">Show all</button>` : ''}<label class="check inline"><input type="checkbox" data-inf="1" ${FS.infiniteScroll ? 'checked' : ''}><span>Infinite scroll</span></label></div>`
     : '';
-  const html = `<div class="tablewrap" id="${id}" data-sig="${FS.esc(sig)}"><table><thead><tr>${head}</tr></thead><tbody>${bodyOf(shown)}</tbody></table></div>${foot}`;
+  const ssOn = FS.smart && FS.smart.active();
+  const noneRow = () => `<tr class="ss-none"><td colspan="${cols.length}" class="muted small">No rows match \u201c${FS.esc(FS.smart.q)}\u201d (${FS.num(rows.length)} without the search)</td></tr>`;
+  const html = `<div class="tablewrap" id="${id}" data-sig="${FS.esc(sig)}"${ssOn ? ` data-ss-count="${all.length}"` : ''}><table><thead><tr>${head}</tr></thead><tbody>${ssOn && !all.length ? noneRow() : bodyOf(shown)}</tbody></table></div>${foot}`;
+  if (FS.smart) FS.smart.tables.set(id, T);
+  T.refilter = () => {
+    const wrap = document.getElementById(id); if (!wrap) return;
+    all = st.i >= 0 ? order(base(), st.i, st.dir) : base();
+    const on = FS.smart && FS.smart.active();
+    if (on) wrap.dataset.ssCount = all.length; else delete wrap.dataset.ssCount;
+    const tb = FS.$('tbody', wrap);
+    tb.innerHTML = on && !all.length ? noneRow() : bodyOf(all.slice(0, Math.max(pageSize, st.shown || pageSize)));
+    const lbl = FS.$('.tfoot .muted', wrap.parentNode); if (lbl) lbl.textContent = `${FS.num(Math.min(all.length, Math.max(pageSize, st.shown || pageSize)))} of ${FS.num(all.length)}`;
+    FS.enrichIn(wrap);
+  };
   setTimeout(() => {
     const wrap = document.getElementById(id); if (!wrap) return;
     if (st.top) wrap.scrollTop = st.top;
@@ -275,7 +292,8 @@ FS.table = (rows, cols, opts) => {
     FS.$$('th', wrap).forEach(th => th.onclick = () => {
       const i = Number(th.dataset.i); const c = cols[i];
       if (st.i === i) st.dir = -st.dir; else { st.i = i; st.dir = c.num ? -1 : 1; }
-      FS.$('tbody', wrap).innerHTML = bodyOf(order(rows, st.i, st.dir));
+      all = order(base(), st.i, st.dir);
+      FS.$('tbody', wrap).innerHTML = (FS.smart && FS.smart.active() && !all.length) ? noneRow() : bodyOf(all);
       FS.$$('th', wrap).forEach(t => t.classList.remove('sorted', 'asc')); th.classList.add('sorted'); if (st.dir > 0) th.classList.add('asc');
       FS.enrichIn(wrap);
     });

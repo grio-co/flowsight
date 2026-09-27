@@ -320,6 +320,12 @@ func (c *Core) systemRoutes() {
 	a.Add("GET", "/api/system/profile", c.apiProfile, "system", Doc("Runtime profile for diagnosis, in pprof format"),
 		Params("kind", "heap (default), allocs, goroutine or cpu", "seconds", "for cpu: how long to sample, 1-30 (default 10)"))
 	a.Add("GET", "/api/system/panels", c.apiPanels, "system", Doc("UI panels contributed by loaded modules"))
+	a.Add("GET", "/api/search", c.apiSearch, "system",
+		Doc("SmartSearch across FlowSight: devices, DNS names, domains, applications, open findings, policies, settings and pages, each with links to the pages that show it"),
+		Params("q", "what to find; every word must match (at least two characters)", "limit", "results per group, 1-30 (default 8)"),
+		Returns("Grouped results", map[string]any{"q": "iphone", "groups": []map[string]any{{"kind": "devices", "title": "Devices", "results": []map[string]any{{
+			"title": "iPhone", "sub": "192.168.1.69 · ca:51:71:75:2f:b9 · personal", "href": "#host/192.168.1.69",
+			"links": []map[string]any{{"label": "Device", "href": "#host/192.168.1.69"}, {"label": "Sessions", "href": "#flows?ip=192.168.1.69"}}}}}}}))
 	a.Add("GET", "/api/system/modules", c.apiModules, "system", Doc("Every module with settings and schema"))
 	a.Add("POST", "/api/system/modules/save", c.apiModuleSave, "system", Write(), Doc("Save one module's settings"))
 	a.Add("POST", "/api/system/jobs/run", c.apiJobRun, "system", Write(), Doc("Run a scheduled job now"))

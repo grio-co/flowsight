@@ -56,6 +56,31 @@ inspection, TLS, Threats, DLP and Firewall Analysis Engine (FAE). **Administrati
 is FlowSight itself: Reports, Alerting, API, Updates, License, Status and
 Settings. The chapters below follow the same order.
 
+**SmartSearch.** The box at the top of every page (press `/` to jump to it)
+does two things as you type:
+
+- **It filters the page you are on.** Every table keeps only its matching
+  rows, counted across all its rows rather than only the ones on screen;
+  every list keeps its matching items; a panel with nothing matching folds
+  away; matches are highlighted. A panel whose title matches is shown whole,
+  and so is a page that is itself about what you searched for (the iPhone's
+  device page, when you search "iphone"). A bar under the header says what
+  is filtered and how many panels are hidden. Every word must match, so
+  "nintendo switch" is narrower than "nintendo".
+- **It searches the whole of FlowSight.** The dropdown lists this page's
+  matching panels first (click one to scroll to it), then devices, device
+  names in DNS, domains looked up or visited in the last day, applications,
+  open findings, policies and groups, settings and pages. Each result links
+  to every page that shows the same thing: a device to its page, sessions
+  and DNS lookups; a domain to its DNS lookups, sessions and web requests;
+  an application to its page, sessions and control.
+
+The search stays on as you follow those links, so the next page opens
+already narrowed to the same thing, and it survives a reload. Arrow keys move
+through the dropdown and Enter opens the highlighted result; Enter on a bare
+address opens that device. Esc closes the dropdown, and Esc again (or *Clear
+search*) ends the search.
+
 ## Monitor
 
 ### Overview
@@ -1625,6 +1650,9 @@ user and client address. Bearer token authentication and X-Flowsight-Token
 headers are supported in addition to session cookies.
 
 ## Keyboard and browser notes
+
+**Search.** `/` focuses SmartSearch from anywhere; `↑`/`↓` and Enter pick a
+result; Esc closes the dropdown, and Esc again clears the search.
 
 **Arranging cards.** Every card on every page can be moved: drag it by its
 heading (the grip at the left of the heading is the handle) to a new place

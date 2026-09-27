@@ -815,3 +815,27 @@ tr.flagged td:first-child { box-shadow: inset 3px 0 0 var(--warn); }
 .nm-preview { margin: 6px 0; color: var(--muted); }
 .nm-sec { display: block; margin-top: 10px; }
 .nm-sec label, .nm-addr { display: flex; gap: 6px; align-items: baseline; flex-wrap: wrap; margin: 4px 0; font-weight: normal; }
+
+/* SmartSearch: the box at the top filters the page and searches FlowSight. */
+#search { width: 300px; transition: width .15s; }
+#search:focus { width: 380px; outline: 2px solid var(--accent); outline-offset: -1px; }
+#search.ss-on { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 8%, var(--bg)); }
+#ss-drop { position: absolute; top: calc(100% - 4px); right: 22px; width: min(560px, calc(100vw - 32px)); max-height: min(70vh, 640px); overflow: auto;
+  background: var(--panel); border: 1px solid var(--line); border-radius: 10px; box-shadow: 0 10px 30px rgba(16,24,40,.18); padding: 6px 0; z-index: 30; }
+#ss-drop .ss-group { font-size: 11px; font-weight: 650; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); padding: 8px 14px 4px; }
+#ss-drop .ss-sep { border-top: 1px solid var(--line); margin: 6px 0 2px; }
+#ss-drop .ss-note { padding: 4px 14px 8px; }
+#ss-drop .ss-item { display: flex; flex-direction: column; gap: 1px; padding: 6px 14px; color: var(--ink); text-decoration: none; }
+#ss-drop .ss-item.ss-panel { flex-direction: row; justify-content: space-between; align-items: baseline; }
+#ss-drop .ss-item:hover, #ss-drop .ss-item.on { background: var(--chip); }
+#ss-drop .ss-links { display: flex; flex-wrap: wrap; gap: 4px 10px; padding: 0 14px 6px; font-size: 12px; }
+#ss-drop .ss-foot { border-top: 1px solid var(--line); margin-top: 6px; padding: 6px 14px 2px; }
+#ss-drop kbd { border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 4px; padding: 0 4px; font-size: 11px; margin-right: 2px; }
+.ss-hide, .ss-miss { display: none !important; }
+.ss-banner { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin: 0 0 14px; padding: 8px 12px; border-radius: 8px;
+  background: color-mix(in srgb, var(--accent) 10%, var(--panel)); border: 1px solid color-mix(in srgb, var(--accent) 35%, var(--line)); font-size: 13px; }
+.ss-banner .btn { margin-left: auto; }
+mark.ss-hl { background: color-mix(in srgb, #facc15 55%, transparent); color: inherit; border-radius: 2px; padding: 0 1px; }
+.card.ss-flash { outline: 3px solid var(--accent); outline-offset: 2px; transition: outline-color 1.2s; }
+tr.ss-none td { text-align: center; padding: 10px; }
+@media (max-width: 720px) { #search, #search:focus { width: 150px; } #ss-drop { right: 8px; } }

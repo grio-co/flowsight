@@ -135,7 +135,7 @@
     const scroller = document.scrollingElement || document.documentElement;
     const wasY = same ? (window.scrollY || scroller.scrollTop || 0) : 0;
     if (same) view.style.minHeight = view.offsetHeight + 'px';
-    try { await def.render(view, { arg, params }); FS.enrichIn(view); FS.layout.apply(view); } catch (e) { view.innerHTML = FS.err('Page failed: ' + e.message); console.error(e); }
+    try { await def.render(view, { arg, params }); FS.enrichIn(view); FS.layout.apply(view); if (FS.smart) FS.smart.afterRender(view); } catch (e) { view.innerHTML = FS.err('Page failed: ' + e.message); console.error(e); }
     if (same) {
       if (wasY) scroller.scrollTop = wasY;
       requestAnimationFrame(() => { view.style.minHeight = ''; if (FS.reportHeight) FS.reportHeight(); });
@@ -168,14 +168,8 @@
     pauseBtn.onclick = () => { FS.setAutoRefresh(!FS.autoRefresh); paint(); if (FS.autoRefresh) FS.render(); };
   }
   $('#navtoggle').onclick = () => $('#nav').classList.toggle('open');
-  $('#search').addEventListener('keydown', (e) => {
-    if (e.key !== 'Enter') return;
-    const q = e.target.value.trim(); if (!q) return;
-    if (/^\d+\.\d+\.\d+\.\d+$/.test(q) || q.includes(':') && !q.includes('.')) FS.go('#host/' + encodeURIComponent(q));
-    else if (q.includes('.')) FS.go('#flows?domain=' + encodeURIComponent(q));
-    else FS.go('#hosts?q=' + encodeURIComponent(q));
-    e.target.value = '';
-  });
+  // SmartSearch (smartsearch.js) owns the box at the top.
+  if (FS.smart) FS.smart.init();
   document.addEventListener('keydown', (e) => { if (e.key === 'Escape') FS.closeModal(); });
 
   (async () => {
