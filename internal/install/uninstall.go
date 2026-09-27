@@ -149,8 +149,11 @@ func PlanUninstall(e Env, f Facts, purge bool) (UninstallPlan, error) {
 func withdrawSteps(e Env, f Facts, here Plan) []UninstallStep {
 	var out []UninstallStep
 	add := func(s UninstallStep) { out = append(out, s) }
-	if f.Firewall == "pf" {
+	switch f.Firewall {
+	case "pf":
 		add(UninstallStep{Do: "flush every FlowSight pf anchor (redirects, policy, zones, shaping)", Command: "pfctl -a flowsight -F all (and each sub-anchor)"})
+	case "nftables":
+		add(UninstallStep{Do: "delete FlowSight's nftables table (redirects, policy, zones)", Command: "nft delete table inet flowsight"})
 	}
 	squidConf := filepath.Join(filepath.Dir(here.Paths["config"]), "squid", "squid.conf")
 	if _, err := os.Stat(e.path(squidConf)); err == nil {
@@ -304,9 +307,12 @@ func runUninstallCommand(e Env, s UninstallStep) error {
 		return err
 	}
 	f := strings.Fields(s.Command)
-	_, err := e.Run(f[0], f[1:]...)
+	out, err := e.Run(f[0], f[1:]...)
 	if err != nil && (f[0] == "squid" || f[0] == "unbound-control") {
 		return nil // not running is the state wanted
+	}
+	if err != nil && f[0] == "nft" && strings.Contains(out, "No such file") {
+		return nil // no table is the state wanted
 	}
 	return err
 }

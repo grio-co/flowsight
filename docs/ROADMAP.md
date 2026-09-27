@@ -31,8 +31,9 @@
   destination country in reports.
 - User identity: RADIUS accounting listener and LDAP/AD group lookup so
   policies can target people, not only devices.
-- nftables providers so Linux gateways get web, application and port
-  enforcement.
+- nftables: application, port and internet blocking and zone isolation are
+  done; still to come on Linux are web interception (the proxy must listen
+  on the LAN side), country blocking and traffic shaping (tc).
 - Quotas: per-device or per-group bandwidth and time budgets, enforced
   through pf tables and schedules.
 - Threat intelligence: IP reputation feeds into pf tables (`threat.block`),

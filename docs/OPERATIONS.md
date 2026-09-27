@@ -260,6 +260,22 @@ are left in place. An install made with `install.sh` or `flowsightd
 install` is removed with `flowsightd uninstall` (`-purge` to remove the
 configuration and data as well); see [Installing](INSTALL.md).
 
+## FlowSight's rules on a Linux gateway
+
+Everything FlowSight enforces on Linux is in one nftables table:
+
+```sh
+nft list table inet flowsight
+```
+
+`fs_policy` holds the policy blocks (each rule carries a counter and a
+`flowsight:<policy>:<kind>` comment), `fs_enroll` the zone isolation, and
+the `fs_app_*` sets the addresses app control has seen. `nft delete table
+inet flowsight` withdraws all of it at once; while the daemon runs it puts
+the table back within a minute, from what it last loaded, and records an
+event saying so. A firewall reload that flushes the whole ruleset is
+repaired the same way.
+
 ## Shaping is on but nothing seems shaped
 
 If the Priority page shows an error ending in "Protocol not available", the

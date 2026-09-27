@@ -195,9 +195,18 @@ Suricata are recommended, not required.
 Backends on Linux are found where the distribution keeps them (Unbound in
 `/etc/unbound`, squid in `/etc/squid`, Suricata's EVE log in
 `/var/log/suricata`). Paths can be overridden under `"paths"` in the config.
-On Linux the pf providers are unavailable: DNS policy, visibility, reports
-and alerting work; web and application enforcement wait for nftables
-providers.
+On a Linux gateway with nftables, FlowSight enforces through a table of
+its own, `inet flowsight`: port, internet and application blocks, zone
+isolation, and cutting connections (with `conntrack` installed; byte counts
+need `net.netfilter.nf_conntrack_acct=1`). It never touches the
+distribution's or your tables, and its rules only ever reject or count:
+they cannot let through anything your own firewall blocks. Only a
+connection's first packet is judged. Not yet on Linux: country blocking,
+traffic shaping, and transparent web interception (the proxy listens on
+loopback, and nftables delivers redirected connections to the LAN
+interface; until the proxy listens there too, FlowSight loads no redirects,
+so web traffic is never sent to a port nothing answers on). DNS policy,
+visibility, reports and alerting work as elsewhere.
 
 ## FreeBSD (not OPNsense)
 

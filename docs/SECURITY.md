@@ -39,6 +39,11 @@ its value in the file; the daemon reads the file at start.
   plain HTTP: use it over loopback, inside a pod, or on a network you
   trust, or put the core behind a TLS reverse proxy; the token would
   otherwise cross the network in clear.
+- **On a Linux gateway** FlowSight changes nothing but its own nftables
+  table, `inet flowsight`, whose rules only reject or count. nftables
+  lets every table see a packet that another accepts, and makes a reject
+  final, so FlowSight can take traffic away but cannot open anything the
+  operator's firewall closes.
 - **Writes pass one gate.** Every state-changing route requires the header
   `X-Requested-With: Flowsight` (a browser cannot add it cross-site) and,
   from anything other than the OPNsense GUI or loopback, the API token.

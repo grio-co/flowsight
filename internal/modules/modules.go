@@ -20,6 +20,7 @@ import (
 	_ "github.com/grioghar/flowsight/internal/modules/license"
 	_ "github.com/grioghar/flowsight/internal/modules/mitm"
 	_ "github.com/grioghar/flowsight/internal/modules/netflow"
+	_ "github.com/grioghar/flowsight/internal/modules/nftables"
 	_ "github.com/grioghar/flowsight/internal/modules/paths"
 	_ "github.com/grioghar/flowsight/internal/modules/pihole"
 	_ "github.com/grioghar/flowsight/internal/modules/policy"

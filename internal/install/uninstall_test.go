@@ -305,3 +305,23 @@ func TestWithdrawForAPackageRemoval(t *testing.T) {
 		t.Fatalf("the resolver must be reloaded: %v", b.cmds)
 	}
 }
+
+// On a Linux gateway FlowSight's rules are one nftables table; withdrawing
+// deletes it before the service stops.
+func TestWithdrawDeletesTheNftablesTable(t *testing.T) {
+	b := newApplyBed(t, "linux", func(m *fakeMachine) {
+		debianRoot(m)
+		m.bins["nft"] = true
+	})
+	u, err := PlanWithdraw(b.env, Detect(b.env))
+	if err != nil {
+		t.Fatal(err)
+	}
+	b.applying = true
+	if err := Uninstall(b.env, u, func(string) {}); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(strings.Join(b.cmds, "|"), "nft delete table inet flowsight") {
+		t.Fatalf("commands: %v", b.cmds)
+	}
+}

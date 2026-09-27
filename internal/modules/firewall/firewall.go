@@ -120,13 +120,17 @@ func (m *Module) Setup(ctx *core.Context) error {
 		return err
 	}
 	ctx.Publish("firewall", m)
-	enf := &pfEnforcer{m: m}
-	ctx.Publish(core.ServiceEnforcer, enf)
-	ctx.Publish(core.ServiceConnStates, enf)
-	ctx.Publish(core.ServiceRules, enf)
-	ctx.Publish(core.ServiceRedirector, enf)
-	ctx.Publish(core.ServiceIsolator, enf)
-	ctx.Publish(core.ServiceShaper, newShaper(m))
+	if m.Available() {
+		// The contracts are pf's only where pf works; elsewhere another
+		// enforcer (nftables) serves them, or none does.
+		enf := &pfEnforcer{m: m}
+		ctx.Publish(core.ServiceEnforcer, enf)
+		ctx.Publish(core.ServiceConnStates, enf)
+		ctx.Publish(core.ServiceRules, enf)
+		ctx.Publish(core.ServiceRedirector, enf)
+		ctx.Publish(core.ServiceIsolator, enf)
+		ctx.Publish(core.ServiceShaper, newShaper(m))
+	}
 	if m.Available() {
 		ctx.Provider(&provider{m: m})
 		ctx.Every("local-table", 60*time.Second, m.refreshLocal)
