@@ -29,6 +29,7 @@ func main() {
 }
 
 func run() int {
+	core.EnsureSystemPath()
 	cfgPath := flag.String("config", "", "config file (default: platform etc dir)")
 	dataDir := flag.String("data-dir", "", "store directory")
 	level := flag.String("log-level", "", "debug, info, warn, error")

@@ -117,10 +117,10 @@ Claude as FlowSight's analyst, and FlowSight as tools for Claude (MCP). Off by d
 | `model` | Model | string | `claude-sonnet-5` | anthropic provider: claude-fable-5-1, claude-opus-5-5, claude-sonnet-5, claude-haiku-4-5-20251001. Claude Code uses its own model setting. |
 | `claude_path` | Claude CLI path | string | `claude` | claude-code provider: the binary, on PATH or absolute; with `claude_ssh` set, the path on the remote machine. |
 | `claude_ssh` | Run Claude Code over SSH on | string |  | `user@host` of a machine where Claude Code is installed and logged in; empty runs it on the gateway. FlowSight connects with its own key (`GET /api/assistant/ssh_key`, or `ssh_public_key` in the status). |
-| `mcp_url` | MCP URL for a remote Claude | string |  | Required with `claude_ssh`: this daemon's `/api/mcp` as the remote machine sees it, e.g. `http://192.168.0.1:8080/api/mcp`. |
+| `mcp_url` | MCP URL for a remote Claude | string |  | Required with `claude_ssh`: this daemon's `/api/mcp` as the remote machine sees it, e.g. `https://192.168.0.1:8443/api/mcp` (install FlowSight's CA on that machine; set `NODE_EXTRA_CA_CERTS` for Claude Code). Give it a `read` token with `mcp_token_name`. |
 | `mcp_token_name` | Token for the remote Claude | string |  | Name of an `api_tokens` entry in `flowsight.json` handed to the remote Claude Code for `/api/mcp`; empty means the main token. |
 | `claude_ssh_key` | SSH private key | string |  | Empty: `assistant_ssh_key` under the config directory, generated on first use (ed25519). |
-| `ssh_path` | ssh binary | string | `ssh` |  |
+| `ssh_path` | ssh binary | string | `ssh` | Looked up on PATH. The daemon adds /usr/local/sbin and /usr/local/bin to its PATH at start, so the OPNsense ssh (/usr/local/bin/ssh) is found even after an rc(8) or updater restart. |
 | `max_turns` | Max turns | int | `8` | Request/answer cycles (tool rounds) per question, 1–20. |
 | `max_tool_result_bytes` | Max tool result bytes | int | `65536` | A tool result larger than this is cut with a note before it goes to the model. |
 | `allow_writes` | Allow write operations | bool | `false` | When on, the model may call POST/PUT/DELETE routes. Keep off unless you mean it. |

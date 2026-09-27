@@ -12,6 +12,14 @@ name, and every release's assets carry that string in their file names.
 
 The newest entry is first.
 
+## 0.9.8r202609272103
+
+- **The assistant finds ssh after a restart.** A daemon started by rc(8) or
+  the updater inherits `PATH=/sbin:/bin:/usr/sbin:/usr/bin`, and on OPNsense
+  ssh lives only in /usr/local/bin, so a remote Claude (`claude_ssh`) failed
+  with "ssh: executable file not found". The daemon now adds /usr/local/sbin
+  and /usr/local/bin to its PATH at start, after whatever PATH it was given.
+
 ## 0.9.8r202609272101
 
 - **The assistant works with a read-only token.** A `read` token was refused
