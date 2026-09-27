@@ -31,6 +31,10 @@ type Module struct {
 	mu      sync.Mutex
 	lastErr string
 	chains  map[string]string // chain -> the last transaction loaded for it, reloaded if the table vanishes
+
+	geo                      map[string]geoInfo // country set -> how it was last filled
+	geoFilling, geoNextForce bool
+	geoNext                  []geoSet
 }
 
 func (m *Module) Info() core.ModuleInfo {
@@ -56,6 +60,7 @@ func (m *Module) available() bool {
 func (m *Module) Setup(ctx *core.Context) error {
 	m.ctx = ctx
 	m.chains = map[string]string{}
+	m.geo = map[string]geoInfo{}
 	m.identity, _ = ctx.Service("identity").(core.Identity)
 	m.dir = filepath.Join(ctx.Platform.EtcDir, "nftables")
 	for _, p := range []string{"/usr/sbin/nft", "/sbin/nft", "/usr/bin/nft"} {
@@ -90,6 +95,7 @@ func (m *Module) Setup(ctx *core.Context) error {
 	}
 	ctx.Provider(&provider{m: m})
 	ctx.Every("upkeep", 60*time.Second, m.upkeep)
+	ctx.Every("geo-refresh", time.Hour, m.refreshGeo)
 	return nil
 }
 
@@ -103,6 +109,14 @@ func (m *Module) Health() core.Health {
 		return core.Health{OK: false, Detail: m.lastErr}
 	}
 	detail := fmt.Sprintf("table inet flowsight, %d chain(s) loaded", len(m.chains))
+	for name, g := range m.geo {
+		if g.Err != "" {
+			return core.Health{OK: false, Detail: fmt.Sprintf("%s; country set %s is empty: %s", detail, name, g.Err)}
+		}
+	}
+	if n := len(m.geo); n > 0 {
+		detail += fmt.Sprintf(", %d country set(s)", n)
+	}
 	if _, intercepting := m.chains[chainWeb]; intercepting {
 		if out, err := core.Run(10*time.Second, m.nft, "list", "chains"); err == nil {
 			if t := inputDropTables(out); len(t) > 0 {
@@ -190,6 +204,7 @@ func (m *Module) upkeep() error {
 		m.mu.Unlock()
 		for _, tx := range saved {
 			_ = m.load(tx)
+			m.fillGeoAsync(geoSets(tx), true) // the sets came back empty
 		}
 		m.ctx.Event("firewall", "FlowSight's nftables table had been removed and was put back", nil)
 	}
@@ -379,19 +394,23 @@ func (p *provider) path() string { return filepath.Join(p.m.dir, "policy.nft") }
 
 func (p *provider) Compile(doc *core.PolicyDoc) (core.Artifact, error) {
 	res, _ := p.m.ctx.Service("member_resolver").(core.MemberResolver)
-	tx, n, err := compilePolicy(doc, res, time.Now())
+	_, geoOK := p.m.ctx.Service("geo").(core.GeoService)
+	tx, n, err := compilePolicy(doc, res, geoOK, time.Now())
 	if err != nil {
 		return core.Artifact{}, err
 	}
 	return core.Artifact{Files: map[string]string{p.path(): tx}, Note: fmt.Sprintf("%d rule(s)", n)}, nil
 }
 
-func compilePolicy(doc *core.PolicyDoc, res core.MemberResolver, now time.Time) (string, int, error) {
+// compilePolicy writes the policy chain. geoOK says a country database is
+// available; without one a policy that denies countries is refused.
+func compilePolicy(doc *core.PolicyDoc, res core.MemberResolver, geoOK bool, now time.Time) (string, int, error) {
 	excluded := map[string]bool{}
 	for _, c := range doc.ExcludedCIDRs(res) {
 		excluded[c] = true
 	}
 	var sets, rules []string
+	declared := map[string]bool{}
 	for i := range doc.Policies {
 		pol := &doc.Policies[i]
 		if !pol.Enabled || !doc.Active(pol.Schedule, now) {
@@ -405,8 +424,25 @@ func compilePolicy(doc *core.PolicyDoc, res core.MemberResolver, now time.Time) 
 		if !needsNet && !needsApp {
 			continue
 		}
+		var geo []geoSet
 		if len(pol.Deny.Countries) > 0 || len(pol.Deny.CountriesExcept) > 0 {
-			return "", 0, fmt.Errorf("policy %q denies countries, which the nftables enforcer does not do yet", pol.Name)
+			if !geoOK {
+				return "", 0, fmt.Errorf("policy %q denies countries, which needs the country database: Settings › enrich › Country lookup", pol.Name)
+			}
+			for _, c := range pol.Deny.Countries {
+				if cc, ok := countryCode(c); ok {
+					geo = append(geo, geoSet{Name: firewall.GeoTableFor(cc), Countries: []string{cc}})
+				}
+			}
+			var except []string
+			for _, c := range pol.Deny.CountriesExcept {
+				if cc, ok := countryCode(c); ok {
+					except = append(except, cc)
+				}
+			}
+			if len(except) > 0 {
+				geo = append(geo, geoSet{Name: "fs_geox_" + firewall.Slug(pol.Name), Countries: except, Invert: true})
+			}
 		}
 		var members []string
 		for _, mb := range doc.Members(pol, res) {
@@ -424,6 +460,13 @@ func compilePolicy(doc *core.PolicyDoc, res core.MemberResolver, now time.Time) 
 		appSet := firewall.TableFor(pol.Name)
 		if needsApp {
 			sets = append(sets, setDecls(appSet)...)
+		}
+		for _, g := range geo {
+			if !declared[g.Name] {
+				declared[g.Name] = true
+				sets = append(sets, setDecls(g.Name)...)
+				sets = append(sets, g.comment())
+			}
 		}
 		m4, m6 := family(members)
 		for _, fm := range []struct {
@@ -444,6 +487,13 @@ func compilePolicy(doc *core.PolicyDoc, res core.MemberResolver, now time.Time) 
 			}
 			if pol.Deny.Internet {
 				rules = append(rules, fmt.Sprintf("%s %s daddr != @local%s%s", from, fm.fam, fm.suf, tail("internet")))
+			}
+			for _, g := range geo {
+				kind := "country-except"
+				if !g.Invert {
+					kind = "country:" + g.Countries[0]
+				}
+				rules = append(rules, fmt.Sprintf("%s %s daddr @%s%s%s", from, fm.fam, g.Name, fm.suf, tail(kind)))
 			}
 			for _, port := range pol.Deny.Ports {
 				proto, rng, _ := strings.Cut(strings.ToLower(port), "/")
@@ -484,5 +534,8 @@ func (p *provider) Apply(a core.Artifact) (string, error) {
 	if err := os.WriteFile(p.path(), []byte(tx), 0o644); err != nil {
 		return "", err
 	}
+	// The country sets were declared empty (or kept what they held); fill
+	// them from the database off the request.
+	p.m.fillGeoAsync(geoSets(tx), true)
 	return "nftables policy chain loaded", nil
 }

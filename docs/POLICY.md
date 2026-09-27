@@ -64,7 +64,7 @@ options:
 | `domains`, `categories`, `tlds` | Unbound RPZ zone per policy, tagged to the policy's clients; squid ACLs | the DNS answer, then the TLS ClientHello or HTTP request for anything that slipped past DNS |
 | `apps`, `app_categories` | pf table per policy filled by app control from nDPI identifications | the first identified flow is cut and every later connection to that endpoint is dropped |
 | `ports`, `internet` | pf rules in `flowsight/policy` | the first packet |
-| `countries`, `countries_except` | pf tables built from the local country database | the first packet to an address registered in a denied country |
+| `countries`, `countries_except` | pf tables, or nftables sets on Linux, built from the local country database | the first packet to an address registered in a denied country |
 | `safe_search`, `youtube` | Unbound view with CNAME redirects | the DNS answer |
 | `tls.inspect` | squid bumps the client with the FlowSight CA | the handshake; bypassed names are spliced |
 
@@ -114,6 +114,16 @@ holds, anycast ranges left out, database epoch and fill time;
 `GET /api/firewall/table?name=&ip=` asks the kernel whether one address is
 in a table; the *Firewall tables and rules* card on the Policies page shows
 both with the anchor's live rule counters.
+
+On a Linux gateway the same is done with nftables sets in FlowSight's
+table: `fs_geo_<cc>_v4` and `_v6` per denied country, `fs_geox_<policy>_v4`
+and `_v6` per except-policy, referenced from the `fs_policy` chain and filled
+the same way, in the background after each apply (an "every country except"
+set holds a few hundred thousand prefixes and loads in a few seconds). They
+follow the database hourly, and are refilled when the table is put back
+after a flush. The nftables module's health counts the sets and turns red
+naming any set that could not be filled; `nft list set inet flowsight
+fs_geo_cn_v4` shows what the kernel holds.
 
 **Anycast.** Ranges announced from many sites at once (Cloudflare, the
 public resolvers, the root servers, and the forty-odd thousand prefixes the

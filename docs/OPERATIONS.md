@@ -270,7 +270,8 @@ nft list table inet flowsight
 
 `fs_policy` holds the policy blocks (each rule carries a counter and a
 `flowsight:<policy>:<kind>` comment), `fs_enroll` the zone isolation,
-`fs_web` the interception redirects, `fs_web_in` the rule that resets
+`fs_web` the interception redirects, the `fs_geo_*` and `fs_geox_*` sets the
+country blocks, `fs_web_in` the rule that resets
 connections to the proxy's ports that were not redirected, and the
 `fs_app_*` sets the addresses app control has seen.
 

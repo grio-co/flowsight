@@ -50,6 +50,26 @@ func fetchFrom(ns, url string) string {
 
 type labIdentity struct{ core.Identity }
 
+// labGeo is a country database in which the lab's server network, and
+// nothing else, is in country XX.
+type labGeo struct {
+	core.GeoService
+	asked [][]string
+}
+
+func (g *labGeo) DatabaseEpoch() int64 { return 1 }
+func (g *labGeo) NetworksFor(ccs []string, invert bool, skip func(string) bool) ([]string, int, error) {
+	g.asked = append(g.asked, append([]string(nil), ccs...))
+	if contains(ccs, "XX") != invert {
+		return []string{"10.20.0.0/24"}, 0, nil
+	}
+	return nil, 0, nil
+}
+
+type labHome struct{}
+
+func (labHome) HomeCountry() string { return "us" }
+
 func (labIdentity) LocalNetworks() []string { return []string{"10.10.0.0/24"} }
 
 func labModule(t *testing.T) *Module {
@@ -59,8 +79,8 @@ func labModule(t *testing.T) *Module {
 		t.Fatal(err)
 	}
 	m := &Module{nft: "/usr/sbin/nft", conntrack: "/usr/sbin/conntrack", dir: t.TempDir(), chains: map[string]string{},
-		identity: labIdentity{},
-		ctx: &core.Context{Core: &core.Core{Services: map[string]any{}}, Name: "nftables", Store: store,
+		identity: labIdentity{}, geo: map[string]geoInfo{},
+		ctx: &core.Context{Core: &core.Core{Services: map[string]any{"geo": &labGeo{}, "home": labHome{}}}, Name: "nftables", Store: store,
 			Platform: &core.Platform{Firewall: "nft"}}}
 	if err := m.load(skeleton()); err != nil {
 		t.Fatal(err)
@@ -101,7 +121,7 @@ sleep 1`, srv, srv))
 	t.Run("ports and internet", func(t *testing.T) {
 		doc := &core.PolicyDoc{Policies: []core.Policy{{Name: "Kids", Enabled: true, Action: "block",
 			Match: core.Match{Members: []string{"10.10.0.2/32"}}, Deny: core.Deny{Ports: []string{"tcp/25"}}}}}
-		tx, _, err := compilePolicy(doc, nil, time.Now())
+		tx, _, err := compilePolicy(doc, nil, false, time.Now())
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -112,7 +132,7 @@ sleep 1`, srv, srv))
 			t.Fatalf("port 25 must be blocked and 80 not: 80=%q 25=%q", fetch(80), fetch(25))
 		}
 		doc.Policies[0].Deny = core.Deny{Internet: true}
-		tx, _, _ = compilePolicy(doc, nil, time.Now())
+		tx, _, _ = compilePolicy(doc, nil, false, time.Now())
 		if err := m.loadChain(chainPolicy, tx); err != nil {
 			t.Fatal(err)
 		}
@@ -120,7 +140,7 @@ sleep 1`, srv, srv))
 			t.Fatal("internet access must be blocked")
 		}
 		doc.Policies[0].Action = "monitor"
-		tx, _, _ = compilePolicy(doc, nil, time.Now())
+		tx, _, _ = compilePolicy(doc, nil, false, time.Now())
 		if err := m.loadChain(chainPolicy, tx); err != nil {
 			t.Fatal(err)
 		}
@@ -135,7 +155,7 @@ sleep 1`, srv, srv))
 	t.Run("application set and connection kill", func(t *testing.T) {
 		doc := &core.PolicyDoc{Policies: []core.Policy{{Name: "Apps", Enabled: true, Action: "block",
 			Match: core.Match{Members: []string{"10.10.0.2/32"}}, Deny: core.Deny{Apps: []string{"Example"}}}}}
-		tx, _, _ := compilePolicy(doc, nil, time.Now())
+		tx, _, _ := compilePolicy(doc, nil, false, time.Now())
 		if err := m.loadChain(chainPolicy, tx); err != nil {
 			t.Fatal(err)
 		}
@@ -264,7 +284,7 @@ nft add rule inet distro forward tcp dport 8080 drop
 nft add rule inet distro forward tcp dport 25 accept`)
 		doc := &core.PolicyDoc{Policies: []core.Policy{{Name: "Kids", Enabled: true, Action: "block",
 			Match: core.Match{Members: []string{"10.10.0.2/32"}}, Deny: core.Deny{Ports: []string{"tcp/25"}}}}}
-		tx, _, _ := compilePolicy(doc, nil, time.Now())
+		tx, _, _ := compilePolicy(doc, nil, false, time.Now())
 		if err := m.loadChain(chainPolicy, tx); err != nil {
 			t.Fatal(err)
 		}
@@ -275,6 +295,68 @@ nft add rule inet distro forward tcp dport 25 accept`)
 			t.Fatal("FlowSight opened what another table blocks")
 		}
 		sh(t, `nft delete table inet distro`)
+	})
+
+	t.Run("countries", func(t *testing.T) {
+		geo := m.ctx.Core.Services["geo"].(*labGeo)
+		m.mu.Lock()
+		before := m.chains[chainPolicy]
+		m.mu.Unlock()
+		doc := &core.PolicyDoc{Policies: []core.Policy{{Name: "Geo", Enabled: true, Action: "block",
+			Match: core.Match{Members: []string{"10.10.0.2/32"}}, Deny: core.Deny{Countries: []string{"YY"}}}}}
+		apply := func() {
+			t.Helper()
+			tx, _, err := compilePolicy(doc, nil, true, time.Now())
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := m.loadChain(chainPolicy, tx); err != nil {
+				t.Fatal(err)
+			}
+			if err := m.fillGeoSets(geoSets(tx), true); err != nil {
+				t.Fatal(err)
+			}
+		}
+		apply()
+		if fetch(80) == "" {
+			t.Fatal("a country the server is not in must not block it")
+		}
+		doc.Policies[0].Deny.Countries = []string{"XX"}
+		apply()
+		if fetch(80) != "" {
+			t.Fatal("the server's country must be blocked")
+		}
+		doc.Policies[0].Deny = core.Deny{CountriesExcept: []string{"XX"}}
+		apply()
+		if fetch(80) == "" {
+			t.Fatal("every country except the server's must not block it")
+		}
+		if last := geo.asked[len(geo.asked)-1]; !contains(last, "US") {
+			t.Fatalf("the home country must always be allowed: asked for everything except %v", last)
+		}
+		doc.Policies[0].Deny = core.Deny{CountriesExcept: []string{"YY"}}
+		apply()
+		if fetch(80) != "" {
+			t.Fatal("every country except another must block the server")
+		}
+		// A flush empties the sets; upkeep puts back the chain and fills them.
+		sh(t, `nft flush ruleset`)
+		if fetch(80) == "" {
+			t.Fatal("with the ruleset flushed nothing should block")
+		}
+		if err := m.upkeep(); err != nil {
+			t.Fatal(err)
+		}
+		deadline := time.Now().Add(10 * time.Second)
+		for fetch(80) != "" {
+			if time.Now().After(deadline) {
+				t.Fatalf("the country set was not refilled after a flush:\n%s", sh(t, "nft list table inet flowsight"))
+			}
+			time.Sleep(200 * time.Millisecond)
+		}
+		if err := m.loadChain(chainPolicy, before); err != nil {
+			t.Fatal(err)
+		}
 	})
 
 	t.Run("the table comes back after a flush", func(t *testing.T) {

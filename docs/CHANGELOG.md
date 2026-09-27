@@ -71,6 +71,16 @@ matching by address, router name or place, fading the rest. The Destinations
 tab keeps destinations whose routes were lit. A note floats over the map
 with the count; *Clear search* or the map's own × ends it.
 
+## 0.9.8r202609271620
+
+**Country blocking works on a Linux gateway.** A policy that denies
+countries, or every country except some, is now enforced by FlowSight's
+nftables table, built from the same local country database as on OPNsense
+(switch it on at *Settings › enrich › Country lookup*; without it the plan
+says so). Your home country is never blocked by "every country except", and
+anycast ranges are left out. The sets fill in the background a few seconds
+after an apply. Nothing changes on OPNsense.
+
 ## 0.9.8r202609271519
 
 **SmartSearch finds devices by the names you gave them.** Names given on a
@@ -102,6 +112,7 @@ links to every page showing the same thing. The search carries over as you
 follow those links and survives a reload; Esc twice or *Clear search* ends
 it. New endpoint `GET /api/search`, reading the hourly summaries so it is
 fast enough to run on every keystroke.
+
 
 ## 0.9.8r202609271502
 

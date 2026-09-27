@@ -1,6 +1,7 @@
 package nftables
 
 import (
+	"fmt"
 	"net/netip"
 	"strings"
 	"testing"
@@ -36,7 +37,7 @@ func TestPolicyCompilesPerFamily(t *testing.T) {
 		Match: core.Match{Members: []string{"10.99.0.0/24", "fd99::/64"}},
 		Deny:  core.Deny{Internet: true, Ports: []string{"tcp/25", "any/6881-6889"}, Apps: []string{"BitTorrent"}},
 	}}}
-	tx, n, err := compilePolicy(doc, nil, time.Now())
+	tx, n, err := compilePolicy(doc, nil, false, time.Now())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -64,7 +65,7 @@ func TestPolicyCompilesPerFamily(t *testing.T) {
 func TestMonitorPolicyOnlyCounts(t *testing.T) {
 	doc := &core.PolicyDoc{Policies: []core.Policy{{Name: "Watch", Enabled: true, Action: "monitor",
 		Match: core.Match{Members: []string{"10.0.0.5/32"}}, Deny: core.Deny{Internet: true}}}}
-	tx, _, err := compilePolicy(doc, nil, time.Now())
+	tx, _, err := compilePolicy(doc, nil, false, time.Now())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -74,11 +75,40 @@ func TestMonitorPolicyOnlyCounts(t *testing.T) {
 	has(t, tx, `add rule inet flowsight fs_policy ip saddr { 10.0.0.5/32 } ip daddr != @local_v4 counter comment "flowsight:Watch:internet"`)
 }
 
-func TestCountryPoliciesAreRefusedForNow(t *testing.T) {
+func TestCountryPoliciesNeedTheDatabase(t *testing.T) {
 	doc := &core.PolicyDoc{Policies: []core.Policy{{Name: "Geo", Enabled: true, Action: "block",
 		Match: core.Match{Members: []string{"10.0.0.0/24"}}, Deny: core.Deny{Countries: []string{"xx"}}}}}
-	if _, _, err := compilePolicy(doc, nil, time.Now()); err == nil || !strings.Contains(err.Error(), "does not do yet") {
-		t.Fatalf("country blocking must be refused, not silently skipped: %v", err)
+	if _, _, err := compilePolicy(doc, nil, false, time.Now()); err == nil || !strings.Contains(err.Error(), "country database") {
+		t.Fatalf("without a country database a country policy must be refused, not silently skipped: %v", err)
+	}
+}
+
+func TestCountryPoliciesCompile(t *testing.T) {
+	doc := &core.PolicyDoc{Policies: []core.Policy{
+		{Name: "Kids", Enabled: true, Action: "block", Match: core.Match{Members: []string{"10.0.0.0/24", "fd00::/64"}},
+			Deny: core.Deny{Countries: []string{"cn", "RU", "bad;", ""}}},
+		{Name: "Office", Enabled: true, Action: "block", Match: core.Match{Members: []string{"10.1.0.0/24"}},
+			Deny: core.Deny{Countries: []string{"CN"}, CountriesExcept: []string{"us", "ca"}}},
+	}}
+	tx, _, err := compilePolicy(doc, nil, true, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	has(t, tx, `add set inet flowsight fs_geo_cn_v4 { type ipv4_addr; flags interval; auto-merge; }`)
+	has(t, tx, `add rule inet flowsight fs_policy ip saddr { 10.0.0.0/24 } ip daddr @fs_geo_cn_v4 counter reject comment "flowsight:Kids:country:CN"`)
+	has(t, tx, `add rule inet flowsight fs_policy ip6 saddr { fd00::/64 } ip6 daddr @fs_geo_ru_v6 counter reject comment "flowsight:Kids:country:RU"`)
+	has(t, tx, `add rule inet flowsight fs_policy ip saddr { 10.1.0.0/24 } ip daddr @fs_geox_office_v4 counter reject comment "flowsight:Office:country-except"`)
+	if n := strings.Count(tx, "add set inet flowsight fs_geo_cn_v4 "); n != 1 {
+		t.Fatalf("a country two policies deny is declared %d times", n)
+	}
+	if strings.Contains(tx, "bad") {
+		t.Fatalf("an invalid country code reached the rules:\n%s", tx)
+	}
+	got := geoSets(tx)
+	want := []geoSet{{Name: "fs_geo_cn", Countries: []string{"CN"}}, {Name: "fs_geo_ru", Countries: []string{"RU"}},
+		{Name: "fs_geox_office", Countries: []string{"US", "CA"}, Invert: true}}
+	if fmt.Sprint(got) != fmt.Sprint(want) {
+		t.Fatalf("geo sets read back: %v, want %v", got, want)
 	}
 }
 
