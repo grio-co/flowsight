@@ -12,6 +12,16 @@ name, and every release's assets carry that string in their file names.
 
 The newest entry is first.
 
+## 0.9.8r202609270420
+
+**Bandwidth test, first field results.** The download leg asked the
+endpoint for too large an object and read nothing while the upload leg
+ran, and the row reported neither the failure nor its duration; a failed
+direction is now said in the row, downloads use smaller objects, HTTP
+errors count as failures, the run time is kept, and the speedtest.net
+server is the quickest of the ten nearest, with a note when it is far
+away (its plain-HTTP test files read low on distant servers).
+
 ## 0.9.8r202609270419
 
 **The whitelist category shows up on first start.** It was created in the

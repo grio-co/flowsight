@@ -405,7 +405,12 @@ func downloadFor(ctx context.Context, client *http.Client, url string, n int, d 
 				if err != nil {
 					return
 				}
+				req.Header.Set("User-Agent", "FlowSight/1 (gateway bandwidth check)")
 				resp, err := client.Do(req)
+				if err == nil && resp.StatusCode >= 400 {
+					err = fmt.Errorf("HTTP %d from %s", resp.StatusCode, req.URL.Host)
+					resp.Body.Close()
+				}
 				if err != nil {
 					if ctx.Err() == nil {
 						errMu.Lock()
@@ -485,7 +490,12 @@ func uploadFor(ctx context.Context, client *http.Client, url string, n int, d ti
 				}
 				req.ContentLength = chunk
 				req.Header.Set("Content-Type", "application/octet-stream")
+				req.Header.Set("User-Agent", "FlowSight/1 (gateway bandwidth check)")
 				resp, err := client.Do(req)
+				if err == nil && resp.StatusCode >= 400 {
+					err = fmt.Errorf("HTTP %d from %s", resp.StatusCode, req.URL.Host)
+					resp.Body.Close()
+				}
 				if err != nil {
 					if ctx.Err() == nil {
 						errMu.Lock()
@@ -522,7 +532,7 @@ func (c *countingReader) Read(p []byte) (int, error) {
 }
 
 const (
-	cfDown = "https://speed.cloudflare.com/__down?bytes=100000000"
+	cfDown = "https://speed.cloudflare.com/__down?bytes=25000000"
 	cfUp   = "https://speed.cloudflare.com/__up"
 )
 
@@ -599,7 +609,7 @@ func (m *Module) ooklaPick(ctx context.Context, client *http.Client) (ooklaServe
 			lat, lon = la, lo
 		}
 	}
-	cands := nearestOokla(servers, lat, lon, 6)
+	cands := nearestOokla(servers, lat, lon, 10)
 	// The quickest to answer of the nearest few: distance is a guess, the
 	// round trip is a measurement.
 	best := ooklaServer{}
@@ -631,10 +641,10 @@ func (m *Module) ooklaPick(ctx context.Context, client *http.Client) (ooklaServe
 // runSpeedTest performs one attempt and returns it. The sampler on the WAN
 // interface runs throughout; the baseline is what it saw before any test
 // traffic started.
-func (m *Module) runSpeedTest(ctx context.Context, attempt int, rerun bool) SpeedTest {
-	t := SpeedTest{ID: fmt.Sprintf("%d", time.Now().UnixNano()), TS: time.Now().Unix(), Attempt: attempt, Rerun: rerun}
+func (m *Module) runSpeedTest(ctx context.Context, attempt int, rerun bool) (t SpeedTest) {
+	t = SpeedTest{ID: fmt.Sprintf("%d", time.Now().UnixNano()), TS: time.Now().Unix(), Attempt: attempt, Rerun: rerun}
 	start := time.Now()
-	defer func() { t.Duration = time.Since(start).Seconds() }()
+	defer func() { t.Duration = math.Round(time.Since(start).Seconds()*10) / 10 }()
 	t.Interface = m.wanInterface()
 	if t.Interface == "" {
 		t.Error = "no WAN interface: set wan_interface under Settings › qos"
@@ -661,8 +671,19 @@ func (m *Module) runSpeedTest(ctx context.Context, attempt int, rerun bool) Spee
 	_, uout := smp.take()
 	t.UpMbit = mbitPerSec(uBytes, uSec)
 	t.IfaceUpMbit = mbitPerSec(peakRate(uout), 1)
-	if dErr != nil && uErr != nil {
-		t.Error = "the built-in test could not reach its endpoint: " + dErr.Error()
+	var problems []string
+	if dErr != nil {
+		problems = append(problems, "download: "+dErr.Error())
+	} else if dBytes == 0 {
+		problems = append(problems, "download: no data received")
+	}
+	if uErr != nil {
+		problems = append(problems, "upload: "+uErr.Error())
+	} else if uBytes == 0 {
+		problems = append(problems, "upload: no data sent")
+	}
+	if len(problems) > 0 {
+		t.Error = "built-in test: " + strings.Join(problems, "; ")
 	}
 	// The load that shared the link with the test.
 	t.LoadDownMbit = math.Max(0, t.IfaceDownMbit-t.DownMbit)
@@ -692,15 +713,21 @@ func (m *Module) runSpeedTest(ctx context.Context, attempt int, rerun bool) Spee
 	// observed, not the tester's share of it.
 	t.SuggestDown = suggest(math.Max(t.IfaceDownMbit, math.Max(t.DownMbit, t.OoklaDownMbit)))
 	t.SuggestUp = suggest(math.Max(t.IfaceUpMbit, math.Max(t.UpMbit, t.OoklaUpMbit)))
+	far := ""
+	if t.OoklaLatency > 80 {
+		far = fmt.Sprintf(" (the nearest speedtest.net server that answered is %.0f ms away and its plain-HTTP test files read low; treat its number as a floor)", t.OoklaLatency)
+	}
 	switch {
+	case t.Error != "":
+		t.Note = "the built-in test did not complete in both directions" + far
 	case t.OoklaError != "":
 		t.Note = "speedtest.net could not be compared; the built-in measurement stands alone"
 	case needsRerun(t) && attempt == 1:
 		t.Note = fmt.Sprintf("the two measurements differ by %.1f%% down / %.1f%% up, more than the 2%% allowed, so the test runs again", t.DivergeDown*100, t.DivergeUp*100)
 	case needsRerun(t):
-		t.Note = "still apart after a rerun; the higher of the two is taken as what the link can carry"
+		t.Note = "still apart after a rerun; the higher of the two is taken as what the link can carry" + far
 	default:
-		t.Note = "the two measurements agree"
+		t.Note = "the two measurements agree" + far
 	}
 	return t
 }
