@@ -54,7 +54,11 @@ again, with the box ticked, replaces the old name everywhere.
   Pi-hole), which Pi-hole answers both forward and reverse. FlowSight
   removes only the exact records it added. A Pi-hole must allow FlowSight to
   change its settings (see [Pi-hole](pihole.md)); one that does not is shown
-  as read only.
+  as read only. If a Pi-hole still answers a name with something else
+  from its cache (a public wildcard such as `*.grio.co` looked up before the
+  name existed; Pi-hole's cache optimizer keeps such answers alive), FlowSight
+  restarts that Pi-hole's DNS service once to clear it, a second or two
+  without answers.
 
 ## See and manage names
 

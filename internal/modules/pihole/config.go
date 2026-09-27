@@ -2,10 +2,12 @@ package pihole
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"sort"
@@ -748,17 +750,67 @@ func (m *Module) EditHosts(servers []string, add, remove []string, actor, why st
 		}
 		if sameValue(toAny(cur), toAny(next)) {
 			res["ok"], res["unchanged"] = true, true
-			continue
+		} else {
+			if _, _, err := m.call(v.s, "PATCH", "/api/config", map[string]any{"config": nest("dns.hosts", next)}); err != nil {
+				res["error"] = err.Error()
+				continue
+			}
+			res["ok"] = true
+			_ = m.ctx.Store.RecordChange("pihole", v.s.Host+":dns.hosts", actor, strings.Join(cur, "\n"), strings.Join(next, "\n"), "",
+				"Pi-hole "+v.s.Host+": local records "+why)
 		}
-		if _, _, err := m.call(v.s, "PATCH", "/api/config", map[string]any{"config": nest("dns.hosts", next)}); err != nil {
-			res["error"] = err.Error()
-			continue
+		// A name looked up before it was added may sit in the Pi-hole's
+		// cache with its public answer (a wildcard such as *.example.com).
+		// Pi-hole then answers both, and its cache optimizer keeps
+		// refreshing the stale one. If the Pi-hole answers anything
+		// besides the records just added, restart its DNS to clear it.
+		if stale := staleAnswers(v.s.Host, add); len(stale) > 0 {
+			if _, _, err := m.call(v.s, "POST", "/api/action/restartdns", nil); err != nil {
+				res["note"] = "the Pi-hole still answers " + strings.Join(stale, ", ") + " from its cache; restart its DNS to clear it (" + err.Error() + ")"
+			} else {
+				res["restarted"] = true
+				res["cleared"] = stale
+			}
 		}
-		res["ok"] = true
-		_ = m.ctx.Store.RecordChange("pihole", v.s.Host+":dns.hosts", actor, strings.Join(cur, "\n"), strings.Join(next, "\n"), "",
-			"Pi-hole "+v.s.Host+": local records "+why)
 	}
 	return results
+}
+
+// staleAnswers asks one Pi-hole for each name in hosts lines ("IP name")
+// and returns the answers that are not among the addresses given for it.
+func staleAnswers(server string, lines []string) []string {
+	want := map[string][]string{}
+	for _, l := range lines {
+		f := strings.Fields(l)
+		if len(f) >= 2 {
+			for _, n := range f[1:] {
+				want[strings.ToLower(n)] = append(want[strings.ToLower(n)], f[0])
+			}
+		}
+	}
+	r := &net.Resolver{PreferGo: true, Dial: func(ctx context.Context, _, _ string) (net.Conn, error) {
+		d := net.Dialer{Timeout: 1500 * time.Millisecond}
+		return d.DialContext(ctx, "udp", net.JoinHostPort(server, "53"))
+	}}
+	var stale []string
+	for name, addrs := range want {
+		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		got, _ := r.LookupHost(ctx, name)
+		cancel()
+		for _, g := range got {
+			ok := false
+			for _, a := range addrs {
+				if pa, pg := net.ParseIP(a), net.ParseIP(g); pa != nil && pg != nil && pa.Equal(pg) {
+					ok = true
+				}
+			}
+			if !ok {
+				stale = append(stale, name+" "+g)
+			}
+		}
+	}
+	sort.Strings(stale)
+	return stale
 }
 
 func toAny(s []string) []any {

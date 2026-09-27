@@ -12,6 +12,16 @@ name, and every release's assets carry that string in their file names.
 
 The newest entry is first.
 
+## 0.9.8r202609271447
+
+**Device names on a Pi-hole answer only the device.** A name looked up
+before it was added (for example against a public wildcard such as
+`*.grio.co`) stayed in the Pi-hole's cache, and Pi-hole's cache optimizer
+kept refreshing it, so the Pi-hole answered both the device's address and
+the public one. After adding a name, FlowSight now asks each Pi-hole what it
+answers and, if anything else comes back, restarts that Pi-hole's DNS
+service once to clear it.
+
 ## 0.9.8r202609271444
 
 **DNS configuration moved to Settings › dns.** *Monitor › DNS* now only
