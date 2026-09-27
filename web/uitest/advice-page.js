@@ -39,14 +39,14 @@ FS.pages.host.render(el, { arg: '192.168.1.69', params: {} }).then(function () {
   return FS.renderPihole(el = mkEl());
 }).then(function () {
   var h = el.innerHTML;
-  ['read only', 'app_sudo is off', 'Block iCloud Private Relay', 'On, the Pi-hole answers NXDOMAIN', 'api3.siftscience.com', 'Pause 5 min', 'Device advisories caused by a Pi-hole'].forEach(function (s) {
+  ['read only', 'app_sudo is off', 'Block iCloud Private Relay', 'On, the Pi-hole answers NXDOMAIN', 'Pi-hole blocking', 'Pause 5 min', 'Device advisories caused by a Pi-hole'].forEach(function (s) {
     if (h.indexOf(s) < 0) throw new Error('pihole page missing: ' + s);
   });
   if (h.indexOf('<form class="ph-set"') >= 0) throw new Error('a read-only Pi-hole must not offer edits');
   if (FS.issueMark('192.168.1.69') !== '') { /* index not loaded yet: fine */ }
   return FS.dnsTabs('pihole');
 }).then(function (tabs) {
-  ['#modules/dns"', '#modules/dns?tab=names', '#modules/dns?tab=pihole" class="on"', 'Resolver', 'Device names'].forEach(function (x) {
+  ['#modules/dns"', '#modules/dns?tab=names', '#modules/dns?tab=pihole" class="on"', '#modules/dns?tab=phblock', 'Resolver', 'Device names'].forEach(function (x) {
     if (tabs.indexOf(x) < 0) throw new Error('settings tabs missing: ' + x);
   });
   return FS.loadIssues();

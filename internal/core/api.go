@@ -802,6 +802,12 @@ func (a *API) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Subscription feeds authenticate by their own key (feed.go).
+	if (r.Method == http.MethodGet || r.Method == http.MethodHead) && strings.HasPrefix(p, "/feeds/") {
+		a.serveFeed(w, r, p)
+		return
+	}
+
 	ok, user := a.authenticate(r, client)
 
 	if p == "/api/login" && r.Method == http.MethodPost {

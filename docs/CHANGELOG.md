@@ -12,6 +12,24 @@ name, and every release's assets carry that string in their file names.
 
 The newest entry is first.
 
+## 0.9.8r202609271630
+
+**Pi-hole blocking, managed from FlowSight.** A new tab, *Settings › dns ›
+Pi-hole blocking*, manages what the Pi-holes block and for whom: blocklists
+and allowlists (add by URL, switch, regroup, remove; gravity rebuilds in the
+background with its output shown), allow and deny entries, groups, and
+clients in groups. Every change goes to all connected Pi-holes or to one,
+chosen at the top; groups are handled by name and created where missing,
+since each Pi-hole numbers its own. What exists on only some Pi-holes, or
+differs between them, is marked, and *Sync now* makes the others match one.
+A FlowSight category can be a Pi-hole list: FlowSight serves it as a keyed
+feed (`/feeds/categories/<name>.txt?key=…`) that the Pi-holes subscribe to.
+The allow and deny card moved here from the Pi-hole tab. API:
+`GET /api/pihole/blocking`, `POST /api/pihole/lists`, `/domains` (now with
+groups and update), `/groups`, `/clients`, `/categories`, `/gravity`,
+`/sync`, each taking `server` (`all` by default). Every change is in the
+change history. How-to: `docs/howto/pihole.md#blocking`.
+
 ## 0.9.8r202609271622
 
 **SmartSearch filters the Map.** On the Map the search now filters the

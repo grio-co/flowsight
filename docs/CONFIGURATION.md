@@ -308,7 +308,7 @@ Pulls Pi-hole query logs into the DNS history and, on Pi-hole v6, offers a curat
 | `import_names` | true | Use Pi-hole client names for hosts FlowSight has no name for |
 | `skip_local` | true | Ignore the Pi-hole's own queries |
 
-Changing Pi-hole settings from FlowSight needs `webserver.api.app_sudo = true` on each Pi-hole ("Permit app password to modify config"). Changes are limited to the curated keys; listening mode, interface and port are view only. Every change is written to the change history (module `pihole`).
+Blocking (lists, entries, groups, clients, gravity, sync) is managed on *Settings › dns › Pi-hole blocking* and `/api/pihole/{blocking,lists,domains,groups,clients,categories,gravity,sync}`. A FlowSight category subscribed as a Pi-hole list is served at `/feeds/categories/<name>.txt?key=<feed key>`; the key (KV `core.feed_key`) is created on first use, and the feed needs `bind` reachable from the Pi-hole. Changing Pi-hole settings from FlowSight needs `webserver.api.app_sudo = true` on each Pi-hole ("Permit app password to modify config"). Changes are limited to the curated keys; listening mode, interface and port are view only. Every change is written to the change history (module `pihole`).
 
 ### paths (Pro tier)
 

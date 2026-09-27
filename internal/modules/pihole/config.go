@@ -520,7 +520,9 @@ func (m *Module) apiDomainChange(r *core.Req) (any, error) {
 		Type    string   `json:"type"`
 		Kind    string   `json:"kind"`
 		Domains []string `json:"domains"`
-		Comment string   `json:"comment"`
+		Comment *string  `json:"comment"`
+		Enabled *bool    `json:"enabled"`
+		Groups  []string `json:"groups"`
 	}
 	if err := r.Decode(&in); err != nil {
 		return nil, err
@@ -534,8 +536,8 @@ func (m *Module) apiDomainChange(r *core.Req) (any, error) {
 	if in.Kind != "exact" && in.Kind != "regex" {
 		return nil, core.BadRequest("kind is exact or regex")
 	}
-	if in.Action != "add" && in.Action != "remove" {
-		return nil, core.BadRequest("action is add or remove")
+	if in.Action != "add" && in.Action != "update" && in.Action != "remove" {
+		return nil, core.BadRequest("action is add, update or remove")
 	}
 	var doms []string
 	for _, d := range in.Domains {
@@ -550,40 +552,66 @@ func (m *Module) apiDomainChange(r *core.Req) (any, error) {
 	if len(doms) == 0 || len(doms) > 100 {
 		return nil, core.BadRequest("give between 1 and 100 domains")
 	}
-	servers, err := m.pick(in.Server)
+	comment := ""
+	if in.Comment != nil {
+		comment = *in.Comment
+	} else if in.Action == "add" {
+		comment = "FlowSight " + time.Now().Format("2006-01-02")
+	}
+	path := "/api/domains/" + in.Type + "/" + in.Kind
+	results, ok, err := m.each(in.Server, func(st *phState, res map[string]any) error {
+		for _, d := range doms {
+			cur := find(st.domains, func(x map[string]any) bool {
+				return fmt.Sprint(x["domain"]) == d && fmt.Sprint(x["type"]) == in.Type && fmt.Sprint(x["kind"]) == in.Kind
+			})
+			if in.Action == "remove" {
+				if cur == nil {
+					continue
+				}
+				if _, code, err := m.call(st.s, "DELETE", path+"/"+url.PathEscape(d), nil); err != nil && code != 404 {
+					return err
+				}
+				continue
+			}
+			body := map[string]any{"comment": comment, "enabled": true}
+			groups := in.Groups
+			if cur != nil {
+				body["enabled"] = cur["enabled"]
+				if in.Comment == nil {
+					body["comment"] = strOr(cur["comment"], "")
+				}
+				if in.Groups == nil {
+					groups = st.names(cur["groups"])
+				}
+			}
+			if in.Enabled != nil {
+				body["enabled"] = *in.Enabled
+			}
+			ids, err := m.groupIDs(st, groups)
+			if err != nil {
+				return err
+			}
+			body["groups"] = ids
+			if cur == nil {
+				body["domain"] = d
+				if _, _, err := m.call(st.s, "POST", path, body); err != nil && !isUnique(err) {
+					return err
+				}
+				continue
+			}
+			body["type"], body["kind"] = in.Type, in.Kind
+			if _, _, err := m.call(st.s, "PUT", path+"/"+url.PathEscape(d), body); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
 	if err != nil {
 		return nil, err
 	}
-	comment := in.Comment
-	if comment == "" {
-		comment = "FlowSight " + time.Now().Format("2006-01-02")
-	}
-	var results []map[string]any
-	ok := 0
-	for _, s := range servers {
-		res := map[string]any{"url": s.URL, "host": s.Host}
-		var err error
-		if in.Action == "add" {
-			_, _, err = m.call(s, "POST", "/api/domains/"+in.Type+"/"+in.Kind, map[string]any{"domain": doms, "comment": comment, "enabled": true})
-		} else {
-			for _, d := range doms {
-				if _, code, e := m.call(s, "DELETE", "/api/domains/"+in.Type+"/"+in.Kind+"/"+url.PathEscape(d), nil); e != nil && code != 404 {
-					err = e
-				}
-			}
-		}
-		if err != nil {
-			res["error"] = err.Error()
-		} else {
-			res["ok"] = true
-			ok++
-			_ = m.ctx.Store.RecordChange("pihole", s.Host+":"+in.Type+"list", r.User, "", strings.Join(doms, ","), "",
-				fmt.Sprintf("Pi-hole %s: %s %s %s (%s)", s.Host, map[string]string{"add": "added", "remove": "removed"}[in.Action], strings.Join(doms, ", "),
-					map[string]string{"add": "to", "remove": "from"}[in.Action]+" the "+in.Type+" list", in.Kind))
-		}
-		results = append(results, res)
-	}
-	return map[string]any{"ok": ok == len(servers), "results": results}, nil
+	verb := map[string]string{"add": "added to", "update": "updated on", "remove": "removed from"}[in.Action]
+	m.record(r, in.Type+"list", fmt.Sprintf("%s %s the %s list (%s)", strings.Join(doms, ", "), verb, in.Type, in.Kind), results)
+	return map[string]any{"ok": ok == len(results), "results": results}, nil
 }
 
 func (m *Module) registerConfigRoutes(ctx *core.Context) {
@@ -622,8 +650,59 @@ func (m *Module) registerConfigRoutes(ctx *core.Context) {
 			core.Fld("kind", "string", false, "exact (default) or regex", "exact"),
 			core.FldArr("domains", true, "Names (1 to 100)", core.Fld("", "string", false, "", "")),
 			core.Fld("comment", "string", false, "Note kept on the Pi-hole", "Allowed from a FlowSight device advisory"),
+			core.Fld("enabled", "boolean", false, "Enable or disable the entry (update)", true),
+			core.FldArr("groups", false, "Pi-hole groups by name; missing groups are created. Empty: Default", core.Fld("", "string", false, "", "Kids")),
 			core.Fld("server", "string", false, "One Pi-hole, or empty for all", "all")),
 		core.Returns("Per-server result", map[string]any{"ok": true, "results": []map[string]any{{"url": "https://192.168.1.53", "ok": true}}}))
+	m.registerBlockingRoutes(ctx)
+}
+
+func (m *Module) registerBlockingRoutes(ctx *core.Context) {
+	result := core.Returns("Per-server result", map[string]any{"ok": true, "results": []map[string]any{{"url": "https://192.168.1.53", "host": "192.168.1.53", "ok": true}},
+		"gravity": []string{"192.168.1.53"}})
+	srv := core.Fld("server", "string", false, "One Pi-hole by URL, host or address; empty or \"all\" for every connected Pi-hole", "all")
+	groups := core.FldArr("groups", false, "Pi-hole groups by name; a group a Pi-hole lacks is created. Empty: Default", core.Fld("", "string", false, "", "Kids"))
+	ctx.Route("GET", "/api/pihole/blocking", m.apiBlockingState,
+		core.Doc("What the connected Pi-holes block and for whom: groups, lists, clients and domain entries merged across Pi-holes, with where each exists and where they differ, gravity runs, and FlowSight categories available as lists"),
+		core.Query("server", "string", "One Pi-hole; empty or \"all\" for every connected Pi-hole", false, "all"),
+		core.Returns("Blocking state", map[string]any{
+			"servers":    []map[string]any{{"url": "https://192.168.1.53", "host": "192.168.1.53", "writable": true, "gravity": map[string]any{"running": false, "ok": true, "started": 1790500000, "finished": 1790500040, "tail": []string{"[✓] Done."}}}},
+			"groups":     []map[string]any{{"name": "Default", "enabled": true, "default": true, "servers": map[string]any{"https://192.168.1.53": map[string]any{"id": 0, "enabled": true}}, "differs": false, "missing": 0}},
+			"lists":      []map[string]any{{"address": "https://raw.githubusercontent.com/StevenBlack/hosts/master/hosts", "type": "block", "enabled": true, "groups": []string{"Default"}, "servers": map[string]any{"https://192.168.1.53": map[string]any{"id": 1, "number": 74761}}, "differs": false, "missing": 0}},
+			"clients":    []map[string]any{{"client": "192.168.1.68", "flowsight_name": "Nintendo Switch b032", "groups": []string{"Kids"}}},
+			"domains":    []map[string]any{{"domain": "madison.logs.roku.com", "type": "deny", "kind": "exact", "enabled": true, "groups": []string{"Default"}}},
+			"categories": []map[string]any{{"name": "ads", "domains": 120000, "source": "https://…", "subscribed": map[string]string{"https://192.168.1.53": "block"}}},
+		}))
+	ctx.Route("POST", "/api/pihole/groups", m.apiGroupChange, core.Write(),
+		core.Doc("Add, update, rename or remove a Pi-hole group on one or every connected Pi-hole"),
+		core.Body(core.Fld("action", "string", true, "add, update or remove", "add"), core.Fld("name", "string", true, "Group name", "Kids"),
+			core.Fld("new_name", "string", false, "Rename to this (update)", "Children"), core.Fld("enabled", "boolean", false, "Group on or off", true),
+			core.Fld("comment", "string", false, "Note kept on the Pi-hole", "Bedtime filtering"), srv), result)
+	ctx.Route("POST", "/api/pihole/lists", m.apiListChange, core.Write(),
+		core.Doc("Add, update or remove a blocklist or allowlist subscription on one or every connected Pi-hole, then rebuild gravity"),
+		core.Body(core.Fld("action", "string", true, "add, update or remove", "add"),
+			core.Fld("address", "string", true, "The list's URL (http, https or file)", "https://raw.githubusercontent.com/StevenBlack/hosts/master/hosts"),
+			core.Fld("type", "string", false, "block (default) or allow", "block"), core.Fld("enabled", "boolean", false, "Subscription on or off", true),
+			core.Fld("comment", "string", false, "Note kept on the Pi-hole", "Ads and trackers"), groups,
+			core.Fld("gravity", "boolean", false, "Rebuild gravity afterwards (default true)", true), srv), result)
+	ctx.Route("POST", "/api/pihole/clients", m.apiClientChange, core.Write(),
+		core.Doc("Put a client (address, network, hardware address, host name or :interface) into Pi-hole groups, or take it out, on one or every connected Pi-hole"),
+		core.Body(core.Fld("action", "string", true, "add, update or remove", "add"), core.Fld("client", "string", true, "The client as the Pi-hole sees it", "192.168.1.68"),
+			groups, core.Fld("comment", "string", false, "Note kept on the Pi-hole", "Nintendo Switch b032"), srv), result)
+	ctx.Route("POST", "/api/pihole/gravity", m.apiGravity, core.Write(),
+		core.Doc("Rebuild gravity (download every subscribed list) on one or every connected Pi-hole, in the background"),
+		core.Body(srv), core.Returns("Started", map[string]any{"ok": true, "started": []string{"192.168.1.53"}, "already_running": []string{}}))
+	ctx.Route("POST", "/api/pihole/categories", m.apiCategoryChange, core.Write(),
+		core.Doc("Subscribe the Pi-holes to a FlowSight category as a blocklist or allowlist (served by FlowSight as a keyed feed), change it, or unsubscribe"),
+		core.Body(core.Fld("action", "string", true, "subscribe, update or unsubscribe", "subscribe"), core.Fld("category", "string", true, "FlowSight category name", "ads"),
+			core.Fld("type", "string", false, "block (default) or allow", "block"), core.Fld("enabled", "boolean", false, "Subscription on or off", true), groups,
+			core.Fld("gravity", "boolean", false, "Rebuild gravity afterwards (default true)", true), srv), result)
+	ctx.Route("POST", "/api/pihole/sync", m.apiSync, core.Write(),
+		core.Doc("Make other Pi-holes match one: groups, lists, clients and domain entries are added or corrected, and with remove_extra what they have beyond it is removed"),
+		core.Body(core.Fld("from", "string", true, "The Pi-hole to copy from", "192.168.1.53"), core.Fld("to", "string", false, "One Pi-hole, or empty / \"all\" for every other", "all"),
+			core.FldArr("parts", false, "What to sync: groups, lists, clients, domains (default all)", core.Fld("", "string", false, "", "lists")),
+			core.Fld("remove_extra", "boolean", false, "Also remove what the others have and the source does not", false)),
+		core.Returns("Per-server changes", map[string]any{"ok": true, "from": "192.168.1.53", "results": []map[string]any{{"host": "192.168.1.54", "ok": true, "changes": []string{"+group Kids", "+list https://…"}}}}))
 }
 
 // ---------------------------------------------------------------- service

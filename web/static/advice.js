@@ -144,7 +144,7 @@
   FS.dnsTabs = async (active) => {
     const ph = await FS.piholeConnected();
     const t = (id, label) => `<a href="#modules/dns${id === 'resolver' ? '' : '?tab=' + id}" class="${active === id ? 'on' : ''}">${label}</a>`;
-    return `<div class="tabs dns-tabs">${t('resolver', 'Resolver')}${t('names', 'Device names')}${ph ? t('pihole', 'Pi-hole') : ''}</div>`;
+    return `<div class="tabs dns-tabs">${t('resolver', 'Resolver')}${t('names', 'Device names')}${ph ? t('pihole', 'Pi-hole') + t('phblock', 'Pi-hole blocking') : ''}</div>`;
   };
   FS.dnsSettings = async (el, ctx) => {
     const tab = (ctx.params && ctx.params.tab) || 'resolver';
@@ -154,6 +154,7 @@
     left.innerHTML = strip + '<div class="dns-set"></div>';
     const host = FS.$('.dns-set', left);
     if (tab === 'pihole') await FS.renderPihole(host);
+    else if (tab === 'phblock' && FS.renderPiholeBlocking) await FS.renderPiholeBlocking(host);
     else if (FS.renderLocalNames) await FS.renderLocalNames(host);
   };
 
@@ -207,15 +208,10 @@
           <div class="ph-side"><div>${valCells}</div>${editor(s, servers, anyWritable)}</div></div>`;
       }).join(''))).join('<div style="height:14px"></div>');
       const domRows = (doms.domains || []);
-      const domCard = FS.table(domRows, [
-        { t: 'Name', f: d => `<span class="mono">${esc(d.domain)}</span>${d.kind === 'regex' ? ' ' + FS.pill('regex', '') : ''}`, sort: 'domain' },
-        { t: 'List', f: d => FS.pill(d.type, d.type === 'allow' ? 'ok' : 'bad'), sort: 'type' },
-        { t: 'Note', f: d => `<span class="small">${esc(d.comment || '')}</span>` },
-        { t: 'On', f: d => (doms.servers || []).length > 1 ? Object.keys(d.servers || {}).map(u => esc((servers.find(x => x.url === u) || {}).host || u)).join(', ') : (d.enabled ? '' : FS.pill('disabled', '')) },
-        { t: '', f: d => `<button class="btn small" data-rm='${esc(JSON.stringify({ type: d.type, kind: d.kind, domain: d.domain }))}'>Remove</button>` }]);
+
       el.innerHTML = tabs + warn
         + (advOpen.length ? FS.card('Device advisories caused by a Pi-hole', FS.adviceHTML(advOpen, { max: 4 })) + '<div style="height:14px"></div>' : '')
-        + `<div class="grid cols-2">${FS.card('Connected Pi-holes', srvCard + pause)}${FS.card('Allow and deny lists', `<form class="f ph-add"><div class="row"><input name="domains" placeholder="name.example.com (several: space or comma separated)" required><select name="type"><option value="allow">allow</option><option value="deny">deny</option></select><select name="kind"><option value="exact">exact</option><option value="regex">regex</option></select><button class="btn small primary">Add</button></div></form><div class="help small">Allow wins over every blocklist. Use it for a name a device needs; use deny for a name no list has yet. Changes take effect at once, within the blocked-answer lifetime.</div>` + domCard, `${FS.num(domRows.length)} entries`)}</div>
+        + `<div class="grid cols-2">${FS.card('Connected Pi-holes', srvCard + pause)}${FS.card('Blocking', `<div class="small">Blocklists, allow and deny entries, groups, clients, FlowSight categories as Pi-hole lists, gravity, and keeping several Pi-holes the same are on <a href="#modules/dns?tab=phblock">Settings › dns › Pi-hole blocking</a>. There are ${FS.num(domRows.length)} allow and deny entries now.</div>`)}</div>
         <div style="height:14px"></div>${sections}
         <div class="help" style="margin-top:12px">Only the settings above can be changed from FlowSight, and each change is recorded under <a href="#system">Status</a> › Changes with who made it. Everything else (DHCP, passwords, the web server) stays on the Pi-hole's own pages. <a href="${DOCS}pihole.md" target="_blank" rel="noopener">How FlowSight works with Pi-hole</a>.</div>`;
       FS.adviceWire(el, () => FS.render());
@@ -232,19 +228,6 @@
         const notes = ((r && r.results) || []).filter(x => x.note).map(x => x.host + ': ' + x.note);
         FS.toast(r.error || (bad.length ? bad.map(x => x.host + ': ' + x.error).join('; ') : notes.length ? notes.join('; ') : 'Applied'), !!(r.error || bad.length || notes.length));
         if (!r.error) FS.render();
-      });
-      const add = FS.$('form.ph-add', el); if (add) add.onsubmit = async (e) => {
-        e.preventDefault(); const fd = new FormData(add);
-        const domains = String(fd.get('domains') || '').split(/[\s,]+/).filter(Boolean);
-        const r = await FS.post('/api/pihole/domains', { action: 'add', type: fd.get('type'), kind: fd.get('kind'), domains });
-        const bad = ((r && r.results) || []).filter(x => x.error);
-        FS.toast(r.error || (bad.length ? bad.map(x => x.host + ': ' + x.error).join('; ') : 'Added'), !!(r.error || bad.length)); if (!r.error) FS.render();
-      };
-      FS.$$('[data-rm]', el).forEach(b => b.onclick = async () => {
-        const t = JSON.parse(b.dataset.rm); if (!await FS.confirm(`Remove ${t.domain} from the ${t.type} list?`)) return;
-        const r = await FS.post('/api/pihole/domains', { action: 'remove', type: t.type, kind: t.kind, domains: [t.domain] });
-        const bad = ((r && r.results) || []).filter(x => x.error);
-        FS.toast(r.error || (bad.length ? bad.map(x => x.host + ': ' + x.error).join('; ') : 'Removed'), !!(r.error || bad.length)); if (!r.error) FS.render();
       });
     }
   };

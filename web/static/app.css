@@ -845,3 +845,10 @@ tr.ss-none td { text-align: center; padding: 10px; }
 .datatabs .ss-count { margin-left: 6px; font-size: 11px; padding: 0 6px; border-radius: 9px; background: var(--accent); color: var(--accent-ink); }
 .datatabs .ss-zero { opacity: .5; }
 .datatabs .ss-zero .ss-count { background: var(--chip); color: var(--muted); }
+
+/* Settings › dns › Pi-hole blocking */
+.pb-bar { display: flex; justify-content: flex-end; margin-bottom: 10px; }
+.pb-target select { margin-left: 6px; }
+.pg-list { display: flex; flex-wrap: wrap; gap: 6px 14px; margin-bottom: 10px; }
+.pg-list label { font-weight: normal; }
+form.row, .f .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 8px; }

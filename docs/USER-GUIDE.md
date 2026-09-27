@@ -1604,10 +1604,13 @@ setting is marked restart. A module above the current tier shows its tier and ca
 be enabled. Every setting is listed in the
 [Configuration reference](CONFIGURATION.md).
 
-**dns** has three tabs: *Resolver* (the module's settings), *Device names*
+**dns** has these tabs: *Resolver* (the module's settings), *Device names*
 (every device name FlowSight put in DNS, see [Give a device a DNS
 name](howto/local-names.md)) and, while a Pi-hole v6 server is connected,
-*Pi-hole* (see [Pi-hole with FlowSight](howto/pihole.md)). All DNS
+*Pi-hole* (its settings, see [Pi-hole with FlowSight](howto/pihole.md)) and
+*Pi-hole blocking* (lists, entries, groups, clients, FlowSight categories as
+Pi-hole lists, gravity and keeping several Pi-holes the same, on one Pi-hole
+or all of them). All DNS
 configuration is here; *Monitor › DNS* only watches.
 
 **pihole** connects FlowSight to your Pi-holes (servers and app password) and
