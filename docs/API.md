@@ -612,11 +612,15 @@ Download the full OpenAPI 3.0 specification at `GET /api/openapi.json` for use w
 | Method | Path | What | Parameters |
 |---|---|---|---|
 | GET | `/api/visibility/abroad` | Show per-device traffic to foreign countries with session and byte counts by country. detail=summary fits the whole network in one answer; the default lists the destinations behind each country and is large, so page it with limit and offset or ask per device with ip= | hours, ip, limit, offset, detail |
+| GET | `/api/visibility/app` | Everything about one application: what it is for and what to look for (curated notes, or the category's), its nDPI category and breed, who uses it, where it goes, ports, countries, how much, when, which policies deny it and how many sessions were blocked | name, hours |
+| GET | `/api/visibility/app-category` | One application category: what it covers, every application in it with sessions, bytes, hosts and breed, the devices that use it most, and the policies that deny the category | name, hours |
 | GET | `/api/visibility/apps` | Breakdown of network traffic by application type with byte counts and session metrics | hours, ip |
 | GET | `/api/visibility/host` | Comprehensive analysis of a single host including connections, applications and countries | ip, hours |
 | GET | `/api/visibility/summary` | Get current network statistics including throughput, active flow count, and connected hosts | none |
 | GET | `/api/visibility/timeseries` | Fetch metric time series data for building charts and analyzing traffic trends | hours, metric, step |
 | GET | `/api/visibility/top` | Top hosts, applications, categories and destinations ranked by traffic volume | hours, limit |
+| GET | `/api/visibility/unknown` | The catalogue of what nDPI could not name, grouped by signature: the name asked for or the far end's network, the port and protocol. Each row carries a derived label, the devices using it, sessions, bytes and first/last seen, and the name the operator gave it, if any | hours, limit |
+| POST | `/api/visibility/unknown/name` | Name an unknown signature. The catalogue and the Applications page then show the name; it is remembered in the store | none |
 | GET | `/api/visibility/visibility` | What FlowSight could see of one device's sessions over the window: counts per readability value | ip, hours |
 
 ### web

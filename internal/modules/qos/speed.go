@@ -533,7 +533,7 @@ func (c *countingReader) Read(p []byte) (int, error) {
 }
 
 const (
-	cfDown = "https://speed.cloudflare.com/__down?bytes=25000000"
+	cfDown = "https://speed.cloudflare.com/__down?bytes=100000000"
 	cfUp   = "https://speed.cloudflare.com/__up"
 )
 
@@ -740,6 +740,38 @@ func (m *Module) runSpeedTest(ctx context.Context, attempt int, rerun bool) (t S
 	_, uout := smp.take()
 	t.UpMbit = mbitPerSec(uBytes, uSec)
 	t.IfaceUpMbit = mbitPerSec(peakRate(uout), 1)
+	// The load that shared the link with the test.
+	t.LoadDownMbit = math.Max(0, t.IfaceDownMbit-t.DownMbit)
+	t.LoadUpMbit = math.Max(0, t.IfaceUpMbit-t.UpMbit)
+
+	setStage("speedtest.net")
+	if srv, err := m.ooklaPick(ctx, client); err != nil {
+		t.OoklaError = err.Error()
+	} else {
+		downURL, upURL := ooklaEndpoints(srv, t.ID)
+		t.OoklaServer, t.OoklaSponsor, t.OoklaLatency = srv.Name+", "+srv.Country, srv.Sponsor, srv.latency
+		ob, os, oerr := downloadFor(ctx, client, downURL, testStreams, testSeconds*time.Second)
+		odin, _ := smp.take()
+		t.OoklaDownMbit = mbitPerSec(ob, os)
+		// The built-in endpoint refused the download (it rate-limits repeated
+		// bursts from one address): the comparison server's download stands
+		// in for that leg, and the row says so.
+		if dBytes == 0 && dErr != nil && strings.Contains(dErr.Error(), "429") && ob > 0 {
+			t.DownMbit, dErr, dBytes = t.OoklaDownMbit, nil, ob
+			if p := mbitPerSec(peakRate(odin), 1); p > t.IfaceDownMbit {
+				t.IfaceDownMbit = p
+			}
+			t.LoadDownMbit = math.Max(0, t.IfaceDownMbit-t.DownMbit)
+			t.Note = "download measured against the speedtest.net server: the built-in endpoint rate-limited a repeat run"
+		}
+		ub, us, uerr := uploadFor(ctx, client, upURL, testStreams, testSeconds*time.Second)
+		t.OoklaUpMbit = mbitPerSec(ub, us)
+		if oerr != nil && uerr != nil {
+			t.OoklaError = "speedtest.net did not answer: " + oerr.Error()
+		}
+	}
+	_ = smp.close()
+	setStage("")
 	var problems []string
 	if dErr != nil {
 		problems = append(problems, "download: "+dErr.Error())
@@ -754,26 +786,6 @@ func (m *Module) runSpeedTest(ctx context.Context, attempt int, rerun bool) (t S
 	if len(problems) > 0 {
 		t.Error = "built-in test: " + strings.Join(problems, "; ")
 	}
-	// The load that shared the link with the test.
-	t.LoadDownMbit = math.Max(0, t.IfaceDownMbit-t.DownMbit)
-	t.LoadUpMbit = math.Max(0, t.IfaceUpMbit-t.UpMbit)
-
-	setStage("speedtest.net")
-	if srv, err := m.ooklaPick(ctx, client); err != nil {
-		t.OoklaError = err.Error()
-	} else {
-		downURL, upURL := ooklaEndpoints(srv, t.ID)
-		t.OoklaServer, t.OoklaSponsor, t.OoklaLatency = srv.Name+", "+srv.Country, srv.Sponsor, srv.latency
-		ob, os, oerr := downloadFor(ctx, client, downURL, testStreams, testSeconds*time.Second)
-		t.OoklaDownMbit = mbitPerSec(ob, os)
-		ub, us, uerr := uploadFor(ctx, client, upURL, testStreams, testSeconds*time.Second)
-		t.OoklaUpMbit = mbitPerSec(ub, us)
-		if oerr != nil && uerr != nil {
-			t.OoklaError = "speedtest.net did not answer: " + oerr.Error()
-		}
-	}
-	_ = smp.close()
-	setStage("")
 
 	t.DivergeDown = divergence(t.DownMbit, t.OoklaDownMbit)
 	t.DivergeUp = divergence(t.UpMbit, t.OoklaUpMbit)
@@ -784,8 +796,9 @@ func (m *Module) runSpeedTest(ctx context.Context, attempt int, rerun bool) (t S
 	t.SuggestUp = suggest(math.Max(t.IfaceUpMbit, math.Max(t.UpMbit, t.OoklaUpMbit)))
 	far := ""
 	if t.OoklaLatency > 80 {
-		far = fmt.Sprintf(" (the nearest speedtest.net server that answered is %.0f ms away and its plain-HTTP test files read low; treat its number as a floor)", t.OoklaLatency)
+		far = fmt.Sprintf(" (the nearest speedtest.net server that answered is %.0f ms away; a distant server reads low, so treat its number as a floor)", t.OoklaLatency)
 	}
+	fallback := t.Note
 	switch {
 	case t.Error != "":
 		t.Note = "the built-in test did not complete in both directions" + far
@@ -797,6 +810,9 @@ func (m *Module) runSpeedTest(ctx context.Context, attempt int, rerun bool) (t S
 		t.Note = "still apart after a rerun; the higher of the two is taken as what the link can carry" + far
 	default:
 		t.Note = "the two measurements agree" + far
+	}
+	if fallback != "" {
+		t.Note = fallback + "; " + t.Note
 	}
 	return t
 }

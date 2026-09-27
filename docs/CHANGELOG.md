@@ -12,6 +12,30 @@ name, and every release's assets carry that string in their file names.
 
 The newest entry is first.
 
+## 0.9.8r202609270432
+
+**Applications have pages.** An application's name opens a page that says
+what it is for, its risk, common issues and what to look for (written for
+the common applications, the category's note for the rest, the nDPI breed
+always), with who uses it, the names it talks to, where it goes, ports,
+countries, volume over time, what policy says and a *Block for…* action.
+A category name opens the category's page with every application in it.
+*Unknown* opens a catalogue of what nDPI could not name, grouped by the
+name asked for, the network or the port, with devices and counts, and a
+signature can be named. `GET /api/visibility/app`, `/app-category`,
+`/unknown`; `POST /api/visibility/unknown/name`.
+
+**Applications (L7) under Protect.** The configuration side of application
+control, apart from the watching side under Monitor: which applications
+and nDPI categories are denied and for whom, the compiled rule sets and the
+addresses they hold, recent blocks, and a way to start a policy. The quick
+policy action now also takes a category.
+
+**Bandwidth test: a rate-limited download leg falls back.** When the
+built-in endpoint refuses a repeat run, the download is measured against
+the speedtest.net server instead and the row says so; fewer, larger
+objects are requested.
+
 ## 0.9.8r202609270425
 
 **Bandwidth test: a fair comparison and a patient rerun.** speedtest.net is

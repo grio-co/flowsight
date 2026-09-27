@@ -126,6 +126,12 @@ page's cards rank the same way: a backup moving a terabyte is not what the
 household is doing. The catalogue used for policy (names and categories) is
 the same one nDPI reports.
 
+**One application, one page.** Click an application's name and its page answers what it is (a write-up: what it is for, the risk, common issues and what to look for, written for the common ones and taken from the category for the rest), its nDPI category and breed, who uses it, the names it talks to, where it goes (far ends with port, country, network and a way to the Map), ports and countries, how much and when, what policy says about it, and a *Block for…* action that opens a policy denying it. The category name is a link too: the category's page lists every application in it with the same detail and a *Block the category for…* action.
+
+**The unknown, taken apart.** *Unknown* on the Applications page opens a catalogue of what nDPI could not name, grouped by signature: the name the device asked for (DNS or TLS server name), or failing that the network that announces the far end, with the port and protocol, so the row reads *TCP to apple.com on 5223 (push notifications)* rather than a bare count. Each row shows the devices, sessions, bytes and first and last seen. *Name* a signature and the pages use your name for it from then on.
+
+**Watching and configuring are separate pages.** Monitor › Applications only watches. Protect › *Applications (L7)* is where application control is configured: which applications and nDPI categories are denied, for whom and when, the rule sets compiled from those policies with the addresses they currently hold, and recent blocks. *HOWTO: categories and applications* explains how an application is identified and how that differs from the web categories.
+
 ### Flow sources
 
 Extend visibility beyond the gateway: switches, routers and other devices that export flows via NetFlow v5/v9, IPFIX, or sFlow v5 appear here. Each exporter shows the protocol, number of records and flows ingested, any drops (if templates timed out and data arrived without one), templates known (cached schema definitions per exporter) and when it last sent data. The help text shows the address and ports to point exporters at.

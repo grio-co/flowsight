@@ -20,6 +20,10 @@ An application category belongs to nDPI, the deep-packet-inspection library that
 
 **Where it is enforced.** A policy's *Apps* and *App categories* fields deny applications by identity: application control watches the identified flows and cuts matching ones off at the firewall, addresses learned from the flow are held in a table for a while, and existing connections can be killed. This works on the identified traffic, whatever name or address it uses, which is what makes it different from a domain list.
 
+## Where to configure application control
+
+Protect › **Applications (L7)** is the configuration page: it lists every policy that denies an application or an application category, for whom and when, the rule sets compiled from them, and recent blocks, with *Block an application…* to start a new policy. Monitor › **Applications** only watches; from there an application's name opens its own page (what it is for, its risk, who uses it, where it goes, what policy says), and *Unknown* opens the catalogue of what nDPI could not name, grouped by the name asked for, the network and the port, where each signature can be given a name.
+
 ## Side by side
 
 | | Web-content categories | Application categories |

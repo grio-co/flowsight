@@ -193,7 +193,16 @@
     FS.policyEditor(null, doc, caps);
     setTimeout(() => {
       const f = FS.$('#modal form'); if (!f) return;
-      if (deny.apps) { f.apps.value = deny.apps.join('\n'); f.name.value = 'block-' + deny.apps[0].toLowerCase().replace(/[^a-z0-9]+/g, '-'); FS.$$('.tabs button', f)[1].click(); }
+      if (deny.apps) {
+        f.apps.value = deny.apps.join('\n');
+        if (deny.apps.length) f.name.value = 'block-' + deny.apps[0].toLowerCase().replace(/[^a-z0-9]+/g, '-');
+        FS.$$('.tabs button', f)[1].click();
+      }
+      if (deny.app_categories && deny.app_categories.length && f.app_categories) {
+        Array.from(f.app_categories.options).forEach(o => { o.selected = deny.app_categories.includes(o.value); });
+        if (!f.name.value) f.name.value = 'block-' + deny.app_categories[0].toLowerCase().replace(/[^a-z0-9]+/g, '-');
+        FS.$$('.tabs button', f)[1].click();
+      }
       if (deny.members && f.members) { f.members.value = deny.members.join('\n'); }
       if (deny.countries && deny.countries.length) {
         if (!f.name.value) f.name.value = 'block-' + deny.countries.join('-').toLowerCase();

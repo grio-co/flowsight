@@ -779,3 +779,7 @@ tr.flagged td:first-child { box-shadow: inset 3px 0 0 var(--warn); }
 .barrow .barlink { position: absolute; inset: 0; z-index: 1; }
 .barrow .lab a, .barrow .lab .maplink, .barrow .num, .barrow .bar { position: relative; z-index: 2; }
 .barrow .num, .barrow .bar { pointer-events: none; }
+
+/* Application write-ups. */
+.note-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px 18px; }
+.note-grid .hg { margin-bottom: 4px; }

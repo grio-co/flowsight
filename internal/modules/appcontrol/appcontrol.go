@@ -100,6 +100,7 @@ func (m *Module) Setup(ctx *core.Context) error {
 				{"ts": 1790376243, "source": "appcontrol", "app": "Chrome", "blocked": true},
 			},
 		}))
+	ctx.Panel(core.Panel{ID: "appcontrol", Title: "Applications (L7)", Group: "Protect", Order: 98, Icon: "apps"})
 	return nil
 }
 

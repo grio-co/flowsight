@@ -119,6 +119,7 @@ func (m *Module) Setup(ctx *core.Context) error {
 	m.configure(ctx.Settings())
 	ctx.Publish("flow_bus", m.bus)
 	ctx.Publish("app_catalog", m)
+	m.registerAppRoutes(ctx)
 	every := time.Duration(core.Int(ctx.Settings(), "poll_seconds", 10)) * time.Second
 	if every < 3*time.Second {
 		every = 3 * time.Second
