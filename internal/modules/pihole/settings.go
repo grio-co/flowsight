@@ -15,6 +15,10 @@ type phSetting struct {
 	Why       string // why the recommendation
 	Caution   string // shown before a change is applied
 	ReadOnly  string // non-empty: not writable from FlowSight, and why
+	// Flush: Pi-hole caches its blocking decision per device and name, so a
+	// change here does not reach a device that already asked until the DNS
+	// service restarts. FlowSight restarts it after applying.
+	Flush bool
 }
 
 var phSections = []struct{ ID, Title, Intro string }{
@@ -31,7 +35,7 @@ var phCatalogue = []phSetting{
 	{Key: "dns.blocking.active", Section: "blocking", Label: "Blocking enabled",
 		Guide:     "Master switch for ad and tracker blocking. Off, the Pi-hole still resolves names but blocks nothing. To turn blocking off for a few minutes, use Pause instead: it switches itself back on.",
 		Recommend: true, Why: "A forgotten 'off' leaves the network unfiltered; Pause is safer for troubleshooting."},
-	{Key: "dns.blocking.mode", Section: "blocking", Label: "Blocked answer",
+	{Key: "dns.blocking.mode", Flush: true, Section: "blocking", Label: "Blocked answer",
 		Guide:     "What a device receives for a blocked name. NULL answers 0.0.0.0 / ::, so connections fail at once without a network round trip. NX says the name does not exist, which some apps retry aggressively. NODATA says the name exists but has no address. IP answers with the Pi-hole's own address, which shows a certificate error for every blocked HTTPS site.",
 		Recommend: "NULL", Why: "Fastest failure, fewest retries, no certificate warnings."},
 	{Key: "dns.blockTTL", Section: "blocking", Label: "Blocked answer lifetime (s)",
@@ -39,21 +43,21 @@ var phCatalogue = []phSetting{
 		Recommend: 2, Why: "Allowing a name should work immediately when you are fixing a device."},
 	{Key: "dns.cache.upstreamBlockedTTL", Section: "blocking", Label: "Upstream-blocked cache (s)",
 		Guide: "When the upstream resolver itself blocks a name (a filtering upstream such as Quad9), how long the Pi-hole remembers that. Zero turns the caching off."},
-	{Key: "dns.CNAMEdeepInspect", Section: "blocking", Label: "Inspect CNAME chains",
+	{Key: "dns.CNAMEdeepInspect", Flush: true, Section: "blocking", Label: "Inspect CNAME chains",
 		Guide:     "Also block a name when it is an alias (CNAME) for a blocked name. Catches trackers that hide behind a first-party name.",
 		Recommend: true},
-	{Key: "dns.blockESNI", Section: "blocking", Label: "Block ESNI keys",
+	{Key: "dns.blockESNI", Flush: true, Section: "blocking", Label: "Block ESNI keys",
 		Guide:     "Answers NXDOMAIN for _esni names, so Firefox does not encrypt the server name in the TLS handshake. This keeps names visible to FlowSight and to Pi-hole's own blocking.",
 		Recommend: true, Why: "Encrypted server names hide destinations from FlowSight's visibility and policy."},
 
-	{Key: "dns.specialDomains.iCloudPrivateRelay", Section: "special", Label: "Block iCloud Private Relay",
+	{Key: "dns.specialDomains.iCloudPrivateRelay", Flush: true, Section: "special", Label: "Block iCloud Private Relay",
 		Guide:   "On, the Pi-hole answers NXDOMAIN for mask.icloud.com and mask-h2.icloud.com. Apple devices then say “Private Relay is not available”, and Safari can fail to load pages until the person turns Private Relay off for this Wi-Fi. Off, Safari traffic from devices with Private Relay goes through Apple's relay, which neither the Pi-hole nor FlowSight can see into.",
 		Why:     "No single right answer: on keeps browsing visible and filtered but breaks Safari until each device is changed; off keeps Safari working but hides it. FlowSight raises a device advisory whenever a device keeps hitting this block.",
 		Caution: "Turning this on can stop Safari loading pages on iPhones, iPads and Macs that use Private Relay until each is changed."},
-	{Key: "dns.specialDomains.mozillaCanary", Section: "special", Label: "Keep Firefox on this resolver",
+	{Key: "dns.specialDomains.mozillaCanary", Flush: true, Section: "special", Label: "Keep Firefox on this resolver",
 		Guide:     "On, answers NXDOMAIN for use-application-dns.net, which tells Firefox not to switch itself to DNS-over-HTTPS. Off, Firefox may send its lookups to Cloudflare or another provider, bypassing the Pi-hole and FlowSight's DNS history.",
 		Recommend: true, Why: "Keeps Firefox's lookups filtered and visible."},
-	{Key: "dns.specialDomains.designatedResolver", Section: "special", Label: "Refuse automatic encrypted-DNS upgrade",
+	{Key: "dns.specialDomains.designatedResolver", Flush: true, Section: "special", Label: "Refuse automatic encrypted-DNS upgrade",
 		Guide:     "On, answers NODATA for _dns.resolver.arpa, so devices do not discover and move to an encrypted resolver elsewhere (Discovery of Designated Resolvers). Off, Windows 11, Android and Apple devices may upgrade to encrypted DNS and leave the Pi-hole.",
 		Recommend: true, Why: "Keeps devices on the resolver you filter and log."},
 

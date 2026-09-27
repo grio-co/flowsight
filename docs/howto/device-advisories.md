@@ -75,6 +75,10 @@ There is no single right fix; pick one:
    button, or the *Pi-hole* tab of DNS › *Device-specific behaviour*).
    Safari then goes through Apple's relay: it works, but neither the Pi-hole
    nor FlowSight can see which sites it visits.
+   Changing the setting on the Pi-hole by hand is not enough on its own:
+   Pi-hole keeps giving the old answer to a device that already asked until
+   its cache is flushed, so run `pihole reloadlists` too. FlowSight's
+   button does both.
 2. **Keep the relay off on this network.** Leave the Pi-hole setting on, and
    on the device turn off *Limit IP Address Tracking* for this Wi-Fi
    (Settings › Wi-Fi › ⓘ) or Private Relay itself. Safari's traffic then

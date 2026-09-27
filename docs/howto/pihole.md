@@ -76,6 +76,13 @@ than one Pi-hole, a change goes to all of them unless you pick one, and a
 setting whose value differs between them is marked. Every change, pause
 and list edit is recorded under *Status › Changes* with who made it.
 
+**Why some changes restart DNS.** Pi-hole remembers what it decided for each
+device and name. After a change to blocking or to the device-specific
+answers, a device that already asked keeps getting the old answer until
+Pi-hole's DNS service restarts, and that device is usually the one you are
+trying to fix. FlowSight restarts it after applying those settings. If you
+change them on the Pi-hole itself, run `pihole reloadlists` afterwards.
+
 ## Allow and deny lists
 
 *Allow* beats every blocklist: use it for a name a device needs. *Deny*

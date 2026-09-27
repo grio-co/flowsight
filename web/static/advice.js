@@ -97,7 +97,7 @@
   FS.adviceWire = (el, onDone) => {
     FS.$$('[data-adv-switch]', el).forEach(b => b.onclick = async () => {
       const t = JSON.parse(b.dataset.advSwitch);
-      if (!await FS.confirm(`Set ${t.key} to ${JSON.stringify(t.value)} on Pi-hole ${t.server}?`)) return;
+      if (!await FS.confirm(`Set ${t.key} to ${JSON.stringify(t.value)} on Pi-hole ${t.server}?\n\nThe Pi-hole restarts its DNS service so devices that already asked get the new answer (a second or two without answers).`)) return;
       b.disabled = true;
       const r = await FS.post('/api/pihole/config', { server: t.server, key: t.key, value: t.value });
       const res = ((r && r.results) || [])[0] || {};
@@ -206,11 +206,12 @@
         e.preventDefault();
         const key = f.dataset.key; const fd = new FormData(f);
         let value = fd.get('value'); if (value === 'true') value = true; else if (value === 'false') value = false;
-        const msg = [`Change ${key} on ${fd.get('server') === 'all' ? 'every connected Pi-hole' : fd.get('server')}?`, f.dataset.caution, f.dataset.restarts === '1' ? 'The Pi-hole restarts its DNS service to apply it (a second or two without answers).' : ''].filter(Boolean).join('\n\n');
+        const msg = [`Change ${key} on ${fd.get('server') === 'all' ? 'every connected Pi-hole' : fd.get('server')}?`, f.dataset.caution, f.dataset.restarts === '1' ? 'The Pi-hole restarts its DNS service to apply it, so devices that already asked get the new answer too (a second or two without answers).' : ''].filter(Boolean).join('\n\n');
         if (!await FS.confirm(msg)) return;
         const r = await FS.post('/api/pihole/config', { key, value, server: fd.get('server') });
         const bad = ((r && r.results) || []).filter(x => x.error);
-        FS.toast(r.error || (bad.length ? bad.map(x => x.host + ': ' + x.error).join('; ') : 'Applied'), !!(r.error || bad.length));
+        const notes = ((r && r.results) || []).filter(x => x.note).map(x => x.host + ': ' + x.note);
+        FS.toast(r.error || (bad.length ? bad.map(x => x.host + ': ' + x.error).join('; ') : notes.length ? notes.join('; ') : 'Applied'), !!(r.error || bad.length || notes.length));
         if (!r.error) FS.render();
       });
       const add = FS.$('form.ph-add', el); if (add) add.onsubmit = async (e) => {

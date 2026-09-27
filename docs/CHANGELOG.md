@@ -12,6 +12,16 @@ name, and every release's assets carry that string in their file names.
 
 The newest entry is first.
 
+## 0.9.8r202609270550
+
+**Pi-hole changes reach devices that already asked.** Pi-hole remembers its
+blocking decision per device and name, so turning off its Private Relay
+block (or changing another blocking or device-specific setting) did not
+reach the phone that was failing until Pi-hole's DNS service restarted.
+FlowSight now restarts it after applying those settings, and the
+confirmation says so. The Private Relay advisory's fix text says to run
+`pihole reloadlists` when the change is made on the Pi-hole by hand.
+
 ## 0.9.8r202609270545
 
 **Device advisories.** A new module watches the DNS log for answers that

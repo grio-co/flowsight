@@ -129,7 +129,7 @@ func fixFor(r *rule, source, list string) string {
 	switch {
 	case r != nil && r.Kind == "private_relay_blocked" && list == "pihole special domain":
 		return "Pi-hole " + resolverIP(source) + " answers NXDOMAIN for Private Relay on purpose (its dns.specialDomains.iCloudPrivateRelay setting, on by default). " +
-			"To let the relay work: pihole-FTL --config dns.specialDomains.iCloudPrivateRelay false on each Pi-hole. " +
+			"To let the relay work: pihole-FTL --config dns.specialDomains.iCloudPrivateRelay false on each Pi-hole, then pihole reloadlists, because Pi-hole keeps answering a device that already asked until its cache is flushed (the button here does both). " +
 			"To keep the relay off instead: on the device turn off Limit IP Address Tracking for this Wi-Fi, or turn Private Relay off."
 	case r == nil:
 		return ""

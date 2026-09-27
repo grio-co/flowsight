@@ -251,7 +251,7 @@ func (m *Module) apiConfig(r *core.Req) (any, error) {
 					item["allowed"] = d["allowed"]
 					item["default"] = d["default"]
 					if f, ok := d["flags"].(map[string]any); ok {
-						item["restarts_dns"] = f["restart_dnsmasq"] == true
+						item["restarts_dns"] = f["restart_dnsmasq"] == true || c.Flush
 					}
 					first = d["value"]
 				} else if !sameValue(first, d["value"]) {
@@ -392,6 +392,17 @@ func (m *Module) apiSetConfig(r *core.Req) (any, error) {
 		}
 		res["ok"], res["before"], res["after"] = true, before, val
 		ok++
+		// Pi-hole remembers what it decided for each device and name; a
+		// device that already asked keeps the old answer until the DNS
+		// service restarts, which is exactly the device someone is trying
+		// to fix. Settings that restart it themselves are left alone.
+		if f, _ := d["flags"].(map[string]any); c.Flush && f["restart_dnsmasq"] != true {
+			if _, _, err := m.call(v.s, "POST", "/api/action/restartdns", nil); err != nil {
+				res["note"] = "Saved, but the Pi-hole's DNS service could not be restarted (" + err.Error() + "): devices that already asked keep the old answer until it restarts (pihole reloadlists on the Pi-hole)."
+			} else {
+				res["restarted"] = true
+			}
+		}
 		bj, _ := json.Marshal(before)
 		aj, _ := json.Marshal(val)
 		_ = m.ctx.Store.RecordChange("pihole", v.s.Host+":"+c.Key, r.User, string(bj), string(aj),
