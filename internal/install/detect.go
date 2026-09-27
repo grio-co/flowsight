@@ -27,6 +27,7 @@ type Env struct {
 	GOARCH   string
 	UID      int
 	Getenv   func(string) string
+	Environ  func() []string
 	LookPath func(string) (string, error)
 	Run      func(name string, args ...string) (string, error)
 	Ifaces   func() ([]Iface, error)
@@ -48,7 +49,7 @@ type Iface struct {
 func LocalEnv() Env {
 	return Env{
 		Root: "/", GOOS: runtime.GOOS, GOARCH: runtime.GOARCH, UID: os.Getuid(),
-		Getenv: os.Getenv, LookPath: exec.LookPath,
+		Getenv: os.Getenv, Environ: os.Environ, LookPath: exec.LookPath,
 		Run: func(name string, args ...string) (string, error) {
 			cmd := exec.Command(name, args...)
 			done := make(chan struct{})

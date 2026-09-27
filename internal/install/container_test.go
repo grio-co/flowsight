@@ -116,3 +116,33 @@ func TestPrepareContainerMakesTheLinkedConfigDirectory(t *testing.T) {
 		t.Fatalf("the configuration is not on the data volume: %v", err)
 	}
 }
+
+// Named tokens for providers come from the environment, one variable each,
+// so a Kubernetes Secret can supply them; they are merged into api_tokens,
+// replacing one of the same name and keeping the rest.
+func TestContainerNamedTokensFromEnvironment(t *testing.T) {
+	b := containerBed(t, "")
+	if _, err := Apply(b.env, MakePlan(Detect(b.env), time.Now()), "test", time.Now(), func(string) {}); err != nil {
+		t.Fatal(err)
+	}
+	cfg := "/etc/flowsight/flowsight.json"
+	doc := readJSON(t, b, cfg)
+	doc["api_tokens"] = []any{map[string]any{"name": "kept", "token": "kept-token"}, map[string]any{"name": "suricata-lab", "token": "old"}}
+	out, _ := json.Marshal(doc)
+	if err := os.WriteFile(b.env.path(cfg), out, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	b.m.env["FLOWSIGHT_NAMED_TOKEN_SURICATA_LAB"] = "new-lab-token"
+	b.m.env["FLOWSIGHT_NAMED_TOKEN_EDGE"] = "edge-token"
+	if err := ContainerConfig(b.env, cfg); err != nil {
+		t.Fatal(err)
+	}
+	got := map[string]string{}
+	for _, it := range readJSON(t, b, cfg)["api_tokens"].([]any) {
+		m := it.(map[string]any)
+		got[m["name"].(string)] = m["token"].(string)
+	}
+	if got["kept"] != "kept-token" || got["suricata-lab"] != "new-lab-token" || got["edge"] != "edge-token" || len(got) != 3 {
+		t.Fatalf("api_tokens: %v", got)
+	}
+}

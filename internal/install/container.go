@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 // PrepareContainer makes sure the configuration directory can be written.
@@ -46,17 +47,24 @@ func ContainerConfig(e Env, path string) error {
 	if err := json.Unmarshal(b, &doc); err != nil {
 		return fmt.Errorf("%s: %w", path, err)
 	}
+	changed := false
 	if e.Getenv != nil {
 		if tok := e.Getenv("FLOWSIGHT_API_TOKEN"); tok != "" && doc["api_token"] != tok {
 			doc["api_token"] = tok
-			out, _ := json.MarshalIndent(doc, "", "  ")
-			tmp := full + ".tmp"
-			if err := os.WriteFile(tmp, append(out, '\n'), 0o600); err != nil {
-				return err
-			}
-			if err := os.Rename(tmp, full); err != nil {
-				return err
-			}
+			changed = true
+		}
+		if named := namedTokensFromEnv(e); len(named) > 0 && mergeNamedTokens(doc, named) {
+			changed = true
+		}
+	}
+	if changed {
+		out, _ := json.MarshalIndent(doc, "", "  ")
+		tmp := full + ".tmp"
+		if err := os.WriteFile(tmp, append(out, '\n'), 0o600); err != nil {
+			return err
+		}
+		if err := os.Rename(tmp, full); err != nil {
+			return err
 		}
 	}
 	bind, _ := doc["bind"].(string)
@@ -96,4 +104,54 @@ func Probe(e Env, path string) error {
 		return fmt.Errorf("health answered %d", code)
 	}
 	return nil
+}
+
+// namedTokenPrefix names environment variables that carry named API
+// tokens, as providers present them: FLOWSIGHT_NAMED_TOKEN_SURICATA_LAB is
+// the token named "suricata-lab". In Kubernetes each comes from a Secret.
+const namedTokenPrefix = "FLOWSIGHT_NAMED_TOKEN_"
+
+func namedTokensFromEnv(e Env) map[string]string {
+	if e.Environ == nil {
+		return nil
+	}
+	out := map[string]string{}
+	for _, kv := range e.Environ() {
+		k, v, ok := strings.Cut(kv, "=")
+		if !ok || !strings.HasPrefix(k, namedTokenPrefix) || v == "" {
+			continue
+		}
+		name := strings.ToLower(strings.ReplaceAll(strings.TrimPrefix(k, namedTokenPrefix), "_", "-"))
+		if name != "" {
+			out[name] = v
+		}
+	}
+	return out
+}
+
+// mergeNamedTokens sets each named token in api_tokens, replacing one of the
+// same name and keeping the others. It reports whether anything changed.
+func mergeNamedTokens(doc map[string]any, named map[string]string) bool {
+	list, _ := doc["api_tokens"].([]any)
+	changed := false
+	for name, tok := range named {
+		found := false
+		for _, it := range list {
+			m, ok := it.(map[string]any)
+			if !ok || m["name"] != name {
+				continue
+			}
+			found = true
+			if m["token"] != tok {
+				m["token"] = tok
+				changed = true
+			}
+		}
+		if !found {
+			list = append(list, map[string]any{"name": name, "token": tok})
+			changed = true
+		}
+	}
+	doc["api_tokens"] = list
+	return changed
 }

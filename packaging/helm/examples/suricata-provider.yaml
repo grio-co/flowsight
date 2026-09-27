@@ -1,0 +1,59 @@
+# Suricata in its own pod, sending to FlowSight over the provider protocol.
+#
+# The FlowSight chart must know the provider's named token:
+#   kubectl create secret generic suricata-lab-token --from-literal=token=<a long random token>
+#   helm install flowsight packaging/helm/flowsight \
+#     --set 'providers.tokens[0].name=suricata-lab' \
+#     --set 'providers.tokens[0].existingSecret=suricata-lab-token'
+# then apply this file in the same namespace. Suricata watches this pod's own
+# interface; to watch other traffic, run it where that traffic is (a node,
+# a SPAN port) and keep the provider beside it. The one rule here is a test:
+#   kubectl exec suricata-lab -c suricata -- curl -s http://flowsight:8080/flowsight-provider-test
+# raises "FlowSight provider test", which FlowSight shows as coming from
+# suricata@suricata-lab. Replace it with your rule set.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: suricata-rules
+data:
+  test.rules: |
+    alert http any any -> any any (msg:"FlowSight provider test"; http.uri; content:"flowsight-provider-test"; sid:9000001; rev:1;)
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: suricata-lab
+  labels: {app: suricata-lab}
+spec:
+  securityContext:
+    fsGroup: 65532   # the shared EVE log is readable by the provider's group
+  containers:
+    - name: suricata
+      image: jasonish/suricata:7.0
+      # -k none: container networks often offload checksums
+      command: ["/usr/bin/suricata", "-i", "eth0", "-S", "/rules/test.rules", "-l", "/var/log/suricata", "-k", "none"]
+      securityContext:
+        runAsUser: 0
+        capabilities: {add: ["NET_ADMIN", "NET_RAW", "SYS_NICE"]}
+      volumeMounts:
+        - {name: logs, mountPath: /var/log/suricata}
+        - {name: rules, mountPath: /rules}
+    - name: provider
+      image: flowsight:0.9.8   # your registry's FlowSight image
+      command: ["/usr/local/sbin/flowsightd", "provider", "suricata",
+                "-core", "http://flowsight:8080", "-eve", "/var/log/suricata/eve.json"]
+      env:
+        - name: FLOWSIGHT_PROVIDER_TOKEN
+          valueFrom: {secretKeyRef: {name: suricata-lab-token, key: token}}
+      securityContext:
+        runAsUser: 65532
+        runAsNonRoot: true
+        allowPrivilegeEscalation: false
+        readOnlyRootFilesystem: true
+        capabilities: {drop: ["ALL"]}
+      volumeMounts:
+        - {name: logs, mountPath: /var/log/suricata, readOnly: true}
+  volumes:
+    - {name: logs, emptyDir: {}}
+    - name: rules
+      configMap: {name: suricata-rules}

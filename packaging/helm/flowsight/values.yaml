@@ -16,6 +16,17 @@ apiToken:
   key: api-token
   value: ""
 
+# Named tokens for providers: a backend in another pod or on another host
+# (flowsightd provider suricata) presents one, and its name is the
+# provider's name. Each comes from a Secret.
+#   providers:
+#     tokens:
+#       - name: suricata-lab
+#         existingSecret: suricata-lab-token
+#         key: token
+providers:
+  tokens: []
+
 service:
   type: ClusterIP
   port: 8080

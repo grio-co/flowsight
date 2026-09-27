@@ -111,6 +111,18 @@ chart makes the Secret), or, with neither, is generated on first start and
 printed once in the pod's log. Rotating the Secret and restarting the pod
 changes the token. The probes run `flowsightd health`.
 
+**Suricata in its own pod.** A backend outside FlowSight's pod sends to it
+over the provider protocol with a named token; `providers.tokens` gives the
+chart each one from a Secret (in a container, any
+`FLOWSIGHT_NAMED_TOKEN_<NAME>` variable becomes the token named `<name>`).
+`packaging/helm/examples/suricata-provider.yaml` runs Suricata with
+`flowsightd provider suricata` beside it: the provider tails Suricata's
+EVE log and sends alerts and TLS records, which FlowSight shows as coming
+from `suricata@<name>`. Outside Kubernetes the same command runs next to any
+Suricata: `flowsightd provider suricata -core http://<flowsight>:8080 -eve
+/var/log/suricata/eve.json`, with the token in `FLOWSIGHT_PROVIDER_TOKEN`
+or `-token-file`.
+
 ## OPNsense
 
 1. Install `os-ntopng` from System › Firmware › Plugins (recommended; it

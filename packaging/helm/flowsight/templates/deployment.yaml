@@ -38,8 +38,9 @@ spec:
             - name: http
               containerPort: 8080
           {{- $secret := include "flowsight.secretName" . }}
-          {{- if $secret }}
+          {{- if or $secret .Values.providers.tokens }}
           env:
+            {{- if $secret }}
             # The token is the Secret's: written into the configuration at
             # every start, so rotating the Secret and restarting is enough.
             - name: FLOWSIGHT_API_TOKEN
@@ -47,6 +48,15 @@ spec:
                 secretKeyRef:
                   name: {{ $secret }}
                   key: {{ .Values.apiToken.key }}
+            {{- end }}
+            {{- range .Values.providers.tokens }}
+            # A provider's named token; the name is the provider's name.
+            - name: FLOWSIGHT_NAMED_TOKEN_{{ .name | upper | replace "-" "_" }}
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .existingSecret }}
+                  key: {{ .key | default "token" }}
+            {{- end }}
           {{- end }}
           startupProbe:
             exec:

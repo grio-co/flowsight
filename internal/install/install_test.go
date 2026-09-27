@@ -41,6 +41,13 @@ func (m *fakeMachine) env_() Env {
 	return Env{
 		Root: root, GOOS: m.goos, GOARCH: "amd64", UID: m.uid,
 		Getenv: func(k string) string { return m.env[k] },
+		Environ: func() []string {
+			var out []string
+			for k, v := range m.env {
+				out = append(out, k+"="+v)
+			}
+			return out
+		},
 		LookPath: func(b string) (string, error) {
 			if m.bins[b] {
 				return "/usr/bin/" + b, nil
