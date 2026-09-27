@@ -135,6 +135,8 @@ Download the full OpenAPI 3.0 specification at `GET /api/openapi.json` for use w
 |---|---|---|---|
 | GET | `/api/categories/lookup` | Look up which categories a domain belongs to | domain |
 | POST | `/api/categories/update` | Refresh one or all feed sources now in the background | none |
+| GET | `/api/categories/{name}/domains` | Read a category's downloaded (or custom) domain list: the file as cached on the gateway, searchable and paged, so what a category blocks can be seen rather than taken on trust | name, q, offset, limit |
+| GET | `/api/categories/{name}/download` | The category's cached domain list as plain text, one domain per line, as downloaded from its source (or as entered, for a custom category) | name |
 
 ### dns
 

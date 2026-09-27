@@ -232,7 +232,7 @@
       const rows = d.apps || [];
       const byCat = {}; rows.forEach(a => { const c = a.category || 'Unknown'; byCat[c] = (byCat[c] || 0) + (a.flows || 0); });
       const breedPill = b => b ? pill(b, { Safe: 'ok', Acceptable: 'ok', Fun: 'info', Unsafe: 'warn', Dangerous: 'bad', Potentially_Dangerous: 'warn' }[b] || '') : '';
-      el.innerHTML = `<div class="two">${card('Applications', table(rows, [
+      el.innerHTML = `<div class="help" style="margin-bottom:10px">Applications and their categories are identified by nDPI from each flow's own packets; the breed is its risk grade. These are not the web-content categories under Protect \u203a Categories; <a href="https://github.com/grio-co/flowsight/blob/main/docs/howto/categories-and-apps.md" target="_blank" rel="noopener">how each is identified</a>.</div><div class="two">${card('Applications', table(rows, [
         { t: 'Application', f: r => `<a href="#flows?app=${encodeURIComponent(r.app)}">${esc(r.app)}</a>`, sort: 'app' },
         { t: 'Category', k: 'category' }, { t: 'Breed', f: r => breedPill(r.breed), sort: 'breed' },
         { t: 'Sessions', f: r => num(r.flows), num: true, sort: 'flows' },

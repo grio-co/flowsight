@@ -12,7 +12,7 @@ name, and every release's assets carry that string in their file names.
 
 The newest entry is first.
 
-## 0.9.8rPENDING
+## 0.9.8r202609270416
 
 **A bandwidth test from the firewall.** *Run a bandwidth test* on the
 Priority page, and on the qos panel under Settings, measures what the link
@@ -31,6 +31,22 @@ exchange is its public server list and test files over plain HTTP.
 
 **DLP: ephemeral ports fold.** *Other · UDP 40317* and its hundred siblings
 are one *Other · UDP high ports* row.
+
+**Categories you can read.** Every category on the Categories page has
+*View* (the cached list, searchable and paged, with its source and age) and
+*Download* (the list as a text file). `GET /api/categories/{name}/domains`
+and `/download`.
+
+**A Whitelist category.** A reserved custom category named *whitelist*
+exists on the Categories page. Names in it are never blocked by any policy:
+the compiler folds them into every policy's allow-list, so DNS and the web
+proxy let them through whatever else the policy denies. Edit it like any
+custom list.
+
+**Two kinds of category, explained.** A new how-to, *Categories and
+applications*, says what nDPI application categories are, where they come
+from and how they differ from the web-content categories on the Categories
+page; the Categories, Applications and Policies pages link to it.
 
 ## 0.9.8r202609270402
 
@@ -343,7 +359,7 @@ zones.json editor.
 
 **Complete API documentation:** All 223 routes across categories, inspect, space, TLS, web, netflow, users, baseline, and firewall modules are now documented to the contract with descriptions, parameters, response schemas, and realistic examples. The API specification is machine-validated to ensure every route's documentation matches how it actually handles requests.
 
-## 0.9.8rPENDING
+## 0.9.8r202609260001
 
 **Encrypted traffic: visibility shows what FlowSight can and cannot see.**
 Each flow now carries a `visibility` field showing why it is or is not readable:

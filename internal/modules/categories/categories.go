@@ -58,7 +58,8 @@ var defaultFeeds = map[string]string{
 
 // Short descriptions for the UI.
 var descriptions = map[string]string{
-	"ads": "Advertising networks", "tracking": "Telemetry and trackers", "malware": "Malware distribution",
+	"whitelist": "Never blocked by any policy: a name here is let through by every policy, whatever else it denies. Edit it like any custom list.",
+	"ads":       "Advertising networks", "tracking": "Telemetry and trackers", "malware": "Malware distribution",
 	"phishing": "Credential phishing", "ransomware": "Ransomware C2 and payloads", "scam": "Scam sites",
 	"fraud": "Fraud", "abuse": "Abuse and exploitation", "gambling": "Gambling", "adult": "Adult content",
 	"drugs": "Drugs", "piracy": "Piracy", "torrent": "Torrent trackers and indexes", "crypto": "Cryptocurrency and mining",
@@ -119,6 +120,7 @@ func (m *Module) Setup(ctx *core.Context) error {
 	hours := core.Int(ctx.Settings(), "update_hours", 24)
 	ctx.Every("update", time.Duration(hours)*time.Hour, m.updateAll, core.Delayed())
 	ctx.Every("bootstrap", 24*time.Hour, m.bootstrap)
+	m.seedWhitelist()
 	ctx.Route("GET", "/api/categories", m.apiList, core.Doc("List all category feeds with their domain counts and update status"),
 		core.Returns("Category list with statistics", map[string]any{
 			"categories": []map[string]any{
@@ -131,6 +133,18 @@ func (m *Module) Setup(ctx *core.Context) error {
 			core.Fld("category", "string", false, "Specific category to refresh; omit to refresh all", "ads"),
 		),
 		core.Returns("Background refresh initiated", map[string]any{"ok": true, "note": "refreshing 1 feed(s) in the background"}))
+	ctx.Route("GET", "/api/categories/{name}/domains", m.apiDomains,
+		core.PathParam("name", "string", "Category name", "ads"),
+		core.Query("q", "string", "Only domains containing this text", false, "doubleclick"),
+		core.Query("offset", "integer", "Skip this many matching domains (paging)", false, 0),
+		core.Query("limit", "integer", "Domains to return (default 200, max 2000)", false, 200),
+		core.Doc("Read a category's downloaded (or custom) domain list: the file as cached on the gateway, searchable and paged, so what a category blocks can be seen rather than taken on trust"),
+		core.Returns("Domains", map[string]any{"name": "ads", "total": 50000, "matched": 12, "offset": 0, "limit": 200, "source": "https://…/ads.txt", "updated": 1790376243,
+			"domains": []string{"ads.example.net", "track.example.org"}}))
+	ctx.Route("GET", "/api/categories/{name}/download", m.apiDownload,
+		core.PathParam("name", "string", "Category name", "ads"),
+		core.Doc("The category's cached domain list as plain text, one domain per line, as downloaded from its source (or as entered, for a custom category)"),
+		core.Returns("Plain text", map[string]any{"content_type": "text/plain", "body": "ads.example.net\ntrack.example.org\n"}))
 	ctx.Route("GET", "/api/categories/lookup", m.apiLookup, core.Doc("Look up which categories a domain belongs to"),
 		core.Query("domain", "string", "Domain name to classify", true, "example.com"),
 		core.Returns("Domain classification results", map[string]any{
@@ -669,4 +683,67 @@ func (m *Module) apiCustom(r *core.Req) (any, error) {
 	m.scan()
 	m.rebuildIndex()
 	return map[string]any{"ok": true}, nil
+}
+
+// apiDomains shows the list behind a category. A category is a claim
+// about fifty thousand names; the operator should be able to read the
+// claim, search it, and see the source and its age.
+func (m *Module) apiDomains(r *core.Req) (any, error) {
+	name := strings.ToLower(strings.TrimSpace(r.Params["name"]))
+	q := strings.ToLower(strings.TrimSpace(r.Q("q", "")))
+	offset := r.QInt("offset", 0, 0, 10_000_000)
+	limit := r.QInt("limit", 200, 1, 2000)
+	all, err := m.Domains(name)
+	if err != nil {
+		return nil, core.NotFound("%v", err)
+	}
+	var info core.CategoryInfo
+	for _, ci := range m.List() {
+		if ci.Name == name {
+			info = ci
+		}
+	}
+	matched := 0
+	out := make([]string, 0, limit)
+	for _, d := range all {
+		if q != "" && !strings.Contains(d, q) {
+			continue
+		}
+		if matched >= offset && len(out) < limit {
+			out = append(out, d)
+		}
+		matched++
+	}
+	return map[string]any{"name": name, "total": len(all), "matched": matched, "offset": offset, "limit": limit,
+		"source": info.Source, "updated": info.Updated, "domains": out}, nil
+}
+
+// apiDownload serves the list as the text file it is.
+func (m *Module) apiDownload(r *core.Req) (any, error) {
+	name := strings.ToLower(strings.TrimSpace(r.Params["name"]))
+	all, err := m.Domains(name)
+	if err != nil {
+		return nil, core.NotFound("%v", err)
+	}
+	return core.Raw{ContentType: "text/plain; charset=utf-8", Body: []byte(strings.Join(all, "\n") + "\n"),
+		Filename: "flowsight-category-" + name + ".txt"}, nil
+}
+
+// seedWhitelist makes sure the reserved "whitelist" category exists, empty
+// until the operator fills it. Names in it are never blocked by any policy;
+// the policy compiler folds them into every policy's allow-list.
+func (m *Module) seedWhitelist() {
+	cur, _ := m.ctx.Settings()["custom"].(map[string]any)
+	if _, ok := cur["whitelist"]; ok {
+		return
+	}
+	next := map[string]any{}
+	for k, v := range cur {
+		next[k] = v
+	}
+	next["whitelist"] = []string{}
+	if err := m.ctx.Config.SetModule(m.ctx.Name, map[string]any{"custom": next}); err != nil {
+		return
+	}
+	m.loadCustom()
 }

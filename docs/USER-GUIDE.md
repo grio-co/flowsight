@@ -936,6 +936,8 @@ in a compact form.
 
 What is on the network, by address and by device.
 
+**Reading a list, and the whitelist.** *View* on any category shows the list as cached on the gateway, searchable and paged, with its source and the time it was fetched; *Download* gives the file. The reserved custom category *whitelist* is the one list that allows rather than denies: names in it are folded into every policy's allow-list at compile time, so no policy blocks them. Web-content categories and nDPI application categories are different things; *HOWTO: categories and applications* (docs/howto/categories-and-apps.md) explains both and how each is identified.
+
 ### IP Addresses
 
 Every device seen in the window. Columns: name (from DHCP, reservation or

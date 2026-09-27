@@ -418,6 +418,7 @@ func (m *Module) providers() []core.Provider { return m.ctx.Core.ProviderList() 
 // validating and reverting on its own failure.
 func (m *Module) plan(apply bool) (*Plan, error) {
 	doc := m.Doc()
+	m.applyWhitelist(doc)
 	m.mu.RLock()
 	loadErr := m.loadErr
 	m.mu.RUnlock()
@@ -622,6 +623,13 @@ func (m *Module) signature() string {
 		}
 	}
 	if c, ok := m.ctx.Service("categories").(core.Categories); ok {
+		// The whitelist is an input to every policy, so its contents, not
+		// only its size, are part of the signature.
+		if wl, err := c.Domains(whitelistCategory); err == nil {
+			for _, d := range wl {
+				fmt.Fprintf(h, "wl:%s,", d)
+			}
+		}
 		for _, ci := range c.List() {
 			fmt.Fprintf(h, "%s:%d:%d;", ci.Name, ci.Domains, ci.Updated)
 		}
@@ -943,4 +951,34 @@ func (m *Module) apiCapabilities(r *core.Req) (any, error) {
 	sort.Strings(appCatList)
 	return map[string]any{"providers": provs, "capabilities": m.ctx.Core.Capabilities(),
 		"categories": cats, "apps": apps, "app_categories": appCatList}, nil
+}
+
+// whitelistCategory is the one web category that means the opposite of the
+// others: names in it are never blocked by any policy. It is a custom
+// category on the Categories page, so it is edited like any other list,
+// and it is folded into every policy's allow-list at compile time, which
+// is how the DNS and web providers already carry exceptions.
+const whitelistCategory = "whitelist"
+
+func (m *Module) applyWhitelist(doc *core.PolicyDoc) {
+	c, ok := m.ctx.Service("categories").(core.Categories)
+	if !ok || doc == nil {
+		return
+	}
+	wl, err := c.Domains(whitelistCategory)
+	if err != nil || len(wl) == 0 {
+		return
+	}
+	for i := range doc.Policies {
+		have := map[string]bool{}
+		for _, d := range doc.Policies[i].Allow.Domains {
+			have[strings.ToLower(d)] = true
+		}
+		for _, d := range wl {
+			if d = strings.ToLower(strings.TrimSpace(d)); d != "" && !have[d] {
+				doc.Policies[i].Allow.Domains = append(doc.Policies[i].Allow.Domains, d)
+				have[d] = true
+			}
+		}
+	}
 }
