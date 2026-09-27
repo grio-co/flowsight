@@ -16,6 +16,8 @@ Start here after you install FlowSight. The first hour covers the setup wizard, 
 Understand what is on your network: devices, zones, and how to identify unknowns.
 
 - [See what one device is talking to](device-traffic.md) — find a device on the Devices or IP Addresses page, open its host page, review sessions and applications
+- [Fix "my phone can't browse": device advisories](device-advisories.md) — what each advisory means, where it appears, and the one-click Pi-hole fixes
+- [Use Pi-hole with FlowSight](pihole.md) — connect a Pi-hole, let FlowSight change its settings, pause blocking, edit allow and deny lists
 - [Identify an unknown device](identify-device.md) — scan the network for device fingerprints, assign it to a zone, view its details and history
 - [Map your Proxmox guests](proxmox-guests.md) — **Pro** — inventory Proxmox VMs and containers, view the dependency map, add notes about guests
 

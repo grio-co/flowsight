@@ -48,6 +48,10 @@
         ${kpi('Threats', num(sum.alerts_last_hour), 'IDS alerts, last hour', sum.alerts_last_hour ? 'bad' : '')}
         ${kpi('Findings', num(openF.length), `${sev.critical + sev.high} high or critical`, sev.critical ? 'bad' : sev.high ? 'warn' : '')}
       </div>
+      ${openF.some(f => f.module === 'advisor') || (FS.findingDevice && openF.some(f => FS.findingDevice(f))) ? `<div class="grid cols-2 attn" style="margin-top:14px">
+        ${openF.some(f => f.module === 'advisor') ? card('Needs attention', FS.adviceHTML(openF.filter(f => f.module === 'advisor'), { max: 4 }), 'problems people notice on a device, with the fix') : ''}
+        ${card('Devices needing attention', FS.devicesAttentionHTML(openF), `<a href="#findings">all findings</a>`)}
+      </div>` : ''}
       <div class="grid cols-2" style="margin-top:14px">
         ${card('Traffic', chart([{ name: 'download', points: traffic.map(p => [p.t, p.bytes_in]) }, { name: 'upload', points: traffic.map(p => [p.t, p.bytes_out]) }], { fmt: bytes, area: true, tall: true }) + FS.legend(['download', 'upload']))}
         ${card('Throughput', chart(((ts.throughput_download_bps || []).length || (ts.throughput_upload_bps || []).length)
@@ -82,6 +86,7 @@
           FS.$('[id="dismiss-banner"]', el).closest('div').remove();
         };
       }
+      if (FS.adviceWire) FS.adviceWire(el, () => FS.render());
     }
   });
 
@@ -89,7 +94,7 @@
   FS.registerPage('hosts', {
     title: 'IP Addresses', refresh: 30,
     async render(el, ctx) {
-      const d = await get(`/api/identity/hosts?${FS.since()}${ctx.params.all ? '&all=1' : ''}`);
+      const [d] = await Promise.all([get(`/api/identity/hosts?${FS.since()}${ctx.params.all ? '&all=1' : ''}`), (FS.loadIssues ? FS.loadIssues() : null)]);
       if (d.error) { el.innerHTML = FS.err(d.error); return; }
       let rows = d.hosts || [];
       const q = (ctx.params.q || '').toLowerCase();
@@ -116,7 +121,7 @@
       el.innerHTML = `<div class="actions"><span class="muted">${byDevice ? `${rows.length} devices (${seen} addresses)` : `${rows.length} addresses`} seen in the last ${FS.state.hours}h</span><label class="small" style="margin-left:12px;display:inline-flex;align-items:center;gap:6px"><input type="checkbox" id="by-device" ${byDevice ? 'checked' : ''}> one row per device</label><span class="spacer" style="flex:1"></span><a class="btn" href="#hosts?all=1">Include inactive</a></div>` +
         card('IP Addresses', table(rows, [
           // The address is the row; the device it belongs to reads under it.
-          { t: 'Address', f: r => `<a href="#host/${encodeURIComponent(r.ip)}" class="mono">${esc(r.ip)}</a>${r.name ? `<div class="muted small">${esc(r.name)}${FS.provenanceMark(r.name_source, r.name_confidence)}</div>` : ''}` + (r.addrs && r.addrs.length > 1 ? `<div class="muted small mono">${r.addrs.filter(a => a !== r.ip).map(a => `<a href="#host/${encodeURIComponent(a)}">${esc(a)}</a>`).join(' · ')}</div>` : ''), sort: 'ip' },
+          { t: 'Address', f: r => `<a href="#host/${encodeURIComponent(r.ip)}" class="mono">${esc(r.ip)}</a>${FS.issueMark ? FS.issueMark(r.ip, r.mac, ...(r.addrs || [])) : ''}${r.name ? `<div class="muted small">${esc(r.name)}${FS.provenanceMark(r.name_source, r.name_confidence)}</div>` : ''}` + (r.addrs && r.addrs.length > 1 ? `<div class="muted small mono">${r.addrs.filter(a => a !== r.ip).map(a => `<a href="#host/${encodeURIComponent(a)}">${esc(a)}</a>`).join(' · ')}</div>` : ''), sort: 'ip' },
           { t: 'Device', f: r => esc(r.name || ''), sort: 'name' },
           { t: 'MAC', f: r => `<span class="mono">${esc(r.mac || '')}</span>${r.randomized ? ' ' + pill('private', '') : ''}`, sort: 'mac' },
           { t: 'Vendor', k: 'vendor' }, { t: 'Zone', f: r => r.zone ? pill(r.zone, 'info') : '', sort: 'zone' },
@@ -134,17 +139,21 @@
     title: 'Host', refresh: 30,
     async render(el, ctx) {
       const ip = ctx.arg; if (!ip) { el.innerHTML = FS.err('no host given'); return; }
-      const [d, scanData, visData] = await Promise.all([
+      const [d, scanData, visData, hf] = await Promise.all([
         get(`/api/visibility/host?ip=${encodeURIComponent(ip)}&${FS.since()}`),
         get(`/api/scan/result?ip=${encodeURIComponent(ip)}`),
-        get(`/api/visibility/visibility?ip=${encodeURIComponent(ip)}&${FS.since()}`)
+        get(`/api/visibility/visibility?ip=${encodeURIComponent(ip)}&${FS.since()}`),
+        get(`/api/system/findings?host=${encodeURIComponent(ip)}`)
       ]);
       if (d.error) { el.innerHTML = FS.err(d.error); return; }
+      // Findings about this device from every module, across all its addresses.
+      const devF = ((hf && hf.findings) || d.findings || []).filter(f => !f.acked);
       const h = d.host || {}, dev = d.device || {}, t = d.totals || {}, dt = d.dns_totals || {};
       const scan = scanData && !scanData.error ? scanData : null;
       FS.setTitle((h.name || ip) + (h.name ? ` · ${ip}` : ''));
       const identCard = `<dl class="kv"><dt>Address</dt><dd class="mono">${esc(ip)}${(d.addresses || []).length > 1 ? `<div class="small muted" style="margin-top:3px">also ${(d.addresses || []).filter(a => a !== ip).map(a => `<a href="#host/${encodeURIComponent(a)}" class="mono">${esc(a)}</a>`).join(', ')}</div>` : ''}</dd><dt>Name</dt><dd>${esc(h.name || '—')} <a href="#" id="rename" class="small">rename</a></dd><dt>MAC</dt><dd class="mono">${esc(h.mac || '—')}</dd><dt>Vendor</dt><dd>${esc(h.vendor || '—')}</dd><dt>Zone</dt><dd>${esc(dev.zone || h.zone || '—')}</dd><dt>Class</dt><dd>${esc(dev.class || dev.device_type || h.device_type || '—')}</dd>${dev.proxmox ? `<dt>Proxmox</dt><dd>${esc(dev.proxmox.name)} (${dev.proxmox.type} ${dev.proxmox.vmid} on ${esc(dev.proxmox.node)})</dd>` : ''}<dt>First seen</dt><dd>${h.first_seen ? when(h.first_seen) : '—'}</dd><dt>Last seen</dt><dd>${ago(h.last_seen)}</dd></dl><div class="actions"><button class="btn small" id="identify">Identify device</button></div>`;
       el.innerHTML = `
+      ${devF.length && FS.adviceHTML ? `<div class="attn" style="margin-bottom:14px">${card(`Needs attention on this device`, FS.adviceHTML(devF, { hideDevice: true, max: 5 }), `${num(devF.length)} open \u00b7 details in Findings below`)}</div>` : ''}
       <div class="grid cols-4">
         ${card('Identity', identCard)}
         ${kpi('Traffic', bytes((t.bytes_in || 0) + (t.bytes_out || 0)), `${bytes(t.bytes_in)} down · ${bytes(t.bytes_out)} up`)}
@@ -171,8 +180,9 @@
       <div style="margin-top:14px">${card('Recent flows', table(d.flows || [], [{ t: 'When', f: r => when(r.end_ts || r.ts), sort: 'ts' }, { t: 'Destination', f: r => `${FS.ipTag(r.dst_ip, r.dst_name)}:${r.dst_port} <span class="muted small">${esc(r.proto)}</span>`, sort: 'dst_ip' }, { t: 'Application', f: r => `${esc(r.app || '')} <span class="muted small">${esc(r.category || '')}</span>`, sort: 'app' }, { t: 'Site', f: r => esc(r.domain || ''), sort: 'domain' }, { t: 'Down', f: r => bytes(r.bytes_in), num: true, sort: 'bytes_in' }, { t: 'Up', f: r => bytes(r.bytes_out), num: true, sort: 'bytes_out' }, { t: 'Verdict', f: r => FS.verdictPill(r.verdict) + (r.policy ? ` <span class="muted small">${esc(r.policy)}</span>` : ''), sort: 'verdict' }]))}</div>
       <div class="grid cols-2" style="margin-top:14px">
         ${card('Alerts', table(d.alerts || [], [{ t: 'When', f: r => when(r.ts), sort: 'ts' }, { t: 'Severity', f: r => FS.sevPill(r.severity), sort: 'severity' }, { t: 'Signature', k: 'signature' }, { t: 'Peer', f: r => r.src_ip === ip ? esc(r.dst_ip) : esc(r.src_ip) }]))}
-        ${card('Findings', table(d.findings || [], [{ t: 'Severity', f: r => FS.sevPill(r.severity) }, { t: 'Finding', f: r => `<b>${esc(r.title)}</b><div class="muted small">${esc(r.detail || '')}</div>` }]))}
-      </div>`;
+      </div>
+      <div style="margin-top:14px" id="host-findings">${card('Findings', devF.length ? table(devF, FS.findingCols().filter(c => c.t !== 'Who')) : FS.empty('No open findings for this device'), 'every address this device has used')}</div>`;
+      if (FS.adviceWire) FS.adviceWire(el, () => FS.render());
       // A quick way to the question everyone asks about a gadget.
       const idc = FS.$('#rename', el); if (idc && idc.parentNode && !FS.$('#abroad-link', el)) { const a = document.createElement('a'); a.id = 'abroad-link'; a.className = 'btn small'; a.href = '#flows?ip=' + encodeURIComponent(ip) + '&abroad=1'; a.textContent = 'Sessions outside the country'; idc.parentNode.appendChild(a); }
       if (idc && idc.parentNode && !FS.$('#baseline-link', el)) { const b = document.createElement('a'); b.id = 'baseline-link'; b.className = 'btn small'; b.href = '#anomalies?ip=' + encodeURIComponent(ip); b.textContent = 'Baseline'; idc.parentNode.appendChild(b); }
@@ -265,13 +275,15 @@
     title: 'DNS', refresh: 30,
     async render(el, ctx) {
       const p = ctx.params; const lq = new URLSearchParams({ limit: 300 }); if (p.client) lq.set('client', p.client); if (p.domain) lq.set('domain', p.domain); if (p.blocked) lq.set('blocked', '1');
-      const [s, l, ts] = await Promise.all([get(`/api/dns/summary?${FS.since()}&limit=12`), get('/api/dns/log?' + lq), get(`/api/dns/timeseries?${FS.since()}`)]);
+      const [s, l, ts, tabs, adv] = await Promise.all([get(`/api/dns/summary?${FS.since()}&limit=12`), get('/api/dns/log?' + lq), get(`/api/dns/timeseries?${FS.since()}`), (FS.dnsTabs ? FS.dnsTabs('dns') : ''), get('/api/system/findings?module=advisor' + (p.client ? '&host=' + encodeURIComponent(p.client) : ''))]);
       if (s.error) { el.innerHTML = FS.err(s.error); return; }
       const t = s.totals || {}, live = s.live || {};
-      el.innerHTML = `<div class="grid cols-5" style="grid-template-columns:repeat(5,minmax(0,1fr))">${kpi('Queries', num(t.queries), `${num(t.clients)} clients · ${num(t.domains)} domains`)}${kpi('Blocked', num(t.blocked), FS.pct(t.blocked, t.queries), t.blocked ? 'warn' : '')}${kpi('Cache hits', FS.pct(live.cached, live.queries), 'of answers (raw window)')}${kpi('Failures', num((live.nxdomain || 0) + (live.servfail || 0)), `${num(live.nxdomain)} NXDOMAIN · ${num(live.servfail)} SERVFAIL`)}${kpi('Latency', (live.avg_ms || 0).toFixed(1) + ' ms', 'average resolution')}</div>
+      const advF = ((adv && adv.findings) || []).filter(f => !f.acked);
+      el.innerHTML = tabs + (advF.length && FS.adviceHTML ? `<div class="attn" style="margin-bottom:14px">${card('Device advisories', FS.adviceHTML(advF, { max: 5 }), 'DNS answers that are breaking something on a device')}</div>` : '') + `<div class="grid cols-5" style="grid-template-columns:repeat(5,minmax(0,1fr))">${kpi('Queries', num(t.queries), `${num(t.clients)} clients · ${num(t.domains)} domains`)}${kpi('Blocked', num(t.blocked), FS.pct(t.blocked, t.queries), t.blocked ? 'warn' : '')}${kpi('Cache hits', FS.pct(live.cached, live.queries), 'of answers (raw window)')}${kpi('Failures', num((live.nxdomain || 0) + (live.servfail || 0)), `${num(live.nxdomain)} NXDOMAIN · ${num(live.servfail)} SERVFAIL`)}${kpi('Latency', (live.avg_ms || 0).toFixed(1) + ' ms', 'average resolution')}</div>
       <div style="margin-top:14px">${card('Queries over time', chart([{ name: 'queries', points: (ts.series || []).map(x => [x.t, x.queries]) }, { name: 'blocked', points: (ts.series || []).map(x => [x.t, x.blocked]), color: '#dc2626' }], { area: true, tall: true }) + FS.legend(['queries', 'blocked']))}</div>
       <div class="grid cols-4" style="margin-top:14px">${card('Top domains', bars((s.top || []).map(d => ({ label: d.domain, value: d.queries, href: '#dns?domain=' + encodeURIComponent(d.domain) }))))}${card('Most blocked', bars((s.blocked || []).map(d => ({ label: d.domain, sub: d.list, value: d.queries }))))}${card('Clients', bars((s.clients || []).map(c => ({ label: c.name || c.ip, sub: `${num(c.blocked)} blocked`, value: c.queries, href: '#dns?client=' + c.ip }))))}${card('Blocked by', donut((s.lists || []).map(x => ({ label: x.list, value: x.queries }))))}</div>
       <div style="margin-top:14px">${card('Query log', `<div class="chips" style="margin-bottom:8px">${p.client ? `<span class="chip">client: ${esc(p.client)} <a href="#dns">×</a></span>` : ''}${p.domain ? `<span class="chip">domain: ${esc(p.domain)} <a href="#dns">×</a></span>` : ''}</div>` + table(l.queries || [], [{ t: 'When', f: r => when(r.ts), sort: 'ts' }, { t: 'Client', f: r => hostLink(r.client, r.client_name), sort: 'client' }, { t: 'Domain', f: r => `<a href="#dns?domain=${encodeURIComponent(r.domain)}">${esc(r.domain)}</a>`, sort: 'domain' }, { t: 'Via', f: r => `<span class="small muted">${esc((r.source || 'unbound').replace('pihole:', 'pi-hole ').replace('doh:', 'DoH '))}</span>`, sort: 'source' }, { t: 'Type', k: 'qtype' }, { t: 'Result', f: r => r.action === 'pass' ? pill(r.rcode || 'ok', r.rcode === 'NOERROR' ? 'ok' : '') : pill('blocked' + (r.list ? ' · ' + r.list : ''), 'bad'), sort: 'action' }, { t: 'Source', k: 'answer_source' }, { t: 'ms', f: r => (r.ms || 0).toFixed(0), num: true, sort: 'ms' }]), `<a href="#dns?blocked=1">blocked only</a>`)}</div>`;
+      if (FS.adviceWire) FS.adviceWire(el, () => FS.render());
     }
   });
 

@@ -327,7 +327,7 @@ func (c *Core) systemRoutes() {
 	a.Add("GET", "/api/system/events", c.apiEvents, "system", Doc("Normalised events"),
 		Params("kind", "event kind", "hours", "window", "limit", "rows"))
 	a.Add("GET", "/api/system/findings", c.apiFindings, "system", Doc("Open findings across modules"),
-		Params("module", "filter by module"))
+		Params("module", "filter by module", "host", "only findings about this device: an address or MAC; every address the device has used counts"))
 	a.Add("POST", "/api/system/findings/ack", c.apiFindingAck, "system", Write(), Doc("Acknowledge a finding"))
 	a.Add("GET", "/api/system/changes", c.apiChanges, "system", Doc("Configuration change history"),
 		Params("limit", "rows", "module", "filter"))
@@ -748,6 +748,10 @@ func (c *Core) apiFindings(r *Req) (any, error) {
 		q += ` AND module=?`
 		args = append(args, module)
 	}
+	host, err := r.QSafe("host", "", 64)
+	if err != nil {
+		return nil, err
+	}
 	q += ` ORDER BY CASE severity WHEN 'critical' THEN 0 WHEN 'high' THEN 1 WHEN 'medium' THEN 2
 		WHEN 'low' THEN 3 ELSE 4 END, ts DESC LIMIT 500`
 	rows, err := c.Store.Rows(q, args...)
@@ -759,7 +763,66 @@ func (c *Core) apiFindings(r *Req) (any, error) {
 			}
 		}
 	}
+	if host != "" {
+		ids := c.deviceIdentities(host)
+		kept := rows[:0]
+		for _, r := range rows {
+			if findingAbout(r, ids) {
+				kept = append(kept, r)
+			}
+		}
+		rows = kept
+	}
 	return map[string]any{"findings": rows}, err
+}
+
+// deviceIdentities returns every address and MAC one device is known by,
+// lower-cased: the one asked about, its MAC, and the other addresses that
+// MAC has used. A phone's IPv4 and IPv6 addresses are the same phone.
+func (c *Core) deviceIdentities(host string) map[string]bool {
+	h := strings.ToLower(strings.TrimSpace(host))
+	ids := map[string]bool{h: true}
+	mac := ""
+	if strings.Count(h, ":") == 5 && len(h) == 17 {
+		mac = h
+	} else if rows, _ := c.Store.Rows(`SELECT COALESCE(mac,'') AS mac FROM hosts WHERE ip=?`, host); len(rows) > 0 {
+		mac, _ = rows[0]["mac"].(string)
+		mac = strings.ToLower(mac)
+	}
+	if mac != "" {
+		ids[mac] = true
+		if rows, _ := c.Store.Rows(`SELECT ip FROM hosts WHERE lower(mac)=? LIMIT 32`, mac); len(rows) > 0 {
+			for _, r := range rows {
+				if ip, _ := r["ip"].(string); ip != "" {
+					ids[strings.ToLower(ip)] = true
+				}
+			}
+		}
+	}
+	return ids
+}
+
+// findingAbout reports whether a finding names one of a device's identities
+// as its subject or in its who.
+func findingAbout(r map[string]any, ids map[string]bool) bool {
+	if s, _ := r["subject"].(string); ids[strings.ToLower(s)] {
+		return true
+	}
+	a, _ := r["attrs"].(map[string]any)
+	w, _ := a["who"].(map[string]any)
+	for _, k := range []string{"ip", "mac"} {
+		if v, _ := w[k].(string); v != "" && ids[strings.ToLower(v)] {
+			return true
+		}
+	}
+	if addrs, _ := w["addresses"].([]any); addrs != nil {
+		for _, x := range addrs {
+			if v, _ := x.(string); ids[strings.ToLower(v)] {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func (c *Core) apiFindingAck(r *Req) (any, error) {

@@ -72,6 +72,15 @@ throughput over time, one line each for inbound and outbound; the top hosts by t
 categories; the busiest DNS names; recent alerts and findings. Every item
 links to its detail page.
 
+**Needs attention** lists device advisories: problems a person notices on a
+device ("Safari won't load", "No Internet on this Wi-Fi", "notifications
+stopped") whose cause is a DNS answer rather than a threat. Each says what
+the person sees, which resolver answered what for which names, and what to
+do, with a button when a connected Pi-hole can apply the fix. **Devices
+needing attention** lists every device with an open finding of any kind,
+worst first; click one for its page. See the how-to
+[Device advisories](howto/device-advisories.md).
+
 #### Ask
 
 A question in plain English, answered by a model that calls FlowSight's own
@@ -180,7 +189,25 @@ every 30 seconds, going back 24 hours on first contact, deduplicates by
 Pi-hole's query ids, and files each query under its client with the
 verdict and list (gravity, regex, denylist, upstream blocked). Client
 names Pi-hole knows are used for hosts FlowSight has no name for. Nothing is
-written to the Pi-holes.
+written to the Pi-holes unless you change something on the *Pi-hole* tab.
+
+**Device advisories** appear above the charts when a device keeps getting a
+failing answer for a name it depends on (Private Relay, connectivity checks,
+time, certificate checks, push, updates, sign-in protection), when a
+device's lookups fail outright, or when an app keeps retrying one blocked
+name. With a client filter only that client's are shown.
+[Device advisories](howto/device-advisories.md) lists what is watched.
+
+**Pi-hole tab.** While a Pi-hole v6 server is connected, the DNS page has a
+second tab, *Pi-hole*: the connected servers (version, blocking state,
+whether FlowSight may change settings), *Pause* and *Resume* for blocking,
+the allow and deny lists, and a curated set of settings in plain language,
+each with what it does, FlowSight's recommendation and why, Pi-hole's own
+description, and each server's value. Changing settings needs the Pi-hole's
+*Permit app password to modify config* switch; the tab says so for a server
+where it is off. Network binding (listening mode, interface, port) is view
+only. Every change is recorded under *Status › Changes*. See
+[Pi-hole with FlowSight](howto/pihole.md).
 
 ## Protect
 
@@ -993,6 +1020,14 @@ each (FlowSight policy or Pi-hole gravity, regex, denylist) and the
 resolver they came through; the policies that match it and which group
 brought it in; enrolment class and zone.
 
+**Needs attention on this device** sits at the top of a host page when the
+device has open findings: device advisories first, with what the person
+sees, the cause and the fix, then any other finding. It covers every address
+the device has used, so a phone's IPv4 and IPv6 findings appear together.
+The same findings, in full, are in the *Findings* card lower down. In the
+*IP Addresses* and *Devices* lists a warning mark beside a device names its
+open finding (or counts them); hover for the list, click for the device.
+
 ### Devices
 
 Every enrolled device with its class (phone, laptop, TV, camera, console,
@@ -1471,8 +1506,8 @@ All channels support:
 
 ### Findings
 
-Every open finding from every module in one list: severity, module, title,
-what to do, when first seen. Acknowledge to silence one until it changes.
+Every open finding from every module in one list: severity, who, what,
+where, why (with *What to do* for device advisories), when first seen. Acknowledge to silence one until it changes.
 Findings close on their own when the condition stops being true.
 
 ### Events

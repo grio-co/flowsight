@@ -783,3 +783,26 @@ tr.flagged td:first-child { box-shadow: inset 3px 0 0 var(--warn); }
 /* Application write-ups. */
 .note-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px 18px; }
 .note-grid .hg { margin-bottom: 4px; }
+
+/* Device advisories: what the person sees, the cause, the fix. */
+.advice { border-left: 3px solid var(--line); padding: 8px 10px; margin: 0 0 10px; background: var(--bg2, transparent); border-radius: 4px; }
+.advice.bad { border-left-color: #dc2626; }
+.advice.warn { border-left-color: #d97706; }
+.advice:last-child { margin-bottom: 0; }
+.advice-head { display: flex; flex-wrap: wrap; gap: 6px; align-items: baseline; }
+.advice-effect { margin-top: 4px; }
+.advice-cause { margin-top: 4px; }
+.advice-fix { margin-top: 6px; font-size: 13px; }
+.advice .actions { margin-top: 8px; }
+.attn-row { padding: 6px 0; border-bottom: 1px solid var(--line); }
+.attn-row:last-child { border-bottom: 0; }
+.issue-mark { margin-left: 6px; font-size: 11px; white-space: nowrap; text-decoration: none; }
+.dns-tabs a { padding: 8px 12px; color: var(--muted); text-decoration: none; border-bottom: 2px solid transparent; }
+.dns-tabs a.on { color: var(--fg, inherit); border-bottom-color: var(--accent, #2563eb); }
+.ph-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(220px, 34%); gap: 14px; padding: 10px 0; border-bottom: 1px solid var(--line); }
+.ph-row:last-child { border-bottom: 0; }
+.ph-main > div + div { margin-top: 4px; }
+.ph-side form { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; align-items: flex-start; }
+.ph-side textarea { width: 100%; font-family: var(--mono, monospace); font-size: 12px; }
+.ph-val { margin-bottom: 2px; }
+@media (max-width: 760px) { .ph-row { grid-template-columns: 1fr; } }

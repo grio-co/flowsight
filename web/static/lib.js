@@ -200,7 +200,7 @@ FS.placeModal = () => {
   m.style.bottom = 'auto';
   m.style.height = FS.hostView.height + 'px';
 };
-FS.confirm = (text) => new Promise(res => { FS.modal(`<h2>Please confirm</h2><p>${FS.esc(text)}</p><div class="actions"><button class="btn primary" id="ok">Confirm</button><button class="btn" id="cancel">Cancel</button></div>`, (b) => { FS.$('#ok', b).onclick = () => { FS.closeModal(); res(true); }; FS.$('#cancel', b).onclick = () => { FS.closeModal(); res(false); }; }); });
+FS.confirm = (text) => new Promise(res => { FS.modal(`<h2>Please confirm</h2><p style="white-space:pre-line">${FS.esc(text)}</p><div class="actions"><button class="btn primary" id="ok">Confirm</button><button class="btn" id="cancel">Cancel</button></div>`, (b) => { FS.$('#ok', b).onclick = () => { FS.closeModal(); res(true); }; FS.$('#cancel', b).onclick = () => { FS.closeModal(); res(false); }; }); });
 
 // card(title, bodyHtml, rightHtml)
 FS.card = (title, body, right) => `<div class="card"><h3>${FS.esc(title)}${right ? `<span class="right">${right}</span>` : ''}</h3>${body}</div>`;
@@ -1017,6 +1017,7 @@ FS.findingCols = (opts) => {
     if (w.percent != null) facts.push(`${w.percent}% (threshold ${w.threshold}%)`);
     if (w.nxdomain_pct != null) facts.push(`${w.nxdomain_pct}% NXDOMAIN, entropy ${Number(w.entropy || 0).toFixed(1)}`);
     if (w.since) facts.push(`open since ${FS.when(w.since)}`);
+    if (w.effect || w.fix) return `<div>${bits.join(' ')}</div>${w.effect ? `<div class="small">${FS.esc(w.effect)}</div>` : ''}${w.fix ? `<div class="small"><b>What to do.</b> ${FS.esc(w.fix)}</div>` : ''}${facts.length ? `<div class="muted small">${FS.esc(facts.join(' \u00b7 '))}</div>` : ''}<div class="muted small">${FS.esc(r.module || '')}</div>`;
     return `<div>${bits.join(' ')}</div><div class="small">${FS.esc(r.detail || '')}</div>${facts.length ? `<div class="muted small">${FS.esc(facts.join(' \u00b7 '))}</div>` : ''}<div class="muted small">${FS.esc(r.module || '')}</div>`;
   };
   const cols = [

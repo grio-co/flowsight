@@ -21,6 +21,15 @@ Every save of `flowsight.json` first keeps the previous contents as `flowsight.j
 
 ## Modules
 
+### advisor
+
+Device advisories: DNS answers that break something on a device (iCloud Private Relay, connectivity checks, network time, certificate checks, push, updates, sign-in protection), lookups that fail outright, and apps retrying one blocked name. Reads the DNS log; writes findings under module `advisor`, one per device and problem, which close once the failing answers stop. See `docs/howto/device-advisories.md`.
+
+| Key | Default | Meaning |
+|---|---|---|
+| `window_minutes` | 15 | Look-back window of each scan (every minute); an advisory stays open this long after the last failing answer |
+| `ignore_clients` | `[]` | Addresses never advised on |
+
 ### alerting
 
 Notification channels (multi-protocol, 54+ destinations), alert rules (severity/module/device matching), delivery configuration, and maintenance mode.
@@ -282,6 +291,22 @@ UDP flow collectors for NetFlow v5/v9, IPFIX, and sFlow v5. Extends visibility t
 | `allowed_cidrs` | Allowed exporter CIDRs | text | `(RFC1918 + link-local)` | Newline-separated CIDR ranges. Empty defaults to 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, 169.254.0.0/16, fe80::/10. |
 | `sampling_override` | Sampling multiplier | int | `0` | Multiply bytes and packets by this value (0 = use flow-provided rate). Set this if your exporter applies a fixed sampling ratio but does not export it per-flow. |
 | `max_exporters` | Maximum concurrent exporters | int | `100` | Drops records from exporters beyond this limit to protect memory. Increase if you have more than 100 devices exporting. |
+
+### pihole
+
+Pulls Pi-hole query logs into the DNS history and, on Pi-hole v6, offers a curated set of Pi-hole settings on the *Pi-hole* tab of the DNS page (shown only while a v6 server is connected). See `docs/howto/pihole.md`.
+
+| Key | Default | Meaning |
+|---|---|---|
+| `servers` | `[]` | One URL per line (`https://192.168.1.53`). A line starting with `#` is kept but not contacted |
+| `password` | | App password (v6) or API token (v5), shared by every server |
+| `verify_tls` | false | Verify the Pi-hole's certificate (off: v6 serves a self-signed one) |
+| `poll_seconds` | 30 | Pull interval (minimum 10) |
+| `history_hours` | 24 | History imported on first contact |
+| `import_names` | true | Use Pi-hole client names for hosts FlowSight has no name for |
+| `skip_local` | true | Ignore the Pi-hole's own queries |
+
+Changing Pi-hole settings from FlowSight needs `webserver.api.app_sudo = true` on each Pi-hole ("Permit app password to modify config"). Changes are limited to the curated keys; listening mode, interface and port are view only. Every change is written to the change history (module `pihole`).
 
 ### paths (Pro tier)
 

@@ -111,9 +111,10 @@ func (m *Module) Setup(ctx *core.Context) error {
 		"servers": []map[string]any{
 			{"url": "https://192.168.1.53", "host": "pihole.local", "version": "v6", "last_pull": 1790376243, "imported": 5000, "last_error": "", "watermark": 1790376243},
 		},
-		"configured": 1, "password_set": true,
+		"configured": 1, "connected": 1, "password_set": true,
 	}))
 	ctx.Route("POST", "/api/pihole/pull", m.apiPull, core.Write(), core.Doc("Pull from every server now"), core.Returns("Success", map[string]any{"ok": true}))
+	m.registerConfigRoutes(ctx)
 	return nil
 }
 
@@ -187,20 +188,13 @@ func (m *Module) pull() error {
 		return nil // a pull is already running (settings change and timer can coincide)
 	}
 	defer m.pulling.Unlock()
-	urls := core.Strs(m.ctx.Settings(), "servers")
+	urls := m.serverURLs()
 	if len(urls) == 0 {
 		return nil
 	}
 	pw := core.Str(m.ctx.Settings(), "password", "")
 	var firstErr error
-	for _, raw := range urls {
-		u := strings.TrimRight(strings.TrimSpace(raw), "/")
-		if u == "" {
-			continue
-		}
-		if !strings.Contains(u, "://") {
-			u = "https://" + u
-		}
+	for _, u := range urls {
 		s := m.state(u)
 		n, err := m.pullOne(s, pw)
 		m.mu.Lock()
@@ -682,7 +676,14 @@ func (m *Module) apiStatus(r *core.Req) (any, error) {
 		}
 		out = append(out, row)
 	}
-	return map[string]any{"servers": out, "configured": len(urls), "password_set": core.Str(m.ctx.Settings(), "password", "") != ""}, nil
+	connected := 0
+	for _, u := range m.serverURLs() {
+		if s := m.servers[u]; s != nil && s.Version == "v6" && s.LastPull > 0 && s.LastError == "" {
+			connected++
+		}
+	}
+	return map[string]any{"servers": out, "configured": len(urls), "connected": connected,
+		"password_set": core.Str(m.ctx.Settings(), "password", "") != ""}, nil
 }
 
 func (m *Module) apiPull(r *core.Req) (any, error) {

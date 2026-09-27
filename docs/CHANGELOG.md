@@ -12,6 +12,42 @@ name, and every release's assets carry that string in their file names.
 
 The newest entry is first.
 
+## 0.9.8r202609270545
+
+**Device advisories.** A new module watches the DNS log for answers that
+break something on a device while the network looks healthy: iCloud Private
+Relay blocked (Safari stops loading), connectivity checks blocked ("No
+Internet"), network time, certificate checks, push notifications, update
+checks and sign-in protection blocked, lookups failing outright, and an app
+retrying one blocked name over and over. Each advisory is one per device and
+problem, says what the person sees, which resolver answered what for which
+names and from which list, and what to do, down to the Pi-hole setting.
+They close on their own once the failing answers stop. How-to:
+`docs/howto/device-advisories.md`.
+
+**Where findings about a device show up.** The Overview has *Needs
+attention* (advisories with their fixes) and *Devices needing attention*
+(every device with an open finding, worst first). A device's page opens with
+*Needs attention on this device*, covering every address the device has used,
+and its *Findings* card now shows who/what/where/why. The Devices and IP
+Addresses lists mark a device with open findings. The DNS page lists
+advisories above its charts. Findings tables show *What to do* where a
+finding has one. `GET /api/system/findings` takes `host=` (an address or
+MAC) and matches all of that device's addresses.
+
+**Pi-hole configuration.** The DNS page gains a *Pi-hole* tab, present only
+while a Pi-hole v6 server is connected: servers with version and blocking
+state, pause and resume blocking, allow and deny lists, and a curated set of
+settings (blocking, Private Relay and other device-specific answers,
+upstreams and DNSSEC, local names, rate limit, logging and privacy) each
+explained in plain words with FlowSight's recommendation, Pi-hole's own
+description, and each server's value. Changing settings needs the Pi-hole's
+*Permit app password to modify config* switch; the tab says so where it is
+off. Listening mode, interface and port are view only. Every change is in
+the change history. Advisories a Pi-hole caused offer the fix as a button.
+A server line starting with `#` under *Settings › pihole* is now kept but
+not contacted. How-to: `docs/howto/pihole.md`.
+
 ## 0.9.8r202609270443
 
 **Inspection state poll unblocked.** The two previous revisions' anomaly

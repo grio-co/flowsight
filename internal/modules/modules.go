@@ -3,6 +3,7 @@
 package modules
 
 import (
+	_ "github.com/grioghar/flowsight/internal/modules/advisor"
 	_ "github.com/grioghar/flowsight/internal/modules/alerting"
 	_ "github.com/grioghar/flowsight/internal/modules/appcontrol"
 	_ "github.com/grioghar/flowsight/internal/modules/assistant"
