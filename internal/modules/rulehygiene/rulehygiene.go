@@ -314,13 +314,17 @@ func (m *Module) analyse() error {
 	m.mu.Unlock()
 
 	// Record findings in the store.
+	byText := make(map[string]Rule, len(rules))
+	for _, r := range rules {
+		byText[r.Text] = r
+	}
 	keep := make(map[string]bool)
 	for ruleText, findings := range result.Findings {
 		for _, f := range findings {
 			fp := m.fingerprintKey(ruleText, f.Kind)
-			isNew, _ := m.ctx.Store.AddFinding(
+			isNew, _ := m.ctx.Store.AddFindingWith(
 				"rulehygiene", f.Kind, f.Severity,
-				f.Subject, f.Title, f.Detail, fp,
+				f.Subject, f.Title, f.Detail, fp, ruleAttrs(byText[ruleText], ruleText, rulesetLoadedSec),
 			)
 			keep[fp] = true
 			if isNew {
@@ -773,4 +777,27 @@ func (m *Module) apiChanges(r *core.Req) (any, error) {
 func (m *Module) apiRun(r *core.Req) (any, error) {
 	_ = m.ctx.Core.Scheduler.RunNow("rulehygiene", "analyse")
 	return map[string]any{"ok": true}, nil
+}
+
+// ruleAttrs is the what and why of a rule finding: which rule (its
+// description from the firewall's configuration when it has one) and the
+// counters that make it unused, with the rule itself for reference.
+func ruleAttrs(r Rule, text string, loaded int64) map[string]any {
+	name := r.Description
+	if name == "" && r.Label != "" {
+		name = "label " + r.Label
+	}
+	if len(text) > 160 {
+		text = text[:160] + "…"
+	}
+	facts := []string{text}
+	facts = append(facts, fmt.Sprintf("evaluated %d times, %d packets, %d states", r.Evaluations, r.Packets, r.States))
+	if loaded > 0 {
+		facts = append(facts, "counting since "+time.Unix(loaded, 0).Format("2006-01-02 15:04"))
+	}
+	what := map[string]any{}
+	if name != "" {
+		what["kind"] = name
+	}
+	return map[string]any{"what": what, "why": map[string]any{"facts": facts}}
 }

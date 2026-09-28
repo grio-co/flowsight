@@ -1036,6 +1036,24 @@ func (s *Store) AddFindingWith(module, kind, severity, subject, title, detail, f
 	return isNew, err
 }
 
+// ResolveFingerprints closes the open findings with these fingerprints, for
+// a module that knows exactly which conditions it has just seen stop (a
+// rescan of one device) and must not touch the rest of its findings.
+func (s *Store) ResolveFingerprints(fps ...string) (int, error) {
+	n := 0
+	now := time.Now().Unix()
+	for _, fp := range fps {
+		res, err := s.db.Exec(`UPDATE findings SET resolved_ts=? WHERE fingerprint=? AND resolved_ts IS NULL`, now, fp)
+		if err != nil {
+			return n, err
+		}
+		if k, _ := res.RowsAffected(); k > 0 {
+			n += int(k)
+		}
+	}
+	return n, nil
+}
+
 // ResolveFindings closes every open finding of a module not in keep.
 func (s *Store) ResolveFindings(module string, keep map[string]bool) (int, error) {
 	n := 0

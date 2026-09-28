@@ -18,6 +18,7 @@ import (
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/hex"
+	"encoding/json"
 	"encoding/pem"
 	"fmt"
 	"math/big"
@@ -247,7 +248,7 @@ func (m *Module) findings() error {
 	now := time.Now().Unix()
 	warn := int64(core.Int(m.ctx.Settings(), "expiry_warn_days", 14)) * 86400
 	keep := map[string]bool{}
-	rows, _ := st.Rows(`SELECT fingerprint, subject, issuer, not_after, self_signed, snis, hosts, seen FROM tls_certs
+	rows, _ := st.Rows(`SELECT fingerprint, subject, issuer, not_after, self_signed, snis, hosts, seen, last_seen FROM tls_certs
 		WHERE last_seen >= ?`, now-7*86400)
 	for _, r := range rows {
 		fp, _ := r["fingerprint"].(string)
@@ -259,29 +260,98 @@ func (m *Module) findings() error {
 		if len(subject) > 80 {
 			subject = subject[:80]
 		}
+		// Built only for a certificate that raises something.
+		attrs := func(fact string) map[string]any { return m.certAttrs(r, fact) }
 		switch {
 		case na > 0 && na < now:
 			f := "tls:expired:" + fp
 			keep[f] = true
-			_, _ = st.AddFinding("tls", "expired-certificate", "medium", subject,
+			when := time.Unix(na, 0).Format("2006-01-02")
+			_, _ = st.AddFindingWith("tls", "expired-certificate", "medium", subject,
 				"Expired certificate in use: "+subject,
-				fmt.Sprintf("Expired %s; served for %s.", time.Unix(na, 0).Format("2006-01-02"), snis), f)
+				fmt.Sprintf("Expired %s; served for %s.", when, snis), f, attrs("expired "+when))
 		case na > 0 && na-now < warn:
 			f := "tls:expiring:" + fp
 			keep[f] = true
-			_, _ = st.AddFinding("tls", "expiring-certificate", "low", subject,
+			when := time.Unix(na, 0).Format("2006-01-02")
+			_, _ = st.AddFindingWith("tls", "expiring-certificate", "low", subject,
 				"Certificate expires soon: "+subject,
-				fmt.Sprintf("Expires %s; served for %s.", time.Unix(na, 0).Format("2006-01-02"), snis), f)
+				fmt.Sprintf("Expires %s; served for %s.", when, snis), f, attrs(fmt.Sprintf("expires %s, in %d days", when, (na-now)/86400)))
 		}
 		if self == 1 {
 			f := "tls:selfsigned:" + fp
 			keep[f] = true
-			_, _ = st.AddFinding("tls", "self-signed-certificate", "low", subject,
-				"Self-signed certificate seen: "+subject, "Served for "+snis+". Expected for local devices, not for internet services.", f)
+			_, _ = st.AddFindingWith("tls", "self-signed-certificate", "low", subject,
+				"Self-signed certificate seen: "+subject, "Served for "+snis+". Expected for local devices, not for internet services.", f,
+				attrs("self-signed"))
 		}
 	}
 	_, _ = st.ResolveFindings("tls", keep)
 	return nil
+}
+
+// certAttrs is the who / what / where / why of a certificate finding: the
+// device that most recently asked for one of its names (from the TLS
+// sessions), the server it came from, and the dates that make it a problem.
+func (m *Module) certAttrs(r map[string]any, fact string) map[string]any {
+	var snis, hosts []string
+	if s, _ := r["snis"].(string); s != "" {
+		_ = json.Unmarshal([]byte(s), &snis)
+	}
+	if s, _ := r["hosts"].(string); s != "" {
+		_ = json.Unmarshal([]byte(s), &hosts)
+	}
+	subj, _ := r["subject"].(string)
+	issuer, _ := r["issuer"].(string)
+	seen, _ := r["seen"].(int64)
+	last, _ := r["last_seen"].(int64)
+	who := map[string]any{}
+	if len(hosts) > 0 {
+		// By server address: tls_sessions is indexed on (dst_ip, ts).
+		if len(hosts) > 8 {
+			hosts = hosts[:8]
+		}
+		args := make([]any, 0, len(hosts)+1)
+		ph := make([]string, len(hosts))
+		for i, h := range hosts {
+			args, ph[i] = append(args, h), "?"
+		}
+		args = append(args, time.Now().Unix()-7*86400)
+		where := `dst_ip IN (` + strings.Join(ph, ",") + `) AND ts >= ?`
+		rows, _ := m.ctx.Store.Rows(`SELECT src_ip FROM tls_sessions WHERE `+where+` ORDER BY ts DESC LIMIT 1`, args...)
+		if len(rows) == 1 {
+			ip, _ := rows[0]["src_ip"].(string)
+			who["ip"] = ip
+			if id, ok := m.ctx.Service("identity").(core.Identity); ok {
+				who["name"] = id.Name(ip)
+			}
+			if n := m.ctx.Store.Int(`SELECT COUNT(DISTINCT src_ip) FROM tls_sessions WHERE `+where, args...); n > 1 {
+				who["others"] = n - 1
+			}
+		}
+	}
+	what := map[string]any{"kind": subj}
+	where := map[string]any{}
+	if len(snis) > 0 {
+		what["domain"], where["domain"] = snis[0], snis[0]
+	}
+	if len(hosts) > 0 {
+		where["ip"] = hosts[0]
+	}
+	facts := []string{fact}
+	if issuer != "" {
+		facts = append(facts, "issued by "+issuer)
+	}
+	if len(snis) > 1 {
+		facts = append(facts, fmt.Sprintf("served for %d names", len(snis)))
+	}
+	if seen > 0 {
+		facts = append(facts, fmt.Sprintf("seen %d times", seen))
+	}
+	if last > 0 {
+		facts = append(facts, "last "+time.Unix(last, 0).Format("2006-01-02 15:04"))
+	}
+	return map[string]any{"who": who, "what": what, "where": where, "why": map[string]any{"facts": facts}}
 }
 
 // ---------------------------------------------------------------- API

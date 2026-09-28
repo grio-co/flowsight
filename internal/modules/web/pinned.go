@@ -19,6 +19,7 @@ package web
 // else), and can be cleared or added by hand.
 
 import (
+	"fmt"
 	"sort"
 	"strings"
 	"sync"
@@ -37,10 +38,16 @@ type pinnedEntry struct {
 	Last     int64  `json:"last"`
 	Manual   bool   `json:"manual"` // added by the operator, never retested
 	Clients  int    `json:"clients,omitempty"`
+	// SeenBy is the last few client addresses that were refused, newest
+	// first, kept so the finding can say who.
+	SeenBy []string `json:"seen_by,omitempty"`
 }
+
+const pinnedSeenByMax = 8
 
 type pinning struct {
 	mu      sync.Mutex
+	synced  time.Time // when the findings were last reconciled with entries
 	entries map[string]*pinnedEntry
 	recent  map[string][]int64 // name -> refusal times inside the window
 	clients map[string]map[string]bool
@@ -221,14 +228,86 @@ func (m *Module) noteBumpResult(name, client string, ok bool) {
 		m.pin.entries[name] = e
 		m.pin.dirty = true
 		m.ctx.Event("web", "pinned certificate detected: "+name+" is relayed without inspection", map[string]any{"name": name, "failures": len(keep)})
-		_, _ = m.ctx.Store.AddFinding("web", "pinned", "info", name,
-			"Pinned certificate: "+name+" is not inspected",
-			"This name refused the inspection certificate, which is what certificate pinning does. FlowSight relays it untouched so it keeps working; its server name, timing and volume are still recorded. Only the client can change this.",
-			"web:pinned:"+name)
 	}
 	e.Failures += 1
 	e.Last = now.Unix()
 	e.Clients = len(m.pin.clients[name])
+	if client != "" {
+		e.SeenBy = addSeenBy(e.SeenBy, client)
+	}
+	if e.Failures == 1 {
+		m.raisePinned(e)
+	}
+}
+
+// addSeenBy puts addr first, once, keeping at most pinnedSeenByMax.
+func addSeenBy(list []string, addr string) []string {
+	out := []string{addr}
+	for _, a := range list {
+		if a != addr && len(out) < pinnedSeenByMax {
+			out = append(out, a)
+		}
+	}
+	return out
+}
+
+const pinnedDetail = "This name refused the inspection certificate, which is what certificate pinning does. FlowSight relays it untouched so it keeps working; its server name, timing and volume are still recorded. Only the client can change this."
+
+// raisePinned records (or refreshes) the finding for one pinned name, with
+// who was refused and why. The caller holds m.pin.mu.
+func (m *Module) raisePinned(e *pinnedEntry) {
+	_, _ = m.ctx.Store.AddFindingWith("web", "pinned", "info", e.Name,
+		"Pinned certificate: "+e.Name+" is not inspected", pinnedDetail,
+		"web:pinned:"+e.Name, m.pinnedAttrs(e))
+}
+
+func (m *Module) pinnedAttrs(e *pinnedEntry) map[string]any {
+	who := map[string]any{}
+	if len(e.SeenBy) > 0 {
+		ip := e.SeenBy[0]
+		who["ip"] = ip
+		if m.identity != nil {
+			who["name"] = m.identity.Name(ip)
+		}
+		others := e.Clients - 1
+		if len(e.SeenBy)-1 > others {
+			others = len(e.SeenBy) - 1
+		}
+		if others > 0 {
+			who["others"] = others
+		}
+	}
+	facts := []string{fmt.Sprintf("refused the inspection certificate %d times", e.Failures)}
+	if e.Manual {
+		facts = []string{"added by hand"}
+	}
+	if e.First > 0 {
+		facts = append(facts, "first "+time.Unix(e.First, 0).Format("2006-01-02 15:04"))
+	}
+	facts = append(facts, "relayed without inspection")
+	return map[string]any{
+		"who":   who,
+		"what":  map[string]any{"domain": e.Name, "kind": "pinned certificate"},
+		"where": map[string]any{"domain": e.Name},
+		"why":   map[string]any{"facts": facts},
+	}
+}
+
+// reconcilePinned makes the findings match the list: every pinned name has
+// one, with current who/why, and a name that left the list (it completed an
+// inspected handshake, was retested or removed by hand) has its finding
+// closed.
+func (m *Module) reconcilePinned() {
+	m.pinnedNames() // drops entries due for a retest
+	m.pin.mu.Lock()
+	keep := make(map[string]bool, len(m.pin.entries))
+	for _, e := range m.pin.entries {
+		keep["web:pinned:"+e.Name] = true
+		m.raisePinned(e)
+	}
+	m.pin.synced = time.Now()
+	m.pin.mu.Unlock()
+	_, _ = m.ctx.Store.ResolveFindings("web", keep)
 }
 
 // PinnedNames is the published service other modules read (the policy
@@ -268,11 +347,15 @@ func (m *Module) flushPinned() {
 	m.pin.mu.Lock()
 	d := m.pin.dirty
 	m.pin.dirty = false
+	due := time.Since(m.pin.synced) > 15*time.Minute
 	m.pin.mu.Unlock()
 	if d {
 		m.savePinned()
 		// The proxy configuration names these; the policy module reconciles
 		// every minute and will rewrite it (its signature covers this list).
+	}
+	if d || due {
+		m.reconcilePinned()
 	}
 }
 
@@ -312,8 +395,5 @@ func (m *Module) apiPinnedSet(r *core.Req) (any, error) {
 	m.pin.dirty = true
 	m.pin.mu.Unlock()
 	m.flushPinned()
-	if in.Remove {
-		_, _ = m.ctx.Store.ResolveFindings("web", map[string]bool{})
-	}
 	return map[string]any{"ok": true, "pinned": m.pinnedNames()}, nil
 }

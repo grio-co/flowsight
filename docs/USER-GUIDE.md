@@ -160,7 +160,7 @@ lookup* is on under *Settings › enrich*), and a country pill narrows to that
 country. The DLP page's **Leaving the country** card lists this per device.
 There is a step-by-step guide in [See what your IoT devices send abroad, and block it](howto/iot-abroad.md).
 
-**Findings say who, what, where and why.** Each open finding on the Overview, and on the Findings page, is read in columns: *Who* is the device (name, maker, address, hardware address, linking to its page); *What* is the title with the application, name, payload reading and volume behind it; *Where* is the far end with port, place, network and links to the Map and the sessions; *Why* is the rule that fired and the numbers that tripped it (days of history, what was known before, the beacon period, the threshold). Modules attach this structure when they raise a finding; a finding raised without it still shows its subject and sentence.
+**Findings say who, what, where and why.** Each open finding on the Overview, and on the Findings page, is read in columns: *Who* is the device (name, maker, address, hardware address, linking to its page); *What* is the title with the application, name, payload reading and volume behind it; *Where* is the far end with port, place, network and links to the Map and the sessions; *Why* is the rule that fired and the numbers that tripped it (days of history, what was known before, the beacon period, the threshold). Modules attach this structure when they raise a finding; a finding raised without it still shows its subject and sentence. When several devices share one finding (a pinned site, a certificate), *Who* names the latest and says how many others there were; *Why* may also list plain facts, such as how many times a site refused the inspection certificate, a certificate's issuer and dates, a firewall rule's counters, or the banner a scan read. Findings close by themselves when their condition stops: a pinned site that leaves the list, a certificate no longer seen for a week, a rule that starts matching, and a service that a later full or quick scan of the device, covering its port, finds closed.
 
 ### Applications
 
@@ -326,7 +326,9 @@ Certificate transparency for the network.
   what you added by hand, lets you add a name, and lets you put one back
   under inspection. The behaviour is *Settings › web › Relay pinned sites
   without inspecting*, on by default, with the number of refusals, the
-  window and the retry interval beside it.
+  window and the retry interval beside it. Each pinned name is also an
+  *info* finding naming the devices that were refused; the finding closes
+  when the name leaves the list.
 
 **Decrypting sessions, step by step.** Without a CA the proxy only peeks
 at handshakes: you see server names, versions and certificates, never the

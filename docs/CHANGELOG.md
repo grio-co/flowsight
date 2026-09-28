@@ -12,6 +12,27 @@ name, and every release's assets carry that string in their file names.
 
 The newest entry is first.
 
+## 0.9.8r202609280414
+
+**More findings say who, where and why, and close on their own.**
+
+- **Pinned sites** name the device that was refused and how many others
+  were, how many refusals, and since when. The finding now closes when the
+  name leaves the list (an inspected handshake completed, the retest came
+  due, or you removed it); before, it stayed open. Open findings raised
+  before this release are filled in within fifteen minutes.
+- **Certificates** (expired, expiring, self-signed) name the device that
+  last fetched one from that server and how many others did, the server's
+  address and name, the issuer, the dates and how often it was seen.
+- **Firewall rule hygiene** findings give the rule's description from the
+  firewall configuration, the rule itself and its counters.
+- **Scan** findings (telnet, RDP, FTP) give the device's hardware address,
+  the port and the banner read. A later full or quick scan of that device
+  that covers the port and no longer finds the service closes the finding;
+  an identify scan, which probes other ports, leaves it alone.
+- The Findings columns show "and N other devices" under *Who* and the
+  module's plain facts under *Why*.
+
 ## 0.9.8r202609280347
 
 **The local-networks table is refilled every ten seconds instead of every

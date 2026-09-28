@@ -999,7 +999,8 @@ FS.findingCols = (opts) => {
     const w = A(r).who || {};
     const ip = w.ip || (isIP(r.subject) ? r.subject : '');
     if (!ip && !w.name && !w.mac) return `<span class="muted small">${FS.esc(r.subject || '')}</span>`;
-    return `${ip ? FS.hostLink(ip, w.name) : `<b>${FS.esc(w.name || '')}</b>`}<div class="muted small">${FS.esc([w.vendor, w.name && ip ? ip : '', w.mac].filter(Boolean).join(' \u00b7 '))}</div>`;
+    const more = w.others > 0 ? `<div class="muted small">and ${FS.num(w.others)} other device${w.others === 1 ? '' : 's'}</div>` : '';
+    return `${ip ? FS.hostLink(ip, w.name) : `<b>${FS.esc(w.name || '')}</b>`}<div class="muted small">${FS.esc([w.vendor, w.name && ip ? ip : '', w.mac].filter(Boolean).join(' \u00b7 '))}</div>${more}`;
   };
   const what = (r) => {
     const w = A(r).what || {};
@@ -1038,6 +1039,8 @@ FS.findingCols = (opts) => {
     if (w.percent != null) facts.push(`${w.percent}% (threshold ${w.threshold}%)`);
     if (w.nxdomain_pct != null) facts.push(`${w.nxdomain_pct}% NXDOMAIN, entropy ${Number(w.entropy || 0).toFixed(1)}`);
     if (w.since) facts.push(`open since ${FS.when(w.since)}`);
+    // Plain sentences a module wants shown as they are.
+    (Array.isArray(w.facts) ? w.facts : []).forEach(f => { if (f) facts.push(String(f)); });
     if (w.effect || w.fix) return `<div>${bits.join(' ')}</div>${w.effect ? `<div class="small">${FS.esc(w.effect)}</div>` : ''}${w.fix ? `<div class="small"><b>What to do.</b> ${FS.esc(w.fix)}</div>` : ''}${facts.length ? `<div class="muted small">${FS.esc(facts.join(' \u00b7 '))}</div>` : ''}<div class="muted small">${FS.esc(r.module || '')}</div>`;
     return `<div>${bits.join(' ')}</div><div class="small">${FS.esc(r.detail || '')}</div>${facts.length ? `<div class="muted small">${FS.esc(facts.join(' \u00b7 '))}</div>` : ''}<div class="muted small">${FS.esc(r.module || '')}</div>`;
   };

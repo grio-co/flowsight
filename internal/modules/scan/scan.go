@@ -1247,46 +1247,90 @@ func (m *Module) saveResult(job *scanJob) {
 		job.Result.IP, job.Result.MAC, job.Started.Unix(), job.Finished.Unix(), string(data), source)
 }
 
+// notableServices are the open services a scan reports as findings. A
+// banner is required where an open port alone says too little.
+var notableServices = []struct {
+	port            int
+	name, kind, sev string
+	title, detail   string
+	needBanner      bool
+}{
+	{23, "telnet", "insecure_service", "high", "Telnet open on %s", "Telnet is unencrypted and exposes credentials", false},
+	{3389, "rdp", "exposed_service", "high", "RDP exposed on %s", "RDP should be restricted to trusted networks", true},
+	{21, "ftp", "insecure_service", "medium", "FTP open on %s", "FTP is unencrypted; SFTP or SCP is preferred", true},
+}
+
+// emitFindings records the notable services a scan found open, with who and
+// why, and closes the ones a scan that covered their port no longer finds.
+// An identify scan probes a different, smaller set, so it closes nothing.
 func (m *Module) emitFindings(job *scanJob) {
-	// Emit findings as events
-	// Notable: telnet, SMBv1, anonymous FTP, SNMP public, self-signed admin panels, RDP, HTTP admin
-	if job.Result == nil {
+	res := job.Result
+	if res == nil || res.Error != "" {
 		return
 	}
-
-	for _, port := range job.Result.OpenPorts {
-		switch {
-		case port.Port == 23: // Telnet
-			_, _ = m.ctx.Store.AddFinding(
-				"scan",
-				"insecure_service",
-				"high",
-				job.Result.IP,
-				fmt.Sprintf("Telnet open on %s", job.Result.IP),
-				"Telnet is unencrypted and exposes credentials",
-				fmt.Sprintf("telnet_%s_%d", job.Result.IP, port.Port),
-			)
-		case port.Port == 3389 && port.Banner != "": // RDP
-			_, _ = m.ctx.Store.AddFinding(
-				"scan",
-				"exposed_service",
-				"high",
-				job.Result.IP,
-				fmt.Sprintf("RDP exposed on %s", job.Result.IP),
-				"RDP should be restricted to trusted networks",
-				fmt.Sprintf("rdp_%s_%d", job.Result.IP, port.Port),
-			)
-		case port.Port == 21 && port.Banner != "": // FTP
-			_, _ = m.ctx.Store.AddFinding(
-				"scan",
-				"insecure_service",
-				"medium",
-				job.Result.IP,
-				fmt.Sprintf("FTP open on %s", job.Result.IP),
-				"FTP is unencrypted; SFTP or SCP is preferred",
-				fmt.Sprintf("ftp_%s_%d", job.Result.IP, port.Port),
-			)
+	open := map[int]PortInfo{}
+	for _, p := range res.OpenPorts {
+		open[p.Port] = p
+	}
+	scanned := map[int]bool{}
+	if job.Profile != "identify" {
+		for _, p := range m.getPortSet(job.Profile) {
+			scanned[p] = true
 		}
+	}
+	var gone []string
+	for _, s := range notableServices {
+		fp := fmt.Sprintf("%s_%s_%d", s.name, res.IP, s.port)
+		p, isOpen := open[s.port]
+		if isOpen && (!s.needBanner || p.Banner != "") {
+			_, _ = m.ctx.Store.AddFindingWith("scan", s.kind, s.sev, res.IP,
+				fmt.Sprintf(s.title, res.IP), s.detail, fp, m.scanAttrs(job, s.name, p))
+			continue
+		}
+		if scanned[s.port] {
+			gone = append(gone, fp)
+		}
+	}
+	if len(gone) > 0 {
+		if n, _ := m.ctx.Store.ResolveFingerprints(gone...); n > 0 {
+			m.ctx.Log.Info("scan findings closed: the service is no longer open", "ip", res.IP, "count", n)
+		}
+	}
+}
+
+func (m *Module) scanAttrs(job *scanJob, service string, p PortInfo) map[string]any {
+	res := job.Result
+	who := map[string]any{"ip": res.IP, "mac": res.MAC}
+	if res.Hostname != "" {
+		who["name"] = res.Hostname
+	}
+	if id, ok := m.ctx.Service("identity").(core.Identity); ok {
+		if n := id.Name(res.IP); n != "" {
+			who["name"] = n
+		}
+	}
+	proto := p.Protocol
+	if proto == "" {
+		proto = "tcp"
+	}
+	facts := []string{fmt.Sprintf("%s/%d open", proto, p.Port)}
+	if b := strings.TrimSpace(p.Banner); b != "" {
+		if len(b) > 120 {
+			b = b[:120] + "…"
+		}
+		facts = append(facts, "banner: "+b)
+	}
+	if !res.Finished.IsZero() {
+		facts = append(facts, "scanned "+res.Finished.Format("2006-01-02 15:04"))
+	}
+	if job.Profile != "" {
+		facts = append(facts, job.Profile+" scan")
+	}
+	return map[string]any{
+		"who":   who,
+		"what":  map[string]any{"kind": service},
+		"where": map[string]any{"ip": res.IP, "port": p.Port, "proto": proto},
+		"why":   map[string]any{"facts": facts},
 	}
 }
 
