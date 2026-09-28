@@ -180,7 +180,9 @@ the growth since the previous one, split by direction the way the flow
 currently splits; a counter that starts over is a new baseline, a counter
 below zero credits nothing, and one observation never credits more than a
 10 Gbit/s link could have carried since the last, so a probe fault cannot
-put terabytes on a five-minute bucket. DNS rollups are rebuilt from
+put terabytes on a five-minute bucket. Host totals are credited the same
+way, from the baseline the store holds when the daemon has just started or
+a flow has been quiet. DNS rollups are rebuilt from
 the raw queries, including any that arrive late. **Findings** are conditions that are
 true now (a rule never evaluated, a certificate about to expire, an anchor
 not referenced); they are keyed on a fingerprint, so they never duplicate,

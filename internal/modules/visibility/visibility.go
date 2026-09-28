@@ -491,9 +491,30 @@ func (m *Module) poll() error {
 			delete(m.seen, k)
 		}
 	}
+	// A flow this process has no baseline for (first poll after a start, or
+	// a flow that went quiet and came back) may still be in the store with
+	// the counters it had when last seen. Those are its baseline: crediting
+	// its whole cumulative count again put hundreds of terabytes on hosts.
+	var unknown []string
+	for i := range flows {
+		if _, had := m.seen[flows[i].Key]; !had && flows[i].Key != "" {
+			unknown = append(unknown, flows[i].Key)
+		}
+	}
+	m.mu.Unlock()
+	stored, err := m.ctx.Store.FlowBaselines(unknown)
+	if err != nil {
+		return err
+	}
+	m.mu.Lock()
 	for i := range flows {
 		f := &flows[i]
 		prev, had := m.seen[f.Key]
+		if !had {
+			if b, ok := stored[f.Key]; ok {
+				prev, had = flowState{bytesIn: b.BytesIn, bytesOut: b.BytesOut, seenAt: time.Unix(b.Seen, 0)}, true
+			}
+		}
 		dIn, dOut := f.BytesIn, f.BytesOut
 		if had {
 			// Judge growth by the total: the per-direction split comes from

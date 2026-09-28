@@ -12,6 +12,17 @@ name, and every release's assets carry that string in their file names.
 
 The newest entry is first.
 
+## 0.9.8r202609280514
+
+- **Host totals no longer grow by a flow's whole history after a restart.**
+  The flow probe kept its per-flow baselines in memory only, so after every
+  daemon start, and whenever a flow went quiet for ten minutes and came
+  back, each active flow's entire cumulative count was credited to its host
+  again; one VPN host read 164 TB in. The baseline is now taken from the
+  store when memory has none, so only the growth since the flow was last
+  seen counts. Every local host's all-time totals are rebuilt once at start
+  from its rollups, which were always credited by growth.
+
 ## 0.9.8r202609280510
 
 - **Traffic totals no longer go negative on very large flows.** Once a

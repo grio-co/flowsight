@@ -292,7 +292,32 @@ func (s *Store) migrate() error {
 	if err := s.repairByteCounters(); err != nil {
 		return err
 	}
+	if err := s.repairHostTotals(); err != nil {
+		return err
+	}
 	_, err := s.db.Exec(`INSERT OR REPLACE INTO meta VALUES('schema_version', ?)`, fmt.Sprint(schemaVersion))
+	return err
+}
+
+// repairHostTotals rebuilds each local host's all-time byte totals from its
+// rollups. Before 0.9.8r202609280514 the flow probe credited every active
+// flow's whole cumulative count to the host again after each restart, and
+// again whenever a flow went quiet for ten minutes and came back, which
+// put hundreds of terabytes on a host that moved a few. The rollups were
+// credited by growth only, so they are the record. Runs once.
+func (s *Store) repairHostTotals() error {
+	const key = "repair_host_totals"
+	var done string
+	if err := s.db.QueryRow(`SELECT value FROM meta WHERE key=?`, key).Scan(&done); err == nil && done == "1" {
+		return nil
+	}
+	if _, err := s.db.Exec(`UPDATE hosts SET
+		bytes_in=COALESCE((SELECT SUM(bytes_in) FROM rollup_app WHERE rollup_app.src_ip=hosts.ip), 0),
+		bytes_out=COALESCE((SELECT SUM(bytes_out) FROM rollup_app WHERE rollup_app.src_ip=hosts.ip), 0)
+		WHERE is_local=1`); err != nil {
+		return err
+	}
+	_, err := s.db.Exec(`INSERT OR REPLACE INTO meta VALUES(?, '1')`, key)
 	return err
 }
 
@@ -674,6 +699,63 @@ func flowDelta(pin, pout, in, out int64, elapsed time.Duration) (int64, int64) {
 		dIn = grow
 	}
 	return capFlowDelta(dIn, grow-dIn, elapsed)
+}
+
+// FlowBaseline is the last stored observation of a flow: its cumulative
+// counters and when they were read.
+type FlowBaseline struct {
+	BytesIn, BytesOut, Seen int64
+}
+
+// FlowBaselines returns the stored counters of the flows with these keys,
+// so a module that keeps its own per-flow baselines can start from what the
+// store already saw instead of crediting a flow's whole history again after
+// a restart or after the flow went quiet and came back.
+func (s *Store) FlowBaselines(keys []string) (map[string]FlowBaseline, error) {
+	out := map[string]FlowBaseline{}
+	for len(keys) > 0 {
+		n := len(keys)
+		if n > 500 {
+			n = 500
+		}
+		chunk := keys[:n]
+		keys = keys[n:]
+		args := make([]any, len(chunk))
+		for i, k := range chunk {
+			args[i] = k
+		}
+		rows, err := s.Rows(`SELECT key, bytes_in, bytes_out, COALESCE(end_ts, ts) AS seen FROM flows
+			WHERE id IN (SELECT MAX(id) FROM flows WHERE key IN (`+placeholders(len(chunk))+`) GROUP BY key)`, args...)
+		if err != nil {
+			return nil, err
+		}
+		for _, r := range rows {
+			k, _ := r["key"].(string)
+			out[k] = FlowBaseline{BytesIn: toI64(r["bytes_in"]), BytesOut: toI64(r["bytes_out"]), Seen: toI64(r["seen"])}
+		}
+	}
+	return out, nil
+}
+
+// placeholders is "?,?,...,?" for n bound values.
+func placeholders(n int) string {
+	if n <= 0 {
+		return ""
+	}
+	return strings.TrimSuffix(strings.Repeat("?,", n), ",")
+}
+
+// toI64 reads an integer the driver returned in whichever Go type it chose.
+func toI64(v any) int64 {
+	switch x := v.(type) {
+	case int64:
+		return x
+	case int:
+		return int64(x)
+	case float64:
+		return int64(x)
+	}
+	return 0
 }
 
 // maxLinkBytesPerSec is the most any single observation may credit per

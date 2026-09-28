@@ -91,19 +91,19 @@ func TestRepairByteCountersFoldsNegativesBack(t *testing.T) {
 		t.Fatal(err)
 	}
 	row, _ := s.Row(`SELECT bytes_in, bytes_out FROM rollup_dst`)
-	if toInt(row["bytes_in"]) != 0 || toInt(row["bytes_out"]) != 9062444474-150020520 {
+	if toI64(row["bytes_in"]) != 0 || toI64(row["bytes_out"]) != 9062444474-150020520 {
 		t.Fatalf("rollup_dst not folded: %v", row)
 	}
 	row, _ = s.Row(`SELECT bytes_in, bytes_out FROM rollup_app`)
-	if toInt(row["bytes_in"]) != 200 || toInt(row["bytes_out"]) != 0 {
+	if toI64(row["bytes_in"]) != 200 || toI64(row["bytes_out"]) != 0 {
 		t.Fatalf("rollup_app not folded: %v", row)
 	}
 	row, _ = s.Row(`SELECT bytes_in, bytes_out FROM rollup_domain`)
-	if toInt(row["bytes_out"]) != int64(maxLinkBytesPerSec)*300 {
+	if toI64(row["bytes_out"]) != int64(maxLinkBytesPerSec)*300 {
 		t.Fatalf("impossible bucket not bounded: %v", row)
 	}
 	row, _ = s.Row(`SELECT bytes_in, bytes_out FROM hosts WHERE ip='10.0.0.2'`)
-	if toInt(row["bytes_in"]) != 0 || toInt(row["bytes_out"]) != 13 {
+	if toI64(row["bytes_in"]) != 0 || toI64(row["bytes_out"]) != 13 {
 		t.Fatalf("hosts not folded: %v", row)
 	}
 	var done string
@@ -112,14 +112,59 @@ func TestRepairByteCountersFoldsNegativesBack(t *testing.T) {
 	}
 }
 
-func toInt(v any) int64 {
-	switch x := v.(type) {
-	case int64:
-		return x
-	case int:
-		return int64(x)
-	case float64:
-		return int64(x)
+func TestFlowBaselinesReturnTheLatestStoredCounters(t *testing.T) {
+	s, err := OpenStore(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
 	}
-	return -1
+	defer s.Close()
+	fl := Flow{TS: 1000, Key: "vtnet0/abc", SrcIP: "10.0.0.2", DstIP: "89.187.180.27", DstPort: 51820, Proto: "udp", BytesIn: 100, BytesOut: 200}
+	if err := s.AddFlows([]Flow{fl}); err != nil {
+		t.Fatal(err)
+	}
+	fl.BytesIn, fl.BytesOut = 150, 260
+	if err := s.AddFlows([]Flow{fl}); err != nil {
+		t.Fatal(err)
+	}
+	b, err := s.FlowBaselines([]string{"vtnet0/abc", "vtnet0/none"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(b) != 1 || b["vtnet0/abc"].BytesIn != 150 || b["vtnet0/abc"].BytesOut != 260 || b["vtnet0/abc"].Seen == 0 {
+		t.Fatalf("baseline: %+v", b)
+	}
+	if b, _ := s.FlowBaselines(nil); len(b) != 0 {
+		t.Fatalf("no keys, no rows: %+v", b)
+	}
+}
+
+func TestRepairHostTotalsRebuildsFromRollups(t *testing.T) {
+	s, err := OpenStore(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	must := func(q string, args ...any) {
+		t.Helper()
+		if _, err := s.db.Exec(q, args...); err != nil {
+			t.Fatal(err)
+		}
+	}
+	must(`INSERT INTO hosts(ip,bytes_in,bytes_out,is_local) VALUES('10.0.0.2',164742970104751,144831176146258,1)`)
+	must(`INSERT INTO hosts(ip,bytes_in,bytes_out,is_local) VALUES('10.0.0.3',5,6,1)`)
+	must(`INSERT INTO hosts(ip,bytes_in,bytes_out,is_local) VALUES('1.2.3.4',7,8,0)`)
+	must(`INSERT INTO rollup_app(bucket,src_ip,app,category,verdict,bytes_in,bytes_out,flows) VALUES(0,'10.0.0.2','a','','observed',100,200,1)`)
+	must(`INSERT INTO rollup_app(bucket,src_ip,app,category,verdict,bytes_in,bytes_out,flows) VALUES(300,'10.0.0.2','b','','observed',10,20,1)`)
+	must(`DELETE FROM meta WHERE key='repair_host_totals'`)
+	if err := s.repairHostTotals(); err != nil {
+		t.Fatal(err)
+	}
+	rows, _ := s.Rows(`SELECT ip, bytes_in, bytes_out FROM hosts ORDER BY ip`)
+	want := map[string][2]int64{"1.2.3.4": {7, 8}, "10.0.0.2": {110, 220}, "10.0.0.3": {0, 0}}
+	for _, r := range rows {
+		ip, _ := r["ip"].(string)
+		if w := want[ip]; toI64(r["bytes_in"]) != w[0] || toI64(r["bytes_out"]) != w[1] {
+			t.Fatalf("%s: %v, want %v", ip, r, w)
+		}
+	}
 }
