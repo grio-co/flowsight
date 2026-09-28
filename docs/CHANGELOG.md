@@ -12,6 +12,24 @@ name, and every release's assets carry that string in their file names.
 
 The newest entry is first.
 
+## 0.9.8r202609280510
+
+- **Traffic totals no longer go negative on very large flows.** Once a
+  single flow had carried about ten gigabytes, the arithmetic that splits
+  each poll's growth between the two directions overflowed, which made one
+  direction negative and the other larger than the growth itself. A
+  WireGuard tunnel at two terabytes showed as minus 3.7 GB in and 1.5 TB
+  out on the Destinations list. The split is now exact at any size, a
+  counter that reads below zero credits nothing, and one observation never
+  credits more than a 10 Gbit/s link could have carried since the previous
+  one. Rollups and host totals written by the old arithmetic are repaired
+  once at start: the negative side is folded back into the other (their
+  sum was always right), and any five-minute row beyond what a link could
+  carry is bounded.
+- **`/api/visibility/top` honours `minutes`.** It read only `hours`, so a
+  15-minute request quietly answered for the whole day. Every window that
+  takes `hours` now takes `minutes` as well.
+
 ## 0.9.8r202609280450
 
 - **Certificate findings find the device more often.** A certificate the

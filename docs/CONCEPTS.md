@@ -175,7 +175,12 @@ queries, alerts and TLS sessions are kept for days; five-minute **rollups**
 by application, domain, destination and DNS name are kept for a year and
 answer every long-window question. Flow rollups are credited as bytes are
 observed, so a long download is spread over the minutes it actually took
-rather than piled onto the minute it started; DNS rollups are rebuilt from
+rather than piled onto the minute it started. Each observation credits only
+the growth since the previous one, split by direction the way the flow
+currently splits; a counter that starts over is a new baseline, a counter
+below zero credits nothing, and one observation never credits more than a
+10 Gbit/s link could have carried since the last, so a probe fault cannot
+put terabytes on a five-minute bucket. DNS rollups are rebuilt from
 the raw queries, including any that arrive late. **Findings** are conditions that are
 true now (a rule never evaluated, a certificate about to expire, an anchor
 not referenced); they are keyed on a fingerprint, so they never duplicate,

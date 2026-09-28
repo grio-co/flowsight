@@ -327,8 +327,12 @@ func (r *Req) QInt(name string, def, lo, hi int) int {
 // Hours returns the requested window, bounded.
 func (r *Req) Hours(def int) int { return r.QInt("hours", def, 1, 24*400) }
 
-// Since returns now - hours as a unix timestamp.
+// Since returns now - hours as a unix timestamp. A "minutes" parameter,
+// when given, sets the window instead: the short views ask in minutes.
 func (r *Req) Since(defHours int) int64 {
+	if m := r.QInt("minutes", 0, 0, 24*400*60); m > 0 {
+		return time.Now().Unix() - int64(m)*60
+	}
 	return time.Now().Unix() - int64(r.Hours(defHours))*3600
 }
 

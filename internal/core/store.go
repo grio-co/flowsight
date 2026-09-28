@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"math/bits"
 	"net"
 	"os"
 	"path/filepath"
@@ -288,7 +289,44 @@ func (s *Store) migrate() error {
 			return err
 		}
 	}
+	if err := s.repairByteCounters(); err != nil {
+		return err
+	}
 	_, err := s.db.Exec(`INSERT OR REPLACE INTO meta VALUES('schema_version', ?)`, fmt.Sprint(schemaVersion))
+	return err
+}
+
+// repairByteCounters undoes what the overflowing split in flowDelta left in
+// the rollups and the host totals before 0.9.8r202609280510: one direction
+// negative, the other larger by the same amount. The sum of the two was
+// always right, so the negative side is folded back into the other and a
+// row's total is bounded by what a link could carry in its five minutes.
+// Runs once; the meta key records that it did.
+func (s *Store) repairByteCounters() error {
+	const key = "repair_byte_counters"
+	var done string
+	if err := s.db.QueryRow(`SELECT value FROM meta WHERE key=?`, key).Scan(&done); err == nil && done == "1" {
+		return nil
+	}
+	bucketCap := int64(maxLinkBytesPerSec) * 300
+	for _, t := range []string{"rollup_app", "rollup_domain", "rollup_dst", "hosts"} {
+		for _, q := range []string{
+			`UPDATE ` + t + ` SET bytes_out=MAX(0, bytes_out+bytes_in), bytes_in=0 WHERE bytes_in<0`,
+			`UPDATE ` + t + ` SET bytes_in=MAX(0, bytes_in+bytes_out), bytes_out=0 WHERE bytes_out<0`,
+		} {
+			if _, err := s.db.Exec(q); err != nil {
+				return err
+			}
+		}
+		if t == "hosts" {
+			continue // all-time totals have no interval to judge them by
+		}
+		if _, err := s.db.Exec(`UPDATE `+t+` SET bytes_in=MIN(bytes_in, ?), bytes_out=MIN(bytes_out, ?) WHERE bytes_in>? OR bytes_out>?`,
+			bucketCap, bucketCap, bucketCap, bucketCap); err != nil {
+			return err
+		}
+	}
+	_, err := s.db.Exec(`INSERT OR REPLACE INTO meta VALUES(?, '1')`, key)
 	return err
 }
 
@@ -514,7 +552,7 @@ func (s *Store) AddFlows(flows []Flow) error {
 	}
 	now := time.Now().Unix()
 	return s.Tx(func(tx *sql.Tx) error {
-		prevQ, err := tx.Prepare(`SELECT bytes_in, bytes_out FROM flows WHERE key=? ORDER BY id DESC LIMIT 1`)
+		prevQ, err := tx.Prepare(`SELECT bytes_in, bytes_out, COALESCE(end_ts, ts) FROM flows WHERE key=? ORDER BY id DESC LIMIT 1`)
 		if err != nil {
 			return err
 		}
@@ -556,10 +594,10 @@ func (s *Store) AddFlows(flows []Flow) error {
 			d := rollupDelta{bucket: bucket, srcIP: f.SrcIP, dstIP: f.DstIP, proto: f.Proto, app: f.App, cat: f.Category,
 				dom: f.Domain, dstPort: f.DstPort, verdict: f.Verdict, bytesIn: f.BytesIn, bytesOut: f.BytesOut, newFlow: true}
 			if f.Key != "" {
-				var pin, pout int64
-				if err := prevQ.QueryRow(f.Key).Scan(&pin, &pout); err == nil {
+				var pin, pout, pend int64
+				if err := prevQ.QueryRow(f.Key).Scan(&pin, &pout, &pend); err == nil {
 					d.newFlow = false
-					d.bytesIn, d.bytesOut = flowDelta(pin, pout, f.BytesIn, f.BytesOut)
+					d.bytesIn, d.bytesOut = flowDelta(pin, pout, f.BytesIn, f.BytesOut, time.Duration(now-pend)*time.Second)
 				}
 			}
 			// A proxy log line describes a transfer the flow probe already
@@ -602,21 +640,70 @@ func (s *Store) AddFlows(flows []Flow) error {
 // time that happened, which put hundreds of gigabytes an hour on a tunnel
 // that moved a few. Only the total says whether the counter reset; the
 // growth is then split the way the flow currently splits.
-func flowDelta(pin, pout, in, out int64) (int64, int64) {
+//
+// The split is computed in 128 bits: grow*in overflows int64 once a flow
+// has carried about ten gigabytes, and the overflow made one direction
+// negative and the other larger than the growth itself. A counter that
+// reads below zero is a probe fault and credits nothing. Whatever the split,
+// one observation never credits more than a 10 Gbit/s link could have
+// carried since the previous one (see capFlowDelta).
+func flowDelta(pin, pout, in, out int64, elapsed time.Duration) (int64, int64) {
+	if in < 0 || out < 0 {
+		return 0, 0
+	}
+	if pin < 0 {
+		pin = 0
+	}
+	if pout < 0 {
+		pout = 0
+	}
 	total, prev := in+out, pin+pout
 	if total < prev {
-		return in, out // re-created upstream: the counters started over
+		return capFlowDelta(in, out, elapsed) // re-created upstream: the counters started over
 	}
 	grow := total - prev
 	if grow <= 0 || total <= 0 {
 		return 0, 0
 	}
-	dIn := grow * in / total
-	return dIn, grow - dIn
+	// grow <= total keeps the 128-bit quotient below 2^64, which bits.Div64
+	// requires.
+	hi, lo := bits.Mul64(uint64(grow), uint64(in))
+	q, _ := bits.Div64(hi, lo, uint64(total))
+	dIn := int64(q)
+	if dIn > grow {
+		dIn = grow
+	}
+	return capFlowDelta(dIn, grow-dIn, elapsed)
 }
 
-// FlowDelta is flowDelta for the modules that keep their own counters.
-func FlowDelta(pin, pout, in, out int64) (int64, int64) { return flowDelta(pin, pout, in, out) }
+// maxLinkBytesPerSec is the most any single observation may credit per
+// second since the previous one: 10 Gbit/s, well above any link FlowSight
+// watches. A delta beyond it is a counter fault, not traffic.
+const maxLinkBytesPerSec = 1250 * 1000 * 1000
+
+// minDeltaInterval is the shortest interval the cap is judged over; two
+// polls within the same second must not throw away real bytes.
+const minDeltaInterval = 10 * time.Second
+
+// capFlowDelta bounds one observation's credit by what the link could have
+// carried in the interval, keeping the direction split.
+func capFlowDelta(dIn, dOut int64, elapsed time.Duration) (int64, int64) {
+	if elapsed < minDeltaInterval {
+		elapsed = minDeltaInterval
+	}
+	limit := int64(elapsed.Seconds() * maxLinkBytesPerSec)
+	if sum := dIn + dOut; sum > limit {
+		dIn = int64(float64(dIn) * float64(limit) / float64(sum))
+		dOut = limit - dIn
+	}
+	return dIn, dOut
+}
+
+// FlowDelta is flowDelta for the modules that keep their own counters;
+// elapsed is the time since the previous observation of the flow.
+func FlowDelta(pin, pout, in, out int64, elapsed time.Duration) (int64, int64) {
+	return flowDelta(pin, pout, in, out, elapsed)
+}
 
 // accumulateRollups adds observation deltas to the three flow rollups.
 func accumulateRollups(tx *sql.Tx, deltas []rollupDelta) error {

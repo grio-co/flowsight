@@ -200,6 +200,7 @@ func (m *Module) Setup(ctx *core.Context) error {
 		}))
 	ctx.Route("GET", "/api/visibility/top", m.apiTop,
 		core.Query("hours", "integer", "Time window in hours (default 24)", false, 24),
+		core.Query("minutes", "integer", "Time window in minutes; overrides hours when given", false, 15),
 		core.Query("limit", "integer", "Number of top results to return (default 20)", false, 20),
 		core.Doc("Top hosts, applications, categories and destinations ranked by traffic volume"),
 		core.Returns("Top network elements", map[string]any{
@@ -498,7 +499,7 @@ func (m *Module) poll() error {
 			// Judge growth by the total: the per-direction split comes from
 			// a shifting percentage and one side can read lower while the
 			// flow grew (see core.FlowDelta).
-			dIn, dOut = core.FlowDelta(prev.bytesIn, prev.bytesOut, f.BytesIn, f.BytesOut)
+			dIn, dOut = core.FlowDelta(prev.bytesIn, prev.bytesOut, f.BytesIn, f.BytesOut, time.Since(prev.seenAt))
 		}
 		m.seen[f.Key] = flowState{bytesIn: f.BytesIn, bytesOut: f.BytesOut, seenAt: time.Now()}
 		for _, ip := range []string{f.SrcIP, f.DstIP} {
