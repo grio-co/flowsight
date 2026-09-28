@@ -12,6 +12,13 @@ name, and every release's assets carry that string in their file names.
 
 The newest entry is first.
 
+## 0.9.8r202609280450
+
+- **Certificate findings find the device more often.** A certificate the
+  proxy saw usually has no TLS session row to name who fetched it; the
+  device is now taken from the sessions to its names when the TLS sessions
+  say nothing. "Seen 1 times" reads "seen once".
+
 ## 0.9.8r202609280422
 
 - **Bandwidth test: a second built-in download source.** When Cloudflare

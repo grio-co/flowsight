@@ -57,3 +57,31 @@ func TestCertificateFindingCarriesWhoWhereWhy(t *testing.T) {
 		t.Fatalf("why: %v", a["why"])
 	}
 }
+
+// A certificate the proxy saw has no TLS session row; the device comes from
+// the flows by name instead.
+func TestCertificateWhoFallsBackToFlowsByName(t *testing.T) {
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	c, err := core.New("0.9.8r000000000000", "", t.TempDir(), nil, logger)
+	if err != nil {
+		t.Fatal(err)
+	}
+	c.LoadModules()
+	m := c.Modules["tls"].(*Module)
+	now := time.Now().Unix()
+	st := m.ctx.Store
+	_ = st.Exec(`INSERT INTO tls_certs(fingerprint,subject,not_after,self_signed,first_seen,last_seen,seen,hosts,snis,source)
+		VALUES('fp2','/CN=old.example',?,0,?,?,1,'[]','["old.example"]','squid')`, now-86400, now-100, now-10)
+	_ = st.Exec(`INSERT INTO flows(ts,src_ip,dst_ip,dst_port,domain) VALUES(?,?,?,443,'old.example')`, now-50, "192.168.1.40", "198.51.100.9")
+	if err := m.findings(); err != nil {
+		t.Fatal(err)
+	}
+	rows, _ := st.Rows(`SELECT attrs FROM findings WHERE module='tls' AND kind='expired-certificate'`)
+	a := ""
+	if len(rows) == 1 {
+		a, _ = rows[0]["attrs"].(string)
+	}
+	if !strings.Contains(a, `"ip":"192.168.1.40"`) || !strings.Contains(a, "seen once") {
+		t.Fatalf("attrs: %s", a)
+	}
+}

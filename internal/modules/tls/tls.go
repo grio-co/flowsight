@@ -306,29 +306,44 @@ func (m *Module) certAttrs(r map[string]any, fact string) map[string]any {
 	seen, _ := r["seen"].(int64)
 	last, _ := r["last_seen"].(int64)
 	who := map[string]any{}
-	if len(hosts) > 0 {
-		// By server address: tls_sessions is indexed on (dst_ip, ts).
-		if len(hosts) > 8 {
-			hosts = hosts[:8]
+	since := time.Now().Unix() - 7*86400
+	// latest fills who from the newest matching row of a table; both
+	// lookups ride an index: tls_sessions (dst_ip, ts), flows (domain, ts).
+	latest := func(table, col string, vals []string) bool {
+		if len(vals) == 0 {
+			return false
 		}
-		args := make([]any, 0, len(hosts)+1)
-		ph := make([]string, len(hosts))
-		for i, h := range hosts {
-			args, ph[i] = append(args, h), "?"
+		if len(vals) > 8 {
+			vals = vals[:8]
 		}
-		args = append(args, time.Now().Unix()-7*86400)
-		where := `dst_ip IN (` + strings.Join(ph, ",") + `) AND ts >= ?`
-		rows, _ := m.ctx.Store.Rows(`SELECT src_ip FROM tls_sessions WHERE `+where+` ORDER BY ts DESC LIMIT 1`, args...)
-		if len(rows) == 1 {
-			ip, _ := rows[0]["src_ip"].(string)
-			who["ip"] = ip
-			if id, ok := m.ctx.Service("identity").(core.Identity); ok {
-				who["name"] = id.Name(ip)
-			}
-			if n := m.ctx.Store.Int(`SELECT COUNT(DISTINCT src_ip) FROM tls_sessions WHERE `+where, args...); n > 1 {
-				who["others"] = n - 1
-			}
+		args := make([]any, 0, len(vals)+1)
+		ph := make([]string, len(vals))
+		for i, v := range vals {
+			args, ph[i] = append(args, v), "?"
 		}
+		args = append(args, since)
+		where := col + ` IN (` + strings.Join(ph, ",") + `) AND ts >= ?`
+		rows, _ := m.ctx.Store.Rows(`SELECT src_ip FROM `+table+` WHERE `+where+` ORDER BY ts DESC LIMIT 1`, args...)
+		if len(rows) != 1 {
+			return false
+		}
+		ip, _ := rows[0]["src_ip"].(string)
+		if ip == "" {
+			return false
+		}
+		who["ip"] = ip
+		if id, ok := m.ctx.Service("identity").(core.Identity); ok {
+			who["name"] = id.Name(ip)
+		}
+		if n := m.ctx.Store.Int(`SELECT COUNT(DISTINCT src_ip) FROM `+table+` WHERE `+where, args...); n > 1 {
+			who["others"] = n - 1
+		}
+		return true
+	}
+	// The TLS sessions name the server by address; certificates the proxy
+	// saw often have no session row, so the flows by name are the fallback.
+	if !latest("tls_sessions", "dst_ip", hosts) {
+		latest("flows", "domain", snis)
 	}
 	what := map[string]any{"kind": subj}
 	where := map[string]any{}
@@ -345,7 +360,10 @@ func (m *Module) certAttrs(r map[string]any, fact string) map[string]any {
 	if len(snis) > 1 {
 		facts = append(facts, fmt.Sprintf("served for %d names", len(snis)))
 	}
-	if seen > 0 {
+	switch {
+	case seen == 1:
+		facts = append(facts, "seen once")
+	case seen > 1:
 		facts = append(facts, fmt.Sprintf("seen %d times", seen))
 	}
 	if last > 0 {
