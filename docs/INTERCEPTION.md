@@ -76,6 +76,7 @@ Leave it empty and IPv6 web traffic is simply not intercepted (nothing
 breaks; it is just not seen).
 
 The local-networks table (`flowsight_local`) lives in the root pf ruleset and
-is refreshed by the firewall module every minute; the anchors reference it by
-name. Do not define a table of that name inside an anchor: pf would give the
-anchor its own empty copy and "to ! <flowsight_local>" would match everything.
+is refreshed by the firewall module every ten seconds, so a filter reload
+that loses it is repaired within that; the anchors reference it by name. Do
+not define a table of that name inside an anchor: pf would give the anchor
+its own empty copy and "to ! <flowsight_local>" would match everything.

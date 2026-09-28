@@ -12,6 +12,14 @@ name, and every release's assets carry that string in their file names.
 
 The newest entry is first.
 
+## 0.9.8r202609280347
+
+**The local-networks table is refilled every ten seconds instead of every
+minute.** FlowSight's blocks and interception tell local destinations from
+the internet with a pf table in the root ruleset. If a firewall reload ever
+loses that table, "not local" matches local destinations too until it is
+refilled; that window is now at most ten seconds. Nothing to do.
+
 ## 0.9.8r202609272103
 
 - **The assistant finds ssh after a restart.** A daemon started by rc(8) or
