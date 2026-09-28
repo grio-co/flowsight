@@ -12,6 +12,17 @@ name, and every release's assets carry that string in their file names.
 
 The newest entry is first.
 
+## 0.9.8r202609281811
+
+- **A recording carries its headers, and a request without a body is still
+  recorded.** The body store kept only bodies, so a capture of an API made
+  of GETs held almost nothing, and what it did hold did not say which
+  headers the request carried. Each recording now stores the request headers
+  beside the body, under the same redaction as the live view (a header that
+  carries access is a byte count), and a request with no body is recorded
+  for its headers and URL. Recordings made before this show no headers
+  rather than failing.
+
 ## 0.9.8r202609281803
 
 **Inspection can record request and response bodies.** Until now nothing in

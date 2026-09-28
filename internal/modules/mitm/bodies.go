@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"compress/flate"
 	"compress/gzip"
+	"encoding/json"
 	"io"
 	"strings"
 	"time"
@@ -39,6 +40,7 @@ CREATE TABLE IF NOT EXISTS mitm_bodies (
 	encoding TEXT,
 	complete INTEGER DEFAULT 0,
 	size INTEGER DEFAULT 0,
+	headers TEXT,
 	body BLOB
 )`
 
@@ -46,6 +48,10 @@ func (m *Module) initBodySchema() error {
 	if err := m.ctx.Store.Exec(bodySchema); err != nil {
 		return err
 	}
+	// Recordings made before headers were kept: the column is added to the
+	// table they are in, and the error when it is already there is the
+	// normal case rather than a problem.
+	_ = m.ctx.Store.Exec(`ALTER TABLE mitm_bodies ADD COLUMN headers TEXT`)
 	return m.ctx.Store.Exec(`CREATE INDEX IF NOT EXISTS mitm_bodies_ts ON mitm_bodies(ts)`)
 }
 
@@ -86,11 +92,11 @@ func bodyHostMatch(host string, pats []string) bool {
 	return false
 }
 
-// keepBody stores one body, capped, when the host is one of the named ones.
+// keepBody stores one exchange, capped, when the host is one of the named
+// ones. A request with no body is still recorded: a GET carries everything it
+// says in its headers and its URL, and a capture that skipped those would
+// leave out most of an API.
 func (m *Module) keepBody(rec Request, body []byte, isResponse bool, encoding string, complete bool) {
-	if len(body) == 0 {
-		return
-	}
 	on, hosts := m.recordingBodies()
 	if !on || !bodyHostMatch(rec.Host, hosts) {
 		return
@@ -106,10 +112,18 @@ func (m *Module) keepBody(rec Request, body []byte, isResponse bool, encoding st
 	if isResponse {
 		dir = "response"
 	}
-	_ = m.ctx.Store.Exec(`INSERT INTO mitm_bodies(ts,client,host,method,url,direction,status,content_type,encoding,complete,size,body)
-		VALUES(?,?,?,?,?,?,?,?,?,?,?,?)`,
+	// rec.Headers is already past safeHeaders: a header that carries access
+	// is a byte count here, not a value.
+	hdrs := ""
+	if len(rec.Headers) > 0 {
+		if b, err := json.Marshal(rec.Headers); err == nil {
+			hdrs = string(b)
+		}
+	}
+	_ = m.ctx.Store.Exec(`INSERT INTO mitm_bodies(ts,client,host,method,url,direction,status,content_type,encoding,complete,size,headers,body)
+		VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 		rec.TS, rec.Client, rec.Host, rec.Method, rec.URL, dir, rec.Status, rec.Type, encoding,
-		boolInt(complete), len(body), body)
+		boolInt(complete), len(body), hdrs, body)
 }
 
 // expireBodies deletes bodies past their keep time, and everything once
@@ -173,7 +187,7 @@ func (m *Module) apiBodies(r *core.Req) (any, error) {
 		if core.ReadOnly(r.Context()) {
 			return nil, core.Forbidden("a read-only token cannot read a recorded body")
 		}
-		rows, err := m.ctx.Store.Rows(`SELECT id,ts,client,host,method,url,direction,status,content_type,encoding,complete,size,body
+		rows, err := m.ctx.Store.Rows(`SELECT id,ts,client,host,method,url,direction,status,content_type,encoding,complete,size,headers,body
 			FROM mitm_bodies WHERE id=?`, id)
 		if err != nil {
 			return nil, err
@@ -186,6 +200,7 @@ func (m *Module) apiBodies(r *core.Req) (any, error) {
 		enc, _ := row["encoding"].(string)
 		b, decoded := decodeBody(raw, enc)
 		delete(row, "body")
+		row["headers"] = parseHeaders(row["headers"])
 		row["complete"] = row["complete"] == int64(1)
 		row["decoded"] = decoded
 		if isText(row["content_type"]) && decoded {
@@ -196,7 +211,7 @@ func (m *Module) apiBodies(r *core.Req) (any, error) {
 		out["body"] = row
 		return out, nil
 	}
-	q := `SELECT id,ts,client,host,method,url,direction,status,content_type,encoding,complete,size FROM mitm_bodies`
+	q := `SELECT id,ts,client,host,method,url,direction,status,content_type,encoding,complete,size,headers FROM mitm_bodies`
 	args := []any{}
 	h, err := r.QSafe("host", "", 120)
 	if err != nil {
@@ -215,6 +230,7 @@ func (m *Module) apiBodies(r *core.Req) (any, error) {
 	}
 	for _, row := range rows {
 		row["complete"] = row["complete"] == int64(1)
+		row["headers"] = parseHeaders(row["headers"])
 	}
 	out["bodies"] = rows
 	out["count"] = len(rows)
@@ -247,4 +263,18 @@ func asBytes(v any) []byte {
 		return []byte(b)
 	}
 	return nil
+}
+
+// parseHeaders turns the stored JSON back into a map, so a caller reads
+// headers rather than a string holding JSON.
+func parseHeaders(v any) map[string]string {
+	s, _ := v.(string)
+	if s == "" {
+		return map[string]string{}
+	}
+	out := map[string]string{}
+	if err := json.Unmarshal([]byte(s), &out); err != nil {
+		return map[string]string{}
+	}
+	return out
 }

@@ -186,3 +186,33 @@ func httpGet(t *testing.T, target string) *http.Request {
 	t.Helper()
 	return httptest.NewRequest("GET", target, nil)
 }
+
+// A GET has no body, and is the shape most of an API is made of, so it is
+// recorded for its headers and URL alone — with credential headers already
+// reduced to a length by safeHeaders before they reach the store.
+func TestRequestWithNoBodyIsRecordedForItsHeaders(t *testing.T) {
+	m := bodyTestModule(t)
+	setBodySettings(t, m, map[string]any{"store_bodies": true, "body_hosts": []any{"*.example.com"}})
+	h := http.Header{}
+	h.Set("X-User-Token", "a-real-session-token")
+	h.Set("X-Equipment-Code", "66:51:A7:6D:78:D8")
+	h.Set("X-Sign", "deadbeef")
+	rec := Request{Host: "api.example.com", Method: "GET", URL: "https://api.example.com/v1/list?page=…",
+		TS: 1 << 40, Headers: safeHeaders(h)}
+	m.keepBody(rec, nil, false, "", true)
+	got, err := m.apiBodies(&core.Req{Request: httpGet(t, "/api/mitm/bodies")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	rows := got.(map[string]any)["bodies"].([]map[string]any)
+	if len(rows) != 1 || rows[0]["method"] != "GET" || rows[0]["size"] != int64(0) {
+		t.Fatalf("a bodyless GET should be recorded: %v", rows)
+	}
+	hdrs := rows[0]["headers"].(map[string]string)
+	if hdrs["X-Equipment-Code"] != "66:51:A7:6D:78:D8" || hdrs["X-Sign"] != "deadbeef" {
+		t.Fatalf("identity and signing headers should be kept: %v", hdrs)
+	}
+	if hdrs["X-User-Token"] != "(20 bytes, not recorded)" {
+		t.Fatalf("a credential header must be a length: %v", hdrs)
+	}
+}

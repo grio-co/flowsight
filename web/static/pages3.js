@@ -600,7 +600,7 @@
           { t: 'Request', f: x => `<span class="mono small">${esc(x.method || '')} ${esc(x.url || '')}</span>`, sort: 'url' },
           { t: 'Part', f: x => pill(x.direction, x.direction === 'request' ? '' : 'ok'), sort: 'direction' },
           { t: 'Type', f: x => `<span class="small muted">${esc((x.content_type || '').split(';')[0])}</span>`, sort: 'content_type' },
-          { t: 'Size', f: x => bytes(x.size) + (x.complete ? '' : ' <span class="muted small">(truncated)</span>'), num: true, sort: 'size' },
+          { t: 'Size', f: x => (x.size ? bytes(x.size) : '<span class="muted small">headers only</span>') + (x.complete || !x.size ? '' : ' <span class="muted small">(truncated)</span>'), num: true, sort: 'size' },
           { t: '', f: x => `<button class="btn small" data-body="${x.id}">Show</button>` },
         ])}`, 'switched on under Settings › mitm; it stops on its own only when you switch it off')}</div>` : ''}
       <div style="margin-top:14px">${card('Recent requests', table(r.requests || [], [
@@ -623,9 +623,12 @@
         const d = await get('/api/mitm/bodies?id=' + encodeURIComponent(b.dataset.body));
         const x = d.body || {};
         const text = x.text != null ? x.text : '(not text; ' + (x.encoding ? esc(x.encoding) + ' encoded, ' : '') + 'not shown here)';
+        const hdrs = Object.entries(x.headers || {}).map(([k, v]) => k + ': ' + v).join('\n');
         FS.modal(`<h2>${esc(x.method || '')} ${esc(x.url || '')}</h2>
           <div class="small muted">${esc(x.direction || '')} \u00b7 ${esc((x.content_type || '').split(';')[0])} \u00b7 ${bytes(x.size || 0)}${x.complete ? '' : ' \u00b7 truncated'}</div>
-          <pre class="code" style="max-height:50vh;overflow:auto">${esc(text)}</pre>
+          ${hdrs ? `<div class="small" style="margin-top:8px">Headers</div><pre class="code" style="max-height:24vh;overflow:auto">${esc(hdrs)}</pre>` : ''}
+          <div class="small" style="margin-top:8px">Body</div>
+          <pre class="code" style="max-height:40vh;overflow:auto">${esc(x.size ? text : '(no body)')}</pre>
           <div class="actions"><button class="btn" data-close>Close</button></div>`);
       });
       FS.$$('[data-det]', el).forEach(b => b.onclick = () => {

@@ -947,8 +947,12 @@ it was for. Bodies are read only by the decoders that are switched on, and
 are not stored unless you ask for them.
 
 **Recording bodies.** *Settings › mitm › Record request and response bodies*
-keeps the bodies themselves, so you can see exactly what an application
-sends and receives — the request JSON an app signs, the JSON it gets back.
+keeps the exchange itself, so you can see exactly what an application sends
+and receives — the request JSON an app signs, the JSON it gets back, and the
+headers each carried, under the same redaction as everywhere else. A request
+with no body at all, such as a GET, is recorded for its headers and URL, so
+a capture covers the whole of an API rather than only the parts that post
+something.
 It is off by default and deliberately narrow:
 
 - Nothing is recorded until you also name hosts under *Record bodies only

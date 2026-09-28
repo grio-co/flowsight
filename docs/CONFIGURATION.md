@@ -283,7 +283,7 @@ Stateful Packet Inspection: the proxy hands each decrypted request and response 
 | `record_headers` | Record request headers | bool | `true` | A header that carries access is recorded as its length only, never its value: cookie, authorization, and any name containing token, secret, password, credential or session id, or ending in -key. Signature, nonce, timestamp and application-key headers are recorded. |
 | `decode_doh` | Decode DNS-over-HTTPS queries | bool | `true` | Reads the question out of a DoH request and files it in the DNS history. |
 | `preview_bytes` | Body preview (bytes) | int | `4096` | How much of each body the proxy sends for decoding. Raised automatically to `body_max_bytes` while recording. |
-| `store_bodies` | Record request and response bodies | bool | `false` | Keeps the bodies themselves, for the hosts in `body_hosts` only. Decrypted content with nothing removed; see the User Guide. |
+| `store_bodies` | Record request and response bodies | bool | `false` | Keeps bodies and headers, for the hosts in `body_hosts` only; a bodyless request is recorded for its headers. Decrypted content with nothing removed; see the User Guide. |
 | `body_hosts` | Record bodies only for these hosts | list | `[]` | `api.example.com` or `*.example.com`. Empty records nothing, even with `store_bodies` on. |
 | `body_max_bytes` | Largest body to record (bytes) | int | `65536` | Longer bodies are recorded up to this and marked truncated. |
 | `body_keep_minutes` | Delete recorded bodies after (minutes) | int | `60` | Applies whether or not recording is still on. |
