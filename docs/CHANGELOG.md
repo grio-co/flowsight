@@ -12,6 +12,20 @@ name, and every release's assets carry that string in their file names.
 
 The newest entry is first.
 
+## 0.9.8r202609280422
+
+- **Bandwidth test: a second built-in download source.** When Cloudflare
+  refuses a repeat download (HTTP 429 or 403), the test no longer waits
+  twenty seconds and tries Cloudflare again. It times a connection to about
+  thirty public test-file mirrors (Vultr, Linode, Hetzner, OVH), downloads
+  from the nearest (the next if that one fails, up to three), and the log
+  row says *download from* the mirror with its round trip. speedtest.net's
+  download stands in only when no mirror answers. The upload stays on
+  Cloudflare, which has not refused one. The test's own connections now go
+  through the same outbound guard as the rest of FlowSight.
+- **Rule hygiene** findings no longer name a built-in rule by its label
+  hash; the rule text says which rule it is.
+
 ## 0.9.8r202609280414
 
 **More findings say who, where and why, and close on their own.**

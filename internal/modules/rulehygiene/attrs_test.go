@@ -17,8 +17,8 @@ func TestRuleAttrsNameTheRuleAndItsCounters(t *testing.T) {
 	if len(facts) != 3 || !strings.HasPrefix(facts[0], "pass in quick") || !strings.Contains(facts[1], "evaluated 4231 times") {
 		t.Fatalf("facts: %v", facts)
 	}
-	if b := ruleAttrs(Rule{Label: "xyz"}, strings.Repeat("a", 300), 0); b["what"].(map[string]any)["kind"] != "label xyz" ||
+	if b := ruleAttrs(Rule{Label: "8b59cf89"}, strings.Repeat("a", 300), 0); b["what"].(map[string]any)["kind"] != nil ||
 		len([]rune(b["why"].(map[string]any)["facts"].([]string)[0])) != 161 {
-		t.Fatalf("label fallback and truncation: %v", b)
+		t.Fatalf("no hash for a name, and truncation: %v", b)
 	}
 }

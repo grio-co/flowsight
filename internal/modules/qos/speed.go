@@ -50,8 +50,13 @@ type SpeedTest struct {
 	TS        int64   `json:"ts"`
 	Duration  float64 `json:"duration_s"`
 	Interface string  `json:"interface"`
-	Attempt   int     `json:"attempt"` // 1, or 2 after a rerun
-	Rerun     bool    `json:"rerun"`   // this attempt was caused by divergence
+	// Where the built-in download came from: Cloudflare, or the mirror (or
+	// speedtest.net server) that stood in when Cloudflare refused, with its
+	// round trip.
+	DownSource   string  `json:"down_source,omitempty"`
+	DownSourceMs float64 `json:"down_source_ms,omitempty"`
+	Attempt      int     `json:"attempt"` // 1, or 2 after a rerun
+	Rerun        bool    `json:"rerun"`   // this attempt was caused by divergence
 	// The tester's own throughput, Mbit/s.
 	DownMbit float64 `json:"down_mbit"`
 	UpMbit   float64 `json:"up_mbit"`
@@ -382,7 +387,7 @@ func (s *sampler) close() error {
 // is exactly the condition being measured.
 func speedClient() *http.Client {
 	return &http.Client{Timeout: 60 * time.Second, Transport: &http.Transport{
-		MaxIdleConnsPerHost: testStreams, DisableCompression: true, Proxy: nil}}
+		MaxIdleConnsPerHost: testStreams, DisableCompression: true, Proxy: nil, DialContext: core.GuardedDial}}
 }
 
 // downloadFor pulls url from n streams for d seconds and returns the bytes
@@ -530,6 +535,11 @@ func (c *countingReader) Read(p []byte) (int, error) {
 	k, err := c.r.Read(p)
 	atomic.AddInt64(c.n, int64(k))
 	return k, err
+}
+
+// rateLimited is the built-in endpoint refusing a repeat burst.
+func rateLimited(err error) bool {
+	return err != nil && (strings.Contains(err.Error(), "HTTP 429") || strings.Contains(err.Error(), "HTTP 403"))
 }
 
 const (
@@ -722,14 +732,26 @@ func (m *Module) runSpeedTest(ctx context.Context, attempt int, rerun bool) (t S
 
 	setStage("downloading")
 	dBytes, dSec, dErr := downloadFor(ctx, client, cfDown, testStreams, testSeconds*time.Second)
-	if dBytes == 0 && dErr != nil && strings.Contains(dErr.Error(), "429") {
-		setStage("download rate-limited; waiting to try again")
-		select {
-		case <-time.After(20 * time.Second):
-		case <-ctx.Done():
+	t.DownSource = "Cloudflare"
+	if dBytes == 0 && rateLimited(dErr) {
+		// Cloudflare refuses a repeat burst for a while; the nearest public
+		// mirror stands in for the download, and the row says which.
+		setStage("download rate-limited; finding the nearest mirror")
+		for i, mr := range rankMirrors(ctx) {
+			if i == 3 || ctx.Err() != nil {
+				break
+			}
+			setStage("downloading from " + mr.Name)
+			smp.take()
+			b, sec, _ := downloadFor(ctx, client, mr.URL, testStreams, testSeconds*time.Second)
+			if b > 0 {
+				ms := float64(mr.RTT.Microseconds()) / 1000
+				dBytes, dSec, dErr = b, sec, nil
+				t.DownSource, t.DownSourceMs = mr.Name, math.Round(ms*10)/10
+				t.Note = fmt.Sprintf("download measured against %s (%.0f ms away): the built-in endpoint refused a repeat run", mr.Name, ms)
+				break
+			}
 		}
-		smp.take()
-		dBytes, dSec, dErr = downloadFor(ctx, client, cfDown, testStreams, testSeconds*time.Second)
 	}
 	din, _ := smp.take()
 	t.DownMbit = mbitPerSec(dBytes, dSec)
@@ -756,13 +778,14 @@ func (m *Module) runSpeedTest(ctx context.Context, attempt int, rerun bool) (t S
 		// The built-in endpoint refused the download (it rate-limits repeated
 		// bursts from one address): the comparison server's download stands
 		// in for that leg, and the row says so.
-		if dBytes == 0 && dErr != nil && (strings.Contains(dErr.Error(), "429") || strings.Contains(dErr.Error(), "403")) && ob > 0 {
+		if dBytes == 0 && rateLimited(dErr) && ob > 0 {
 			t.DownMbit, dErr, dBytes = t.OoklaDownMbit, nil, ob
+			t.DownSource, t.DownSourceMs = "speedtest.net "+t.OoklaServer, t.OoklaLatency
 			if p := mbitPerSec(peakRate(odin), 1); p > t.IfaceDownMbit {
 				t.IfaceDownMbit = p
 			}
 			t.LoadDownMbit = math.Max(0, t.IfaceDownMbit-t.DownMbit)
-			t.Note = "download measured against the speedtest.net server: the built-in endpoint rate-limited a repeat run"
+			t.Note = "download measured against the speedtest.net server: the built-in endpoint and the mirrors refused or did not answer"
 		}
 		ub, us, uerr := uploadFor(ctx, client, upURL, testStreams, testSeconds*time.Second)
 		t.OoklaUpMbit = mbitPerSec(ub, us)

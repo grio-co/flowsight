@@ -958,7 +958,7 @@ FS.speedTestsHTML = (d) => {
   const pct = (v) => (v * 100).toFixed(1) + '%';
   const rows = tests.map(t => `<tr class="${t.error ? 'flagged' : ''}">
     <td>${FS.when(t.ts)}${t.rerun ? '<div class="muted small">rerun</div>' : ''}</td>
-    <td class="num"><b>${fmt(t.down_mbit)}</b> / <b>${fmt(t.up_mbit)}</b><div class="muted small">built-in</div></td>
+    <td class="num"><b>${fmt(t.down_mbit)}</b> / <b>${fmt(t.up_mbit)}</b><div class="muted small">${t.down_source && t.down_source !== 'Cloudflare' ? `download from ${FS.esc(t.down_source)}${t.down_source_ms ? ' \u00b7 ' + Math.round(t.down_source_ms) + ' ms' : ''}` : 'built-in'}</div></td>
     <td class="num">${t.ookla_error ? `<span class="muted small" title="${FS.esc(t.ookla_error)}">no answer</span>` : `${fmt(t.ookla_down_mbit)} / ${fmt(t.ookla_up_mbit)}<div class="muted small">${FS.esc(t.ookla_sponsor || '')}${t.ookla_latency_ms ? ' \u00b7 ' + t.ookla_latency_ms.toFixed(0) + ' ms' : ''}</div>`}</td>
     <td class="num">${fmt(t.load_down_mbit)} / ${fmt(t.load_up_mbit)}<div class="muted small">before: ${fmt(t.base_down_mbit)} / ${fmt(t.base_up_mbit)}</div></td>
     <td class="num"><b>${fmt(t.iface_down_mbit)} / ${fmt(t.iface_up_mbit)}</b></td>

@@ -26,3 +26,11 @@ if (col('Who')(row).indexOf('and 1 other device<') < 0) throw new Error('singula
 row.attrs.why.facts = ['<b>x</b>'];
 if (col('Why')(row).indexOf('<b>x</b>') >= 0) throw new Error('facts must be escaped');
 print('finding columns: others and facts render');
+
+// A bandwidth-test row whose download came from a mirror says so.
+var h = FS.speedTestsHTML({ tests: [
+  { id: '1', ts: 1790480000, down_mbit: 900, up_mbit: 700, down_source: 'Linode Dallas', down_source_ms: 31.4 },
+  { id: '2', ts: 1790480100, down_mbit: 910, up_mbit: 710, down_source: 'Cloudflare' } ] });
+if (h.indexOf('download from Linode Dallas · 31 ms') < 0) throw new Error('mirror source not shown');
+if (h.indexOf('>built-in<') < 0) throw new Error('Cloudflare rows still read built-in');
+print('speed log: stand-in download source shown');

@@ -783,10 +783,9 @@ func (m *Module) apiRun(r *core.Req) (any, error) {
 // description from the firewall's configuration when it has one) and the
 // counters that make it unused, with the rule itself for reference.
 func ruleAttrs(r Rule, text string, loaded int64) map[string]any {
+	// A built-in rule has no description, only a hash for a label, which
+	// names nothing a person would recognise; the rule text says more.
 	name := r.Description
-	if name == "" && r.Label != "" {
-		name = "label " + r.Label
-	}
 	if len(text) > 160 {
 		text = text[:160] + "…"
 	}
