@@ -71,16 +71,20 @@ func (m *Module) Info() core.ModuleInfo {
 		After:        []string{"web", "tls"},
 		Capabilities: []string{core.CapWebObserve},
 		Defaults: map[string]any{
-			"enabled":        true,
-			"active":         false,
-			"port":           1344,
-			"clients":        []string{},
-			"names":          []string{},
-			"all_clients":    false,
-			"record_headers": true,
-			"decode_doh":     true,
-			"preview_bytes":  4096,
-			"keep_requests":  500,
+			"enabled":           true,
+			"active":            false,
+			"port":              1344,
+			"clients":           []string{},
+			"names":             []string{},
+			"all_clients":       false,
+			"record_headers":    true,
+			"decode_doh":        true,
+			"preview_bytes":     4096,
+			"keep_requests":     500,
+			"store_bodies":      false,
+			"body_hosts":        []string{},
+			"body_max_bytes":    65536,
+			"body_keep_minutes": 60,
 		},
 		Schema: []core.SettingField{
 			{Key: "active", Label: "Inspect decrypted sessions", Type: "bool",
@@ -97,6 +101,14 @@ func (m *Module) Info() core.ModuleInfo {
 				Help: "Header names and values for each request. Cookies and authorization headers are recorded as their length only, never their value."},
 			{Key: "decode_doh", Label: "Decode DNS-over-HTTPS queries", Type: "bool",
 				Help: "Read the question out of a DoH request and file it in the DNS history, so a browser resolving over HTTPS is as visible as one using the network's resolver."},
+			{Key: "store_bodies", Label: "Record request and response bodies", Type: "bool",
+				Help: "Off by default, and deliberately narrow. Keeps the bodies of requests to the hosts named below, so you can see exactly what an application sends and receives. A recorded body is decrypted traffic with nothing removed: it will contain tokens, personal data and anything else the application sent. Record for as long as you need and switch it off; switching it off deletes what was recorded."},
+			{Key: "body_hosts", Label: "Record bodies only for these hosts", Type: "list",
+				Help: "One host per line, or *.example.com for a whole domain. Nothing is recorded while this is empty, even with recording on."},
+			{Key: "body_max_bytes", Label: "Largest body to record (bytes)", Type: "int",
+				Help: "Bodies longer than this are recorded up to this length and marked truncated. The proxy hands over the beginning of a body, so a very large limit slows every inspected request, not just the recorded ones."},
+			{Key: "body_keep_minutes", Label: "Delete recorded bodies after (minutes)", Type: "int",
+				Help: "Recorded bodies are deleted this long after they were recorded, whether or not recording is still on."},
 			{Key: "preview_bytes", Label: "Body preview (bytes)", Type: "int",
 				Help: "How much of each body the proxy sends for decoding. A DNS-over-HTTPS question needs a few hundred bytes. Nothing is stored."},
 			{Key: "keep_requests", Label: "Recent requests kept in memory", Type: "int"},
@@ -121,8 +133,26 @@ func (m *Module) Setup(ctx *core.Context) error {
 				{"ts": 1790376243, "client": "192.168.1.10", "url": "https://github.com", "method": "GET"},
 			},
 		}))
+	ctx.Route("GET", "/api/mitm/bodies", m.apiBodies, core.Needs("deep.inspect"),
+		core.Doc("Recorded request and response bodies, newest first, for the hosts named in body_hosts while recording is on. Without `id` the bodies themselves are left out. A read-only token cannot read a body."),
+		core.Query("id", "integer", "Return this one recording with its body", false, 12),
+		core.Query("host", "string", "Only this host", false, "api.example.com"),
+		core.Query("limit", "integer", "Maximum results to return", false, 100),
+		core.Returns("Recorded bodies", map[string]any{
+			"recording": true, "hosts": []string{"*.example.com"}, "expires_in_minutes": 60,
+			"bodies": []map[string]any{{"id": 12, "ts": 1790376243, "client": "192.168.1.10", "host": "api.example.com",
+				"method": "POST", "url": "https://api.example.com/v1/list?page=…", "direction": "request",
+				"content_type": "application/json", "size": 214, "complete": true}},
+		}))
+	ctx.Route("POST", "/api/mitm/bodies/clear", m.apiBodiesClear, core.Write(), core.Needs("deep.inspect"),
+		core.Doc("Delete every recorded body now"),
+		core.Returns("Deleted", map[string]any{"ok": true}))
 	ctx.Panel(core.Panel{ID: "deep", Title: "Stateful Packet Inspection", Group: "Protect", Order: 75, Icon: "deep", Feature: "deep.inspect"})
 	ctx.Every("supervise", 30*time.Second, m.supervise)
+	ctx.Every("expire-bodies", time.Minute, m.expireBodies)
+	if err := m.initBodySchema(); err != nil {
+		return err
+	}
 	ctx.Publish("mitm", m)
 	return m.start()
 }
@@ -334,22 +364,31 @@ func portOf(h string) int {
 // ---------------------------------------------------------------- API
 
 func (m *Module) apiStatus(r *core.Req) (any, error) {
+	rec, recHosts := m.recordingBodies()
+	note := "Bodies are previewed only by the decoders that are switched on, and never stored."
+	if rec {
+		note = fmt.Sprintf("Recording the bodies of requests to %s. They are deleted %d minutes after they are recorded, and when recording is switched off.",
+			strings.Join(recHosts, ", "), core.Int(m.ctx.Settings(), "body_keep_minutes", 60))
+	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return map[string]any{
-		"active":     core.Bool(m.ctx.Settings(), "active", false),
-		"licensed":   m.ctx.License().Allowed("deep.inspect") == nil,
-		"listening":  m.ln != nil,
-		"port":       core.Int(m.ctx.Settings(), "port", 1344),
-		"error":      m.lastErr,
-		"since":      m.started.Unix(),
-		"requests":   m.requests.Load(),
-		"decoded":    m.decoded.Load(),
-		"bytes":      m.bytes.Load(),
-		"clients":    core.Strs(m.ctx.Settings(), "clients"),
-		"names":      core.Strs(m.ctx.Settings(), "names"),
-		"everything": core.Bool(m.ctx.Settings(), "all_clients", false),
-		"note":       "Bodies are previewed only by the decoders that are switched on, and never stored.",
+		"active":           core.Bool(m.ctx.Settings(), "active", false),
+		"licensed":         m.ctx.License().Allowed("deep.inspect") == nil,
+		"listening":        m.ln != nil,
+		"port":             core.Int(m.ctx.Settings(), "port", 1344),
+		"error":            m.lastErr,
+		"since":            m.started.Unix(),
+		"requests":         m.requests.Load(),
+		"decoded":          m.decoded.Load(),
+		"bytes":            m.bytes.Load(),
+		"clients":          core.Strs(m.ctx.Settings(), "clients"),
+		"names":            core.Strs(m.ctx.Settings(), "names"),
+		"everything":       core.Bool(m.ctx.Settings(), "all_clients", false),
+		"recording_bodies": rec,
+		"body_hosts":       recHosts,
+		"bodies_stored":    m.ctx.Store.Int(`SELECT COUNT(*) FROM mitm_bodies`),
+		"note":             note,
 	}, nil
 }
 

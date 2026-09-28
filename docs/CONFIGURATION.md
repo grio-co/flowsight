@@ -271,7 +271,7 @@ Entitlements: Community, Pro and Business tiers, activated online or with a sign
 
 ### mitm (Business tier)
 
-Stateful Packet Inspection: the proxy hands each decrypted request and response over by ICAP on loopback, FlowSight reads it and answers "no modification". Bodies are previewed for the decoders that are switched on and never stored.
+Stateful Packet Inspection: the proxy hands each decrypted request and response over by ICAP on loopback, FlowSight reads it and answers "no modification". Bodies are previewed for the decoders that are switched on, and stored only for the hosts named in `body_hosts` while `store_bodies` is on.
 
 | Key | Setting | Type | Default | Notes |
 |---|---|---|---|---|
@@ -280,9 +280,13 @@ Stateful Packet Inspection: the proxy hands each decrypted request and response 
 | `port` | ICAP port (loopback) | int · restart | `1344` | Loopback only; nothing else can reach it. |
 | `clients` | Limit to these clients | list | `[]` | Addresses or CIDRs. Empty: every client whose sessions are decrypted. |
 | `names` | Limit to these names | list | `[]` | Server names, one per line. Empty: every decrypted name. |
-| `record_headers` | Record request headers | bool | `true` | Cookies and authorization headers are recorded as their length only, never their value. |
+| `record_headers` | Record request headers | bool | `true` | A header that carries access is recorded as its length only, never its value: cookie, authorization, and any name containing token, secret, password, credential or session id, or ending in -key. Signature, nonce, timestamp and application-key headers are recorded. |
 | `decode_doh` | Decode DNS-over-HTTPS queries | bool | `true` | Reads the question out of a DoH request and files it in the DNS history. |
-| `preview_bytes` | Body preview (bytes) | int | `4096` | How much of each body the proxy sends for decoding. Nothing is stored. |
+| `preview_bytes` | Body preview (bytes) | int | `4096` | How much of each body the proxy sends for decoding. Raised automatically to `body_max_bytes` while recording. |
+| `store_bodies` | Record request and response bodies | bool | `false` | Keeps the bodies themselves, for the hosts in `body_hosts` only. Decrypted content with nothing removed; see the User Guide. |
+| `body_hosts` | Record bodies only for these hosts | list | `[]` | `api.example.com` or `*.example.com`. Empty records nothing, even with `store_bodies` on. |
+| `body_max_bytes` | Largest body to record (bytes) | int | `65536` | Longer bodies are recorded up to this and marked truncated. |
+| `body_keep_minutes` | Delete recorded bodies after (minutes) | int | `60` | Applies whether or not recording is still on. |
 | `keep_requests` | Recent requests kept in memory | int | `500` |  |
 
 ### netflow

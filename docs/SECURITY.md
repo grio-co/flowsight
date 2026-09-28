@@ -184,21 +184,47 @@ bumped), bounded by bypass lists, and impossible without installing a
 certificate on the device, which is a deliberate act on that device. Use it
 on devices you own or administer with the consent their users would
 reasonably expect; do not use it on guests. Inspected sessions yield URLs
-and certificates for policy and inventory; bodies are not stored.
+and certificates for policy and inventory. Bodies are not stored unless you
+switch recording on for named hosts, which is its own deliberate act; see
+below.
 
-## Stateful Packet Inspection, and what it does not keep
+## Stateful Packet Inspection, and what it keeps
 
 The stateful packet inspection module (Business) listens on loopback for ICAP and is
 handed each decrypted request and response by the proxy as it passes. It
 records what the exchange was: method, URL, status, content type, size,
-timing, and request headers when that is switched on. Cookies and
-authorization headers are recorded as a length, never a value. Bodies are
-read only by the decoders that are switched on, up to a byte limit, and are
-discarded immediately; there is no setting that keeps a body, and none will
-be added. FlowSight always answers "no modification", so no traffic is
+timing, and request headers when that is switched on. A header that carries
+access is recorded as a length, never a value: cookies and authorization,
+and any header whose name contains token, secret, password, credential or a
+session id, or ends in `-key`. Per-request signatures, nonces, timestamps
+and application keys are recorded, because they describe the request rather
+than authorise a person. URLs keep their query parameter names and lose
+every value. FlowSight always answers "no modification", so no traffic is
 routed through it and nothing it sees is altered. It never receives a
 session a policy has not already decrypted, nor an excluded host, nor a
 pinned name.
+
+By default a body is read only by the decoders that are switched on, up to a
+byte limit, and discarded immediately.
+
+**Recording bodies.** Earlier versions said no setting would ever keep a
+body. That changed in 0.9.8r202609281803, because working out what an
+application actually sends needs the bytes it sent. The setting exists, and
+it is built to be hard to leave running by accident:
+
+- It is off by default, and records nothing until hosts are named as well:
+  the switch on its own covers no traffic.
+- Each body is capped, and everything recorded is deleted after a keep time
+  (an hour by default) by a job that runs whether or not recording is still
+  on. Switching recording off deletes what was recorded.
+- The inspection page states that recording is on, names the hosts, counts
+  what is held, and offers to delete it.
+- A read-only token can see that a recording exists but cannot read one.
+
+A recorded body is decrypted content with nothing removed. It will contain
+credentials and personal data. Record against one host for the minutes you
+need and switch it off; treat the database as holding secrets until the keep
+time has passed.
 
 The **inspect everything that crosses the firewall** checkbox widens that
 last sentence: with it on, every intercepted client is decrypted rather than

@@ -938,9 +938,35 @@ and nothing is altered on the way.
 
 Each exchange is recorded as the method, the full URL, the response code,
 the content type, the size and the timing, plus the request headers when
-that is switched on. Cookies and authorization headers are recorded as a
-byte count, never as a value. Bodies are read only by the decoders that are
-switched on and are never stored.
+that is switched on. A header that carries access is recorded as a byte
+count, never as a value: cookies and authorization, and anything an
+application invented for the same job, such as `X-User-Token` or
+`Authentication`. A per-request signature, nonce, timestamp or application
+key is recorded, because those say how a request was built rather than who
+it was for. Bodies are read only by the decoders that are switched on, and
+are not stored unless you ask for them.
+
+**Recording bodies.** *Settings › mitm › Record request and response bodies*
+keeps the bodies themselves, so you can see exactly what an application
+sends and receives — the request JSON an app signs, the JSON it gets back.
+It is off by default and deliberately narrow:
+
+- Nothing is recorded until you also name hosts under *Record bodies only
+  for these hosts* (`api.example.com`, or `*.example.com` for a domain).
+  Switching recording on with no host named records nothing, so the switch
+  alone can never start recording the whole network.
+- Each body is kept up to *Largest body to record*, 64 KB by default, and
+  marked truncated beyond it. FlowSight only ever sees the part of a body
+  the proxy hands over, so a very large limit slows every inspected request.
+- Every recorded body is deleted *Delete recorded bodies after* minutes
+  later, an hour by default, whether or not recording is still on.
+- Switching recording off deletes what was recorded.
+
+A recorded body is decrypted traffic with nothing taken out: it will contain
+tokens, personal data and anything else that device sent. The inspection
+page says so while recording is on, names the hosts, counts what is stored
+and offers *Delete them now*. A read-only token can see that a recording
+exists but cannot read one. Record for the few minutes you need, then stop.
 
 Today one decoder is shipped: **DNS over HTTPS**. A browser resolving over
 HTTPS puts its question in the request body, where a proxy log cannot see

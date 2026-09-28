@@ -51,7 +51,7 @@ func (m *Module) icapServe(c net.Conn) {
 		case "REQMOD", "RESPMOD":
 			m.icapMod(bw, req)
 		default:
-			fmt.Fprintf(bw, "ICAP/1.0 405 Method Not Allowed\r\nISTag: \"%s\"\r\nEncapsulated: null-body=0\r\n\r\n", istag)
+			fmt.Fprintf(bw, "ICAP/1.0 405 Method Not Allowed\r\nISTag: \"%s\"\r\nEncapsulated: null-body=0\r\n\r\n", m.istag())
 		}
 		if bw.Flush() != nil {
 			return
@@ -61,11 +61,36 @@ func (m *Module) icapServe(c net.Conn) {
 
 const istag = "flowsight-1"
 
+// previewBytes is how much of each body squid hands over. Recording needs
+// the preview to be at least as large as the bodies being kept, because the
+// preview is all this module ever sees of a body.
+func (m *Module) previewBytes() int {
+	n := core.Int(m.ctx.Settings(), "preview_bytes", 4096)
+	if on, _ := m.recordingBodies(); on {
+		if max := core.Int(m.ctx.Settings(), "body_max_bytes", 65536); max > n {
+			n = max
+		}
+	}
+	if n < 0 {
+		n = 0
+	}
+	return n
+}
+
+// istag changes when the preview size does, so squid drops what it cached
+// under the old one and asks for options again.
+func (m *Module) istag() string {
+	return fmt.Sprintf("%s-%d", istag, m.previewBytes())
+}
+
 func (m *Module) icapOptions(w io.Writer, req *icapRequest) {
 	service := "reqmod respmod"
-	preview := core.Int(m.ctx.Settings(), "preview_bytes", 4096)
-	if preview < 0 {
-		preview = 0
+	preview := m.previewBytes()
+	ttl := 3600
+	if on, _ := m.recordingBodies(); on {
+		// A change to the recording settings has to reach squid quickly, and
+		// the tag change makes it re-read them rather than wait out the TTL.
+		ttl = 60
 	}
 	fmt.Fprintf(w, "ICAP/1.0 200 OK\r\n"+
 		"Methods: %s\r\n"+
@@ -75,9 +100,9 @@ func (m *Module) icapOptions(w io.Writer, req *icapRequest) {
 		"Preview: %d\r\n"+
 		"Transfer-Preview: *\r\n"+
 		"Max-Connections: 64\r\n"+
-		"Options-TTL: 3600\r\n"+
+		"Options-TTL: %d\r\n"+
 		"Encapsulated: null-body=0\r\n\r\n",
-		strings.ToUpper(strings.ReplaceAll(service, " ", ", ")), istag, preview)
+		strings.ToUpper(strings.ReplaceAll(service, " ", ", ")), m.istag(), preview, ttl)
 }
 
 // icapMod reads one encapsulated exchange, records it, and tells squid to
@@ -106,11 +131,19 @@ func (m *Module) icapMod(w io.Writer, req *icapRequest) {
 	// proxy log already has it, and recording it here would list every
 	// inspected session twice and say nothing about its contents.
 	if rec.Method != "CONNECT" && (rec.URL != "" || rec.Host != "") {
-		m.record(rec, req.Body, req.Method == "RESPMOD")
+		isResp := req.Method == "RESPMOD"
+		enc := ""
+		if isResp && req.HTTPResponse != nil {
+			enc = req.HTTPResponse.Header.Get("Content-Encoding")
+		} else if req.HTTPRequest != nil {
+			enc = req.HTTPRequest.Header.Get("Content-Encoding")
+		}
+		m.keepBody(rec, req.Body, isResp, enc, req.BodyComplete)
+		m.record(rec, req.Body, isResp)
 	}
 	// 204 is "I have nothing to change": squid keeps the original message and
 	// streams it on. This is the whole point of a preview.
-	fmt.Fprintf(w, "ICAP/1.0 204 No Content\r\nISTag: \"%s\"\r\nEncapsulated: null-body=0\r\n\r\n", istag)
+	fmt.Fprintf(w, "ICAP/1.0 204 No Content\r\nISTag: \"%s\"\r\nEncapsulated: null-body=0\r\n\r\n", m.istag())
 }
 
 // ---------------------------------------------------------------- parsing
@@ -122,6 +155,7 @@ type icapRequest struct {
 	HTTPRequest  *http.Request
 	HTTPResponse *http.Response
 	Body         []byte // the preview, at most preview_bytes
+	BodyComplete bool   // the preview ended with "ieof": it is the whole body
 }
 
 // ClientIP is the address squid says the request came from.
@@ -188,11 +222,11 @@ func readICAP(br *bufio.Reader) (*icapRequest, error) {
 				respHdr = buf
 			}
 		case "req-body", "res-body", "opt-body":
-			body, err := readChunkedPreview(br)
+			body, complete, err := readChunkedPreview(br)
 			if err != nil {
 				return nil, err
 			}
-			req.Body = body
+			req.Body, req.BodyComplete = body, complete
 		case "null-body":
 			// nothing follows
 		}
@@ -236,13 +270,15 @@ func parseEncapsulated(v string) []encSection {
 }
 
 // readChunkedPreview reads the preview body: chunked, ended either by a zero
-// chunk or by the "0; ieof" marker that says this was the whole message.
-func readChunkedPreview(br *bufio.Reader) ([]byte, error) {
+// chunk or by the "0; ieof" marker that says this was the whole message. The
+// second return says which: with ieof the preview is the entire body, without
+// it the message continues past what was handed over.
+func readChunkedPreview(br *bufio.Reader) ([]byte, bool, error) {
 	var out []byte
 	for {
 		line, err := br.ReadString('\n')
 		if err != nil {
-			return out, err
+			return out, false, err
 		}
 		line = strings.TrimRight(line, "\r\n")
 		sizeStr := line
@@ -251,19 +287,19 @@ func readChunkedPreview(br *bufio.Reader) ([]byte, error) {
 		}
 		n, err := strconv.ParseInt(strings.TrimSpace(sizeStr), 16, 64)
 		if err != nil {
-			return out, fmt.Errorf("bad chunk size %q", line)
+			return out, false, fmt.Errorf("bad chunk size %q", line)
 		}
 		if n == 0 {
 			// Trailing CRLF after the last chunk.
 			_, _ = br.ReadString('\n')
-			return out, nil
+			return out, strings.Contains(strings.ToLower(line), "ieof"), nil
 		}
 		if n > 1<<20 {
 			n = 1 << 20
 		}
 		buf := make([]byte, n)
 		if _, err := io.ReadFull(br, buf); err != nil {
-			return out, err
+			return out, false, err
 		}
 		out = append(out, buf...)
 		_, _ = br.ReadString('\n') // CRLF after the chunk
@@ -276,8 +312,8 @@ func safeHeaders(h http.Header) map[string]string {
 	out := map[string]string{}
 	for k, vs := range h {
 		v := strings.Join(vs, ", ")
-		switch strings.ToLower(k) {
-		case "cookie", "authorization", "proxy-authorization", "x-api-key", "set-cookie":
+		switch {
+		case credentialHeader(k):
 			out[k] = fmt.Sprintf("(%d bytes, not recorded)", len(v))
 		default:
 			if len(v) > 300 {
@@ -287,6 +323,30 @@ func safeHeaders(h http.Header) map[string]string {
 		}
 	}
 	return out
+}
+
+// credentialHeader reports whether a header carries something that grants
+// access, so its value is never recorded. Applications invent their own
+// names for these (X-User-Token, Authentication), so the test is on the
+// shape of the name rather than a list of the standard ones.
+//
+// What it deliberately does not cover: a per-request signature, nonce or
+// timestamp, and an application key baked into every copy of a client. Those
+// identify a request rather than authorise a person, and they are the ones
+// worth seeing when working out what an application sends.
+func credentialHeader(name string) bool {
+	n := strings.ToLower(name)
+	switch n {
+	case "cookie", "set-cookie", "authorization", "proxy-authorization",
+		"authentication", "www-authenticate", "proxy-authenticate":
+		return true
+	}
+	for _, s := range []string{"token", "secret", "password", "passwd", "credential", "sessionid", "session-id"} {
+		if strings.Contains(n, s) {
+			return true
+		}
+	}
+	return strings.HasSuffix(n, "-key") || strings.HasSuffix(n, "_key") || n == "key"
 }
 
 // redactURL keeps what a request was for and drops what it carried: the

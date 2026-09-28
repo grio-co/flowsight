@@ -580,6 +580,9 @@
     async render(el, ctx) {
       const [s, r] = await Promise.all([get('/api/mitm/status'), get('/api/mitm/requests?limit=300' + (ctx.params.q ? '&q=' + encodeURIComponent(ctx.params.q) : ''))]);
       if (s.error) { el.innerHTML = FS.err(s.error); return; }
+      // Recording bodies is the one setting here that keeps decrypted
+      // content, so the page says so plainly while it is on.
+      const bl = s.recording_bodies ? await get('/api/mitm/bodies?limit=200').catch(() => ({})) : {};
       const state = !s.licensed ? pill('business tier', 'warn') : !s.scanning ? pill('off', '') : s.listening ? pill('inspecting', 'ok') : pill('not listening', 'bad');
       el.innerHTML = `<div class="grid cols-4">
         ${kpi('State', state, s.error ? esc(s.error) : (s.scanning ? `loopback port ${s.port}` : 'switch it on under Settings › mitm'))}
@@ -589,6 +592,17 @@
           <div class="small" style="margin-top:4px">Names: ${(s.names || []).length ? (s.names || []).map(c => `<span class="mono">${esc(c)}</span>`).join(', ') : '<span class="muted">every name that is decrypted</span>'}</div>
           <div class="actions"><a class="btn" href="#modules/mitm">Settings</a><a class="btn" href="#tls">Pinned sites</a></div>`)}
       </div>
+      ${s.recording_bodies ? `<div style="margin-top:14px">${card('Recording bodies', `<div class="small">Keeping the bodies of requests to ${(s.body_hosts || []).map(h => `<span class="mono">${esc(h)}</span>`).join(', ')}. A recorded body is decrypted traffic with nothing removed. ${num(s.bodies_stored || 0)} recorded; each is deleted ${num(s.expires_in_minutes || 60)} minutes after it was recorded.</div>
+        <div class="actions"><button class="btn" id="bodies-clear">Delete them now</button><a class="btn" href="#modules/mitm">Stop recording</a></div>
+        ${table((bl.bodies || []), [
+          { t: 'When', f: x => when(x.ts), sort: 'ts' },
+          { t: 'Client', f: x => FS.hostLink(x.client), sort: 'client' },
+          { t: 'Request', f: x => `<span class="mono small">${esc(x.method || '')} ${esc(x.url || '')}</span>`, sort: 'url' },
+          { t: 'Part', f: x => pill(x.direction, x.direction === 'request' ? '' : 'ok'), sort: 'direction' },
+          { t: 'Type', f: x => `<span class="small muted">${esc((x.content_type || '').split(';')[0])}</span>`, sort: 'content_type' },
+          { t: 'Size', f: x => bytes(x.size) + (x.complete ? '' : ' <span class="muted small">(truncated)</span>'), num: true, sort: 'size' },
+          { t: '', f: x => `<button class="btn small" data-body="${x.id}">Show</button>` },
+        ])}`, 'switched on under Settings › mitm; it stops on its own only when you switch it off')}</div>` : ''}
       <div style="margin-top:14px">${card('Recent requests', table(r.requests || [], [
         { t: 'When', f: x => when(x.ts), sort: 'ts' },
         { t: 'Client', f: x => FS.hostLink(x.client), sort: 'client' },
@@ -599,6 +613,21 @@
         { t: 'Took', f: x => (x.ms || 0).toFixed(0) + ' ms', num: true, sort: 'ms' },
         { t: '', f: x => `<button class="btn small" data-det="${esc(JSON.stringify(x).replace(/"/g, '&quot;'))}">Headers</button>` },
       ]), `<span class="muted small">${esc(s.note || '')}</span>`)}</div>`;
+      const bc = el.querySelector('#bodies-clear');
+      if (bc) bc.onclick = async () => {
+        if (!await FS.confirm('Delete every recorded body?')) return;
+        await FS.post('/api/mitm/bodies/clear', {});
+        FS.render();
+      };
+      FS.$$('[data-body]', el).forEach(b => b.onclick = async () => {
+        const d = await get('/api/mitm/bodies?id=' + encodeURIComponent(b.dataset.body));
+        const x = d.body || {};
+        const text = x.text != null ? x.text : '(not text; ' + (x.encoding ? esc(x.encoding) + ' encoded, ' : '') + 'not shown here)';
+        FS.modal(`<h2>${esc(x.method || '')} ${esc(x.url || '')}</h2>
+          <div class="small muted">${esc(x.direction || '')} \u00b7 ${esc((x.content_type || '').split(';')[0])} \u00b7 ${bytes(x.size || 0)}${x.complete ? '' : ' \u00b7 truncated'}</div>
+          <pre class="code" style="max-height:50vh;overflow:auto">${esc(text)}</pre>
+          <div class="actions"><button class="btn" data-close>Close</button></div>`);
+      });
       FS.$$('[data-det]', el).forEach(b => b.onclick = () => {
         const x = JSON.parse(b.dataset.det);
         FS.modal(`<h2>${esc(x.method)} ${esc(x.url)}</h2><pre class="code">${esc(Object.entries(x.headers || {}).map(([k, v]) => k + ': ' + v).join('\n') || 'headers were not recorded')}</pre>

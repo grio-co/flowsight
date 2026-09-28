@@ -12,6 +12,41 @@ name, and every release's assets carry that string in their file names.
 
 The newest entry is first.
 
+## 0.9.8r202609281803
+
+**Inspection can record request and response bodies.** Until now nothing in
+FlowSight kept the body of an inspected request, and the manual said no
+setting ever would. That is now a setting, because seeing what an
+application actually sends — the JSON it signs, the JSON it gets back —
+needs the bytes it sent.
+
+It is built to be hard to leave running by accident. It is off by default,
+and records nothing until you also name the hosts to record (`*.example.com`
+or one host), so the switch alone covers no traffic. Each body is capped at
+64 KB by default and marked when truncated. Everything recorded is deleted
+an hour later by default, by a job that runs whether or not recording is
+still on, and switching recording off deletes what was recorded. The
+inspection page says recording is on, names the hosts, counts what is held,
+shows each body and offers *Delete them now*. A read-only token can see that
+a recording exists but cannot read one. `GET /api/mitm/bodies` lists them and
+returns one at a time by `id`; `POST /api/mitm/bodies/clear` empties the lot.
+gzip and deflate bodies are shown decoded.
+
+A recorded body is decrypted content with nothing removed, credentials
+included. Record against one host for the minutes you need, then stop.
+
+- **Headers that carry access are recorded as a length, whatever they are
+  called.** The list was cookie, authorization, proxy-authorization,
+  x-api-key and set-cookie, so an application's own name for the same thing
+  — `X-User-Token`, `Authentication`, `X-Client-Secret` — was recorded in
+  full. Any header whose name contains token, secret, password, credential
+  or a session id, or ends in `-key`, is now recorded as its length.
+  Signature, nonce, timestamp and application-key headers are still
+  recorded: they say how a request was built, not who it was for.
+- **A recorded body is no longer lost to a type mismatch.** The body came
+  back from the database as text in some cases and bytes in others, and only
+  one of those was handled.
+
 ## 0.9.8r202609280514
 
 - **Host totals no longer grow by a flow's whole history after a restart.**
