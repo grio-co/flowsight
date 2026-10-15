@@ -361,6 +361,18 @@ devices:
      require manual installation; VMs without a guest agent cannot be reached; 
      phones, Macs, and Echo devices outside Proxmox are not reached by this script.
    
+   - **Any device, from the device itself**: you do not have to visit each
+     one. While *Inspect a device only once it trusts the CA* is on (the
+     default), a device a policy would inspect is relayed untouched until
+     it trusts the CA, and its system's sign-in check opens FlowSight's
+     certificate page (`http://<firewall>:8082/trust`). On Windows this is
+     the *Action needed: sign in to this network* prompt. The page offers
+     the certificate with install steps, or *Continue without it*; it
+     notices an installed certificate on its own and the device is
+     inspected from the next apply. **Web › API `GET /api/web/ca-trust`**
+     lists every answer; clear one with `POST /api/web/ca-trust`
+     (`state: clear`) to ask that device again.
+
 3. **Groups & Schedules**: make a group with those devices (by `mac:` is
    the stable choice).
 4. **Policies**: a policy matching the group with *Inspect TLS* on and a

@@ -54,6 +54,8 @@ type Module struct {
 	blockSrv *http.Server
 	blocks   map[string]int64 // policy -> count since start
 	pin      *pinning         // names whose clients pin their certificate
+	trust    *caTrust         // devices that trust, or declined, the inspection CA
+	trustSrv *http.Server
 }
 
 // CAProvider is published by the tls module: the combined PEM squid needs.
@@ -83,6 +85,8 @@ func (m *Module) Info() core.ModuleInfo {
 			"pinned_retest_hours":   168,
 			"ipv6_listener":         "",
 			"block_page_port":       8082,
+			"ca_trust_gate":         true,
+			"trust_check_port":      8084,
 			"workers":               1,
 			"squid_user":            "squid",
 		},
@@ -104,6 +108,10 @@ func (m *Module) Info() core.ModuleInfo {
 			{Key: "ipv6_listener", Label: "IPv6 listener address", Type: "string",
 				Help: "An IPv6 address the firewall holds on the LAN (a unique local address as a virtual IP works well). Empty: IPv6 web traffic is not intercepted."},
 			{Key: "block_page_port", Label: "Block page port", Type: "int"},
+			{Key: "ca_trust_gate", Label: "Inspect a device only once it trusts the CA", Type: "bool",
+				Help: "A device a policy would inspect is relayed without decryption until it has installed the inspection CA, and its sign-in check is sent to a page that offers the certificate or lets it continue without. Off: every inspected device is decrypted at once, and one without the CA sees certificate errors in every app."},
+			{Key: "trust_check_port", Label: "Certificate check port", Type: "int",
+				Help: "HTTPS port, signed by the inspection CA, that the certificate page loads to confirm a device trusts the CA. LAN clients must reach it, like the block page."},
 			{Key: "workers", Label: "Squid workers", Type: "int"},
 		},
 	}
@@ -129,6 +137,7 @@ func (m *Module) Setup(ctx *core.Context) error {
 	m.tail = core.NewTailer(filepath.Join(m.logDir, "access.log"))
 	m.dropMangledCerts()
 	m.loadPinned()
+	m.loadTrust()
 	ctx.Publish("pinned", m)
 	ctx.Provider(&provider{m: m})
 	ctx.Every("tail", 3*time.Second, m.pollLog)
@@ -182,14 +191,31 @@ func (m *Module) Setup(ctx *core.Context) error {
 		core.Doc("Remove a domain from the pinned (certificate-pinned) bypass list"),
 		core.PathParam("name", "string", "Domain name to remove from pinned list", "example.com"),
 		core.Returns("Pinned domain removed", map[string]any{"ok": true}))
+	ctx.Route("GET", "/api/web/ca-trust", m.apiTrust, core.Doc("List devices that installed or declined the inspection CA, and the certificate page addresses"),
+		core.Returns("CA trust per device", map[string]any{
+			"devices": []map[string]any{{"key": "aa:bb:cc:dd:ee:ff", "mac": "aa:bb:cc:dd:ee:ff", "ip": "192.168.1.10", "name": "desktop", "state": "trusted", "at": 1790376243, "via": "check"}},
+			"gate":    true, "portal": "http://192.168.1.1:8082/trust", "check": "https://192.168.1.1:8084/trust/ok",
+		}))
+	ctx.Route("POST", "/api/web/ca-trust", m.apiTrustSet, core.Write(), core.Needs("tls.inspect"),
+		core.Doc("Record that a device trusts or declines the inspection CA, or clear its answer so it is asked again"),
+		core.Body(
+			core.Fld("ip", "string", false, "Device address (required for trusted and declined)", "192.168.1.10"),
+			core.Fld("key", "string", false, "Entry key (MAC or address) to clear", "aa:bb:cc:dd:ee:ff"),
+			core.Fld("state", "string", true, "trusted, declined or clear", "trusted"),
+		),
+		core.Returns("Answer recorded", map[string]any{"ok": true}))
 	ctx.Panel(core.Panel{ID: "web", Title: "Web", Group: "Monitor", Order: 45, Icon: "web"})
 	m.startBlockPage()
+	m.startTrustCheck()
 	return nil
 }
 
 func (m *Module) Stop() {
 	if m.blockSrv != nil {
 		_ = m.blockSrv.Close()
+	}
+	if m.trustSrv != nil {
+		_ = m.trustSrv.Close()
 	}
 }
 
@@ -695,6 +721,7 @@ func (m *Module) startBlockPage() {
 		w.WriteHeader(http.StatusForbidden)
 		fmt.Fprintf(w, blockHTML, htmlEscape(hostOf(u)), htmlEscape(policy))
 	})
+	m.registerTrustPages(mux)
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/blocked", http.StatusFound)
 	})

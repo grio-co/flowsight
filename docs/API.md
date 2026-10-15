@@ -633,6 +633,8 @@ Download the full OpenAPI 3.0 specification at `GET /api/openapi.json` for use w
 **Other operations**
 | Method | Path | What | Parameters |
 |---|---|---|---|
+| GET | `/api/web/ca-trust` | List devices that installed or declined the inspection CA, and the certificate page addresses | none |
+| POST | `/api/web/ca-trust` | Record that a device trusts or declines the inspection CA, or clear its answer so it is asked again (`ip`, `key`, `state`: trusted, declined or clear) | none |
 | GET | `/api/web/log` | Get recent web requests with optional filtering by client IP or domain | ip, domain, blocked, decrypted, limit |
 | POST | `/api/web/pinned` | Add a name to the pinned list or remove it from TLS inspection bypass | none |
 | DELETE | `/api/web/pinned/{name}` | Remove a domain from the pinned (certificate-pinned) bypass list | name |

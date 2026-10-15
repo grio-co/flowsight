@@ -12,6 +12,37 @@ name, and every release's assets carry that string in their file names.
 
 The newest entry is first.
 
+## 0.9.8r202610151858
+
+- **A device is decrypted only once it trusts the inspection CA, and is
+  asked first.** Until now a device an inspecting policy named (or every
+  device, with *Inspect every client* on) was decrypted straight away. One
+  that had not installed the FlowSight CA then saw a forged certificate on
+  every secure connection, and apps that check certificates (Discord, the
+  Claude desktop app, updaters, browsers) simply stopped working. Now such a
+  device is relayed untouched, exactly as if no policy inspected it, and its
+  operating system's "is there a sign-in page?" check is answered with
+  FlowSight's certificate page. On Windows that is the *Action needed: sign
+  in to this network* prompt; macOS, iOS, Android, ChromeOS, Firefox and
+  GNOME do the same. The page says what inspection means and offers two
+  choices: **Download certificate**, with install steps for each system, or
+  **Continue without it**. Once the certificate is installed the page
+  confirms it by itself within seconds and the device is inspected from the
+  next apply (within a minute). A device that continues without is never
+  decrypted and is not asked again; site names, timing and volume are still
+  recorded for it as for any spliced device.
+- **What you have to do:** nothing for most networks. A device that was
+  already being inspected successfully is recognised as trusting the CA the
+  next time a decrypted request passes through it, but until then it is
+  relayed, not decrypted. To mark a headless device (a server or a guest the
+  install script reached) at once, open
+  `https://<firewall>:8084/trust/ok` from it once (for example
+  `curl https://<firewall>:8084/trust/ok`), or record it with
+  `POST /api/web/ca-trust`. LAN clients must be able to reach port 8084 on
+  the firewall, as they reach the block page on 8082. To return to the old
+  behaviour, turn off *Settings › web › Inspect a device only once it
+  trusts the CA*.
+
 ## 0.9.8r202609281811
 
 - **A recording carries its headers, and a request without a body is still

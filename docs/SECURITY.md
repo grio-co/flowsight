@@ -59,7 +59,15 @@ its value in the file; the daemon reads the file at start.
   external resource; the UI ships no third-party code and loads nothing
   from the internet.
 - **The block page and captive page** listen on the LAN (ports 8082 and
-  8083 by default) and serve static explanations only.
+  8083 by default) and serve static explanations only. The block page
+  listener also serves the certificate page (`/trust`): the inspection CA's
+  public certificate (never its key) and a *Continue without it* button,
+  which records only that the device declined.
+- **The certificate check** listens on the LAN over HTTPS (port 8084 by
+  default) under a certificate the inspection CA signs. A request that
+  completes there proves the device trusts the CA and records it as
+  trusted; it serves a 1-pixel image and nothing else. The answers (MAC or
+  address, name, state, time) are kept in the store under `web.ca_trust`.
 - **The proxy** listens on loopback and, for IPv6, on one LAN address you
   choose; it accepts only redirected (intercepted) connections and one
   plain forward port on loopback for its own internal URLs. It is not an

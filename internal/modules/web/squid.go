@@ -46,6 +46,15 @@ type squidParams struct {
 	// V6Listener is an address the firewall owns on the LAN (a unique local
 	// address works well); pf cannot redirect LAN traffic to [::1].
 	V6Listener string
+	// TrustGate bumps an inspected client only when it is in TrustedClients
+	// (it has shown it trusts the CA). The others are spliced, and their
+	// operating system's connectivity probe is sent to PortalURL unless they
+	// are in DeclinedClients.
+	TrustGate       bool
+	TrustedClients  []string
+	DeclinedClients []string
+	PortalURL       string
+	ProbeHosts      []string
 }
 
 type squidPolicy struct {
@@ -222,6 +231,32 @@ func (p squidParams) render() (string, map[string]string) {
 			w("acl fs_bypass_%s ssl::server_name \"%s/bypass-%s.acl\"", pol.ID, p.Dir, pol.ID)
 		}
 	}
+	// Trust gate ACLs. Empty lists are not written: squid refuses a src ACL
+	// whose file has nothing valid in it, so an empty set is expressed by
+	// leaving the rules that need it out.
+	caOK, caDeclined, probes := "", "", false
+	if p.TrustGate {
+		if list := addressList(p.TrustedClients); list != "" {
+			files["ca-trusted.acl"] = list
+			w("acl fs_ca_ok src \"%s/ca-trusted.acl\"", p.Dir)
+			caOK = " fs_ca_ok"
+		}
+		if list := addressList(p.DeclinedClients); list != "" {
+			files["ca-declined.acl"] = list
+			w("acl fs_ca_declined src \"%s/ca-declined.acl\"", p.Dir)
+			caDeclined = " !fs_ca_declined"
+		}
+		if p.PortalURL != "" && len(p.ProbeHosts) > 0 && p.CAPath != "" {
+			files["portal-probes.acl"] = strings.Join(p.ProbeHosts, "\n") + "\n"
+			w("acl fs_portal_probe dstdomain -n \"%s/portal-probes.acl\"", p.Dir)
+			probes = true
+		}
+	}
+	// inspects reports whether a policy's clients may be bumped at all: with
+	// the gate on and nobody trusted yet, nobody is.
+	inspects := func(pol squidPolicy) bool {
+		return pol.Inspect && p.CAPath != "" && (!p.TrustGate || caOK != "")
+	}
 	w("")
 	w("# TLS handling. First match per step wins.")
 	w("ssl_bump peek step1")
@@ -243,16 +278,18 @@ func (p squidParams) render() (string, map[string]string) {
 	}
 	// Inspection: bump for inspected clients, except bypassed names.
 	anyInspect := false
+	// With the trust gate on, only clients that trust the CA are bumped; the
+	// rest fall through to the splice below, as if no policy inspected them.
 	for _, pol := range p.Policies {
-		if !pol.Inspect || p.CAPath == "" {
+		if !inspects(pol) {
 			continue
 		}
 		anyInspect = true
 		if len(pol.Bypass) > 0 {
 			w("ssl_bump splice fs_src_%s fs_bypass_%s", pol.ID, pol.ID)
 		}
-		w("ssl_bump stare fs_src_%s step2", pol.ID)
-		w("ssl_bump bump fs_src_%s step3", pol.ID)
+		w("ssl_bump stare fs_src_%s%s step2", pol.ID, caOK)
+		w("ssl_bump bump fs_src_%s%s step3", pol.ID, caOK)
 	}
 	if p.PeekServerCert {
 		w("ssl_bump peek step2")
@@ -274,8 +311,8 @@ func (p squidParams) render() (string, map[string]string) {
 	w("# client receives the server's own certificate and validates it itself.")
 	if anyInspect {
 		for _, pol := range p.Policies {
-			if pol.Inspect {
-				w("sslproxy_cert_error deny fs_src_%s", pol.ID)
+			if inspects(pol) {
+				w("sslproxy_cert_error deny fs_src_%s%s", pol.ID, caOK)
 			}
 		}
 	}
@@ -289,6 +326,27 @@ func (p squidParams) render() (string, map[string]string) {
 	}
 	if len(p.ExclDomains) > 0 {
 		w("http_access allow fs_excluded_host")
+	}
+	// Certificate page: an inspected client that has not answered yet has
+	// its operating system's sign-in check redirected there, which is what
+	// opens the "sign in to network" window. Only the probe names; every
+	// other site works normally meanwhile.
+	if probes {
+		redirected := false
+		for _, pol := range p.Policies {
+			if !pol.Inspect {
+				continue
+			}
+			notOK := ""
+			if caOK != "" {
+				notOK = " !fs_ca_ok"
+			}
+			if !redirected {
+				w("deny_info 302:%s?url=%%U fs_portal_probe", p.PortalURL)
+				redirected = true
+			}
+			w("http_access deny fs_src_%s%s%s fs_portal_probe", pol.ID, notOK, caDeclined)
+		}
 	}
 	blockPage := p.BlockPageURL
 	for _, pol := range p.Policies {

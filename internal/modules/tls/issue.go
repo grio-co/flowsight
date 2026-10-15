@@ -84,3 +84,13 @@ func (m *Module) IssueServerCert(names []string, ips []net.IP, days int) ([]byte
 	certPEM = append(certPEM, cb...) // the chain, so clients that know the CA need nothing else
 	return certPEM, pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: keyDER}), nil
 }
+
+// CACertPEM returns the inspection CA certificate (no key), for handing to
+// a device that is about to trust it.
+func (m *Module) CACertPEM() ([]byte, error) {
+	b, err := os.ReadFile(m.certPath())
+	if err != nil {
+		return nil, errors.New("no inspection CA")
+	}
+	return b, nil
+}

@@ -97,6 +97,10 @@ func (m *Module) settleBump(client, cport string, ok bool) {
 	m.pin.mu.Unlock()
 	if waiting {
 		m.noteBumpResult(h.name, h.client, ok)
+		if ok {
+			// A request inside a bumped tunnel is proof the device trusts the CA.
+			m.setTrust(h.client, trustTrusted, "inspected")
+		}
 	}
 }
 

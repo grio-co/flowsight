@@ -146,6 +146,13 @@ func (p *provider) Compile(doc *core.PolicyDoc) (core.Artifact, error) {
 		ExclDomains: doc.Exclusions.Domains, DNSServers: dns, Workers: core.Int(s, "workers", 1),
 		V6Listener: v6Listener(s),
 	}
+	if m.trustGate() {
+		params.TrustGate = true
+		params.TrustedClients = m.trustAddrs(trustTrusted)
+		params.DeclinedClients = m.trustAddrs(trustDeclined)
+		params.PortalURL = m.portalURL()
+		params.ProbeHosts = portalProbeHosts
+	}
 	// Stateful Packet Inspection, when the module is up and licensed, takes decrypted
 	// requests from here.
 	if deep, ok := p.m.ctx.Service("mitm").(interface {
