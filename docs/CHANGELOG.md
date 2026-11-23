@@ -12,6 +12,48 @@ name, and every release's assets carry that string in their file names.
 
 The newest entry is first.
 
+## 0.9.8r202611232251
+
+- **Security: FlowSight's firewall anchor could switch off the firewall's
+  own rules. Install this revision, then check from outside.** The OPNsense
+  plugin placed FlowSight's filter anchor at the head of the ruleset marked
+  `quick`, and the install pages told FreeBSD installs to write the same
+  line by hand. On OPNsense 26.7 (FreeBSD 15.1) that made pf stop
+  evaluating every rule after the anchor, for every packet, whenever the
+  anchor held rules; one policy in monitor mode is enough. The firewall's own
+  ruleset, the default deny on WAN included, was then never reached. Port
+  forwards and outbound NAT kept working, so nothing looked wrong from
+  inside, while anything listening on all of the firewall's addresses (the
+  OPNsense GUI, FlowSight's block page and API port, other plugins' pages)
+  answered from the internet. Other OPNsense and FreeBSD versions were not
+  tested; treat every install with the quick anchor as affected until you
+  have checked it.
+
+  The anchor is no longer quick. FlowSight's block rules are quick
+  themselves, so a policy block still wins over a later pass rule and
+  nothing about enforcement changes.
+
+  What to do:
+  - **OPNsense:** install this revision. The package reloads the firewall
+    rules as it installs. Then run `pfctl -sr | grep 'anchor "flowsight'`:
+    the line must not contain `quick`. If it does, run
+    `configctl filter reload`.
+  - **FreeBSD with a hand-written `pf.conf`:** remove `quick` from the
+    `anchor "flowsight/*"` line and reload pf.
+  - Expect open connections to be reset once as the firewall starts
+    enforcing again.
+  - From outside your network, confirm the GUI port no longer answers. If it
+    answered before, change the GUI password and API keys, and look through
+    the GUI's audit log for sign-ins you do not recognise.
+
+  [Operations](OPERATIONS.md) has the check in full.
+- **A quick anchor is now reported.** Every minute the firewall module
+  looks at how the active ruleset references its anchor. If the reference
+  is quick it raises the finding *FlowSight's pf anchor is marked quick*,
+  with the fix for your platform, and shows the same in its status. This is
+  for installs whose `pf.conf` was written by hand from the old
+  instructions, which no package update can correct.
+
 ## 0.9.8r202609281811
 
 - **A recording carries its headers, and a request without a body is still
