@@ -19,8 +19,9 @@ The newest entry is first.
   plugin placed FlowSight's filter anchor at the head of the ruleset marked
   `quick`, and the install pages told FreeBSD installs to write the same
   line by hand. On OPNsense 26.7 (FreeBSD 15.1) that made pf stop
-  evaluating every rule after the anchor, for every packet, whenever the
-  anchor held rules; one policy in monitor mode is enough. The firewall's own
+  evaluating every rule after the anchor, for every packet, as soon as
+  FlowSight had loaded anything into it. A sub-anchor with no filter rules
+  was enough, so no policy has to be blocking, or even exist. The firewall's own
   ruleset, the default deny on WAN included, was then never reached. Port
   forwards and outbound NAT kept working, so nothing looked wrong from
   inside, while anything listening on all of the firewall's addresses (the
