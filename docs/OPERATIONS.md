@@ -220,9 +220,11 @@ apart: the `Evaluations` count of the rules after the anchor does not move.
 The firewall module raises the finding *FlowSight's pf anchor is marked
 quick* when it sees this.
 
-- OPNsense: update the plugin to 0.9.8r202611232251 or later. The package
-  reloads the firewall rules when it installs; if the line still shows
-  `quick`, run `configctl filter reload`.
+- OPNsense: install the package of 0.9.8r202611232251 or later with
+  `pkg add -f`. An in-place update from the Updates page is not enough: it
+  replaces the daemon, not the plugin file that registers the anchor. The
+  package reloads the firewall rules when it installs; if the line still
+  shows `quick`, run `configctl filter reload`.
 - FreeBSD with a hand-written `pf.conf`: remove `quick` from the line and
   reload pf.
 
