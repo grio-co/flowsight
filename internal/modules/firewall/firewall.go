@@ -386,15 +386,52 @@ func (m *Module) refreshLocal() error {
 	return m.tableCmd("", m.LocalTable(), "replace", nets)
 }
 
+// anchorRefs reads the main filter ruleset as pfctl -sr prints it and says
+// whether it references FlowSight's anchor, and whether any such reference
+// is marked quick.
+func anchorRefs(rules string) (referenced, quick bool) {
+	for _, line := range strings.Split(rules, "\n") {
+		f := strings.Fields(line)
+		if len(f) < 2 || f[0] != "anchor" || !strings.HasPrefix(f[1], `"`+rootAnchor) {
+			continue
+		}
+		referenced = true
+		for _, w := range f[2:] {
+			if w == "quick" {
+				quick = true
+			}
+		}
+	}
+	return referenced, quick
+}
+
 // checkAnchor verifies the main ruleset references our anchor and records a
 // finding when it does not, which is the difference between blocking and
-// silently doing nothing.
+// silently doing nothing. It records another when the reference is quick:
+// that can end evaluation of the firewall's own rules for every packet.
 func (m *Module) checkAnchor() error {
 	out, err := m.pfctl("-sr")
 	if err != nil {
 		return err
 	}
-	ok := strings.Contains(out, `anchor "flowsight/*"`) || strings.Contains(out, "anchor \"flowsight")
+	ok, quick := anchorRefs(out)
+	if ok && quick {
+		hint := "remove 'quick' from the 'anchor \"flowsight/*\"' line in pf.conf and reload pf"
+		if m.ctx.Platform.IsOPNsense() {
+			hint = "update the FlowSight plugin, then reload the firewall rules ('configctl filter reload') so the anchor is generated without it"
+		}
+		_, _ = m.ctx.Store.ResolveFindings("firewall", map[string]bool{"firewall:anchor-quick": true})
+		_, _ = m.ctx.Store.AddFinding("firewall", "anchor-quick", "high", "pf",
+			"FlowSight's pf anchor is marked quick",
+			"A quick anchor can end rule evaluation for every packet (seen on OPNsense 26.7, FreeBSD 15.1): "+
+				"the firewall's own rules after it, the default deny included, are then never reached and "+
+				"services on the firewall answer from the internet. FlowSight's block rules are quick "+
+				"themselves and do not need it: "+hint+".", "firewall:anchor-quick")
+		m.mu.Lock()
+		m.lastErr = "anchor flowsight/* is marked quick: the firewall's own rules may not be evaluated"
+		m.mu.Unlock()
+		return nil
+	}
 	if !ok {
 		hint := "reference it from the main ruleset"
 		if m.ctx.Platform.IsOPNsense() {

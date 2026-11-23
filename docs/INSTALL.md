@@ -259,11 +259,23 @@ lines below if they are missing, but never edits the file. Add to
 ```
 nat-anchor "flowsight/*"
 rdr-anchor "flowsight/*"
-anchor "flowsight/*" quick
+anchor "flowsight/*"
 ```
 
 and reload pf. The firewall module reports a finding until the anchor is
 referenced.
+
+Put the filter anchor above your own filter rules, so a FlowSight block is
+seen first, and **do not mark it `quick`**. The block rules FlowSight loads
+are quick themselves, which is what makes a policy block final. A quick
+anchor is different: on FreeBSD 15.1 (OPNsense 26.7), once the anchor held
+rules, pf stopped evaluating every rule after it for every packet. Your own
+ruleset, the default deny included, is then never reached, and anything
+listening on the firewall answers from the internet while port forwards and
+NAT carry on as if nothing were wrong. Earlier versions of this page showed
+the line with `quick`; if your `pf.conf` has it, remove the word and reload
+pf. The firewall module reports a finding while a quick anchor is in the
+active ruleset. See [Operations](OPERATIONS.md) for how to check.
 
 ## Configuration file
 

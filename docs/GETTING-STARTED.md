@@ -123,8 +123,12 @@ Use `install.sh`, then add to `pf.conf` and reload:
 ```
 nat-anchor "flowsight/*"
 rdr-anchor "flowsight/*"
-anchor "flowsight/*" quick
+anchor "flowsight/*"
 ```
+
+Put the filter anchor above your own rules and do not mark it `quick`:
+that can stop pf evaluating every rule after it (see
+[Install](INSTALL.md)).
 
 On Linux the pf providers do not exist: DNS policy, visibility, reports and alerting work; web and application enforcement wait for nftables providers (see the [Roadmap](ROADMAP.md)).
 

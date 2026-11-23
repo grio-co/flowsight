@@ -133,8 +133,10 @@ See [POLICY.md](POLICY.md).
 
 The plugin is small on purpose: an rc script, configd actions, a
 `plugins.inc.d` hook that registers the service and three pf anchors
-(`flowsight/*` quick at the head of the filter rules, and as rdr and nat
-anchors at the tail so port forwards and reflection still win), a menu, an
+(`flowsight/*` at the head of the filter rules, never quick: the block
+rules inside it are quick, the anchor is not, so the firewall's own rules
+are still evaluated; and as rdr and nat anchors at the tail so port forwards
+and reflection still win), a menu, an
 ACL, and one legacy page that serves the embedded UI and proxies its API
 with the session's CSRF token and a same-origin check. Everything else is
 the daemon.
