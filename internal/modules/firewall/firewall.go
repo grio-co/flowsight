@@ -410,7 +410,8 @@ func (m *Module) checkAnchor() error {
 	if ok && quick {
 		hint := "remove 'quick' from the 'anchor \"flowsight/*\"' line in pf.conf and reload pf"
 		if m.ctx.Platform.IsOPNsense() {
-			hint = "update the FlowSight plugin, then reload the firewall rules ('configctl filter reload') so the anchor is generated without it"
+			hint = "install the FlowSight package of this or a later release with 'pkg add -f' (an in-place update does not " +
+				"replace the plugin file that registers the anchor), then check that 'configctl filter reload' leaves the anchor without it"
 		}
 		_, _ = m.ctx.Store.ResolveFindings("firewall", map[string]bool{"firewall:anchor-quick": true})
 		_, _ = m.ctx.Store.AddFinding("firewall", "anchor-quick", "high", "pf",

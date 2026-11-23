@@ -34,7 +34,10 @@ The newest entry is first.
   nothing about enforcement changes.
 
   What to do:
-  - **OPNsense:** install this revision. The package reloads the firewall
+  - **OPNsense:** update by package, not from the Updates page. An in-place
+    update replaces only the daemon, and the fault is in a plugin file. Take
+    `os-flowsight-amd64.pkg` (or `os-flowsight-aarch64.pkg`) from this
+    release and run `pkg add -f` on it. The package reloads the firewall
     rules as it installs. Then run `pfctl -sr | grep 'anchor "flowsight'`:
     the line must not contain `quick`. If it does, run
     `configctl filter reload`.
@@ -52,7 +55,8 @@ The newest entry is first.
   is quick it raises the finding *FlowSight's pf anchor is marked quick*,
   with the fix for your platform, and shows the same in its status. This is
   for installs whose `pf.conf` was written by hand from the old
-  instructions, which no package update can correct.
+  instructions, which no package update can correct, and for OPNsense
+  installs updated in place, where it stays until the package is installed.
 
 ## 0.9.8r202609281811
 
