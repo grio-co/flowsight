@@ -99,8 +99,9 @@ referenced.
 Put the filter anchor above your own filter rules, so a FlowSight block is
 seen first, and **do not mark it `quick`**. The block rules FlowSight loads
 are quick themselves, which is what makes a policy block final. A quick
-anchor is different: on FreeBSD 15.1 (OPNsense 26.7), once the anchor held
-rules, pf stopped evaluating every rule after it for every packet. Your own
+anchor is different: on FreeBSD 15.1 (OPNsense 26.7), as soon as FlowSight
+had loaded anything into it (a sub-anchor with no filter rules was enough),
+pf stopped evaluating every rule after it for every packet. Your own
 ruleset, the default deny included, is then never reached, and anything
 listening on the firewall answers from the internet while port forwards and
 NAT carry on as if nothing were wrong. Earlier versions of this page showed

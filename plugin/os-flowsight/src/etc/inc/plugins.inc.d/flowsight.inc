@@ -14,8 +14,9 @@
  * The filter anchor must never be registered quick. The block rules
  * flowsightd loads are quick themselves, and that is what makes a policy
  * block final. A quick anchor is something else: on OPNsense 26.7 (FreeBSD
- * 15.1), with rules loaded in the anchor, pf stopped evaluating every rule
- * after it for every packet, so the firewall's own ruleset, the default deny
+ * 15.1), as soon as flowsightd had loaded anything into it (a sub-anchor
+ * with no filter rules was enough), pf stopped evaluating every rule after
+ * it for every packet, so the firewall's own ruleset, the default deny
  * included, was never reached.
  */
 
