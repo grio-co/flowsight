@@ -213,8 +213,9 @@ pfctl -sr | grep 'anchor "flowsight'
 ```
 
 The line must not contain `quick`. With it, on OPNsense 26.7 (FreeBSD
-15.1), pf stops evaluating every rule after the anchor while the anchor
-holds rules; port forwards and NAT keep working, so nothing looks wrong
+15.1), pf stops evaluating every rule after the anchor as soon as FlowSight
+has loaded anything into it, even a sub-anchor with no filter rules; port
+forwards and NAT keep working, so nothing looks wrong
 from inside. To confirm, run `pfctl -vvsr | head -40` twice a few seconds
 apart: the `Evaluations` count of the rules after the anchor does not move.
 The firewall module raises the finding *FlowSight's pf anchor is marked

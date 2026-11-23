@@ -263,7 +263,7 @@ FlowSight's own review scope covers:
 
 - **Daemon process and listeners**: TCP on loopback for the API; listening only on 127.0.0.1 and [::1] unless explicitly bound elsewhere
 - **Anchors and pf tables**: FlowSight creates named anchors (e.g., `flowsight-dns`, `flowsight-web`) and populates tables; these are added alongside existing rules and do not replace them
-- **The filter anchor is never quick**: it sits at the head of the ruleset so a FlowSight block is seen first, and only the block rules inside it end evaluation. Releases before 0.9.8r202611232251 registered the anchor itself as quick, which on OPNsense 26.7 (FreeBSD 15.1) stopped pf evaluating the firewall's own rules, the default deny on WAN included, whenever the anchor held rules. The firewall module now raises a finding if the active ruleset references the anchor with `quick`; see [Operations](OPERATIONS.md)
+- **The filter anchor is never quick**: it sits at the head of the ruleset so a FlowSight block is seen first, and only the block rules inside it end evaluation. Releases before 0.9.8r202611232251 registered the anchor itself as quick, which on OPNsense 26.7 (FreeBSD 15.1) stopped pf evaluating the firewall's own rules, the default deny on WAN included, as soon as FlowSight had loaded anything into the anchor (a sub-anchor with no filter rules was enough). The firewall module now raises a finding if the active ruleset references the anchor with `quick`; see [Operations](OPERATIONS.md)
 - **Proxy configuration**: Squid configuration is generated and validated; every operator-typed entry is checked before being written
 - **Resolver configuration**: DNS configuration is applied to dnsmasq and system resolvers
 
