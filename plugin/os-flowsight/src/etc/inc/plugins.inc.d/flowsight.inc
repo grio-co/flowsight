@@ -4,12 +4,19 @@
  * FlowSight: OPNsense integration hooks.
  *
  * Registers the service so the GUI can start, stop and show it, and gives
- * the daemon two pf anchors it owns outright: "flowsight/*" as a quick
- * filter anchor at the head of the ruleset, so a policy block wins over any
+ * the daemon two pf anchors it owns outright: "flowsight/*" as a filter
+ * anchor at the head of the ruleset, so a policy block is seen before any
  * later pass rule, and the same anchor for rdr at the tail, so interception
  * only sees traffic no port forward already claimed (NAT reflection is an
  * rdr too, and must match first). Everything inside the anchors is loaded by
  * flowsightd with pfctl -a; nothing here writes rules itself.
+ *
+ * The filter anchor must never be registered quick. The block rules
+ * flowsightd loads are quick themselves, and that is what makes a policy
+ * block final. A quick anchor is something else: on OPNsense 26.7 (FreeBSD
+ * 15.1), with rules loaded in the anchor, pf stopped evaluating every rule
+ * after it for every packet, so the firewall's own ruleset, the default deny
+ * included, was never reached.
  */
 
 function flowsight_enabled()
@@ -44,7 +51,7 @@ function flowsight_firewall(\OPNsense\Firewall\Plugin $fw)
     }
     $fw->registerAnchor('flowsight/*', 'rdr', 0, 'tail');
     $fw->registerAnchor('flowsight/*', 'nat', 0, 'tail');
-    $fw->registerAnchor('flowsight/*', 'fw', 0, 'head', true);
+    $fw->registerAnchor('flowsight/*', 'fw', 0, 'head', false);
 }
 
 function flowsight_syslog()

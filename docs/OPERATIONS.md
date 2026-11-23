@@ -203,6 +203,34 @@ The plugin registers it at the tail; if the anchor was added by hand to
 `pf.conf`, move it below the port forwards. See
 [Interception](INTERCEPTION.md).
 
+**The firewall's own rules are not being enforced: the GUI or another
+service on the firewall answers from the internet, or the firewall log
+shows almost no blocks.** Check how the active ruleset references
+FlowSight's filter anchor:
+
+```
+pfctl -sr | grep 'anchor "flowsight'
+```
+
+The line must not contain `quick`. With it, on OPNsense 26.7 (FreeBSD
+15.1), pf stops evaluating every rule after the anchor while the anchor
+holds rules; port forwards and NAT keep working, so nothing looks wrong
+from inside. To confirm, run `pfctl -vvsr | head -40` twice a few seconds
+apart: the `Evaluations` count of the rules after the anchor does not move.
+The firewall module raises the finding *FlowSight's pf anchor is marked
+quick* when it sees this.
+
+- OPNsense: update the plugin to 0.9.8r202611232251 or later. The package
+  reloads the firewall rules when it installs; if the line still shows
+  `quick`, run `configctl filter reload`.
+- FreeBSD with a hand-written `pf.conf`: remove `quick` from the line and
+  reload pf.
+
+Open connections are reset once when enforcement returns, because the flows
+that were passing had no state. Then test from outside your network that the
+GUI port no longer answers, and change the GUI password and API keys if it
+did.
+
 **A policy shows "unmet".** A requirement names a capability no provider
 offers: `tls.inspect` without a CA, `web.block` without interception,
 `app.block` without ntopng, any pf capability on Linux. The plan names the
