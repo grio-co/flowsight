@@ -226,6 +226,13 @@ quick* when it sees this.
   replaces the daemon, not the plugin file that registers the anchor. The
   package reloads the firewall rules when it installs; if the line still
   shows `quick`, run `configctl filter reload`.
+- pfSense: install the current `pfSense-pkg-flowsight` package with
+  `pkg add -f`. It reloads the filter, and pfSense writes the anchor from
+  the package's own hook on every reload after that. No released pfSense
+  package wrote the line with `quick`; only test builds from before
+  0.9.8r202611232251 did. pfSense CE 2.7.2 (FreeBSD 14.0) kept evaluating
+  its own rules behind a quick anchor when tested, so such a build was not
+  exposed there; later pfSense releases were not tested.
 - FreeBSD with a hand-written `pf.conf`: remove `quick` from the line and
   reload pf.
 

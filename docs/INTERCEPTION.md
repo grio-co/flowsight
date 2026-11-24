@@ -68,7 +68,8 @@ bug; the TLS page lists which clients were bumped (mode *bump*).
 
 pfSense writes its whole ruleset itself, from config.xml, on every change,
 so FlowSight's anchors come from pfSense's package filter hook rather than
-from an edit: `anchor "flowsight/*" quick` is the first filter rule, ahead
+from an edit: `anchor "flowsight/*"` is the first filter rule (never
+`quick`, see [Security](SECURITY.md)), ahead
 of pfSense's own default blocks and the `openvpn/*` and `ipsec/*` anchors,
 and `nat-anchor`/`rdr-anchor "flowsight/*"` come after every port forward
 and its reflection rules, as on OPNsense. The one exception is 1:1 NAT

@@ -420,6 +420,9 @@ func (m *Module) checkAnchor() error {
 		if m.ctx.Platform.IsOPNsense() {
 			hint = "install the FlowSight package of this or a later release with 'pkg add -f' (an in-place update does not " +
 				"replace the plugin file that registers the anchor), then check that 'configctl filter reload' leaves the anchor without it"
+		} else if m.ctx.Platform.IsPfSense() {
+			hint = "install the pfSense-pkg-flowsight package of this or a later release with 'pkg add -f' (an in-place update does not " +
+				"replace the package file that writes the anchor); the package reloads the filter, and the anchor line then has no 'quick'"
 		}
 		_, _ = m.ctx.Store.ResolveFindings("firewall", map[string]bool{"firewall:anchor-quick": true})
 		_, _ = m.ctx.Store.AddFinding("firewall", "anchor-quick", "high", "pf",

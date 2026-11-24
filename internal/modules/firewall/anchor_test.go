@@ -31,8 +31,8 @@ func TestAnchorRefs(t *testing.T) {
 
 // The OPNsense plugin once registered the filter anchor quick. On OPNsense
 // 26.7 that stopped pf evaluating every rule after it, which left the
-// firewall's own ruleset unenforced. Neither the plugin nor the manual may
-// bring it back.
+// firewall's own ruleset unenforced. Neither plugin, the pfSense package
+// included, nor the manual may bring it back.
 func TestFilterAnchorIsNeverQuick(t *testing.T) {
 	root := filepath.Join("..", "..", "..")
 
@@ -46,6 +46,19 @@ func TestFilterAnchorIsNeverQuick(t *testing.T) {
 	}
 	if regexp.MustCompile(`(?i)\btrue\b`).Match(fw[0]) {
 		t.Errorf("the plugin registers the filter anchor quick: %s", fw[0])
+	}
+
+	// pfSense: the package's filter hook returns the anchor line as text.
+	pf, err := os.ReadFile(filepath.Join(root, "plugin", "pfSense-pkg-flowsight", "files", "usr", "local", "pkg", "flowsight.inc"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	hook := regexp.MustCompile(`(?m)^[^\n]*"anchor \\"flowsight/\*\\"[^\n]*$`).FindAll(pf, -1)
+	if len(hook) != 1 {
+		t.Fatalf("expected one filter anchor line in the pfSense package, found %d", len(hook))
+	}
+	if regexp.MustCompile(`\bquick\b`).Match(hook[0]) {
+		t.Errorf("the pfSense package writes the filter anchor quick: %s", hook[0])
 	}
 
 	docs, err := filepath.Glob(filepath.Join(root, "docs", "*.md"))

@@ -7,9 +7,9 @@
  * than editing their output:
  *
  *   - the package filter hook (filter_rule_function in info.xml) gives
- *     flowsightd three pf anchors it owns outright: "flowsight/*" as a quick
+ *     flowsightd three pf anchors it owns outright: "flowsight/*" as a
  *     filter anchor, first of all filter rules (pfearly), so a policy block
- *     wins over any later pass rule; and nat-anchor and rdr-anchor
+ *     is seen before any later pass rule; and nat-anchor and rdr-anchor
  *     "flowsight/*" after pfSense's own translation (nat), so interception
  *     only sees traffic no port forward or reflection already claimed;
  *   - three lines in the resolver's custom options include
@@ -20,6 +20,15 @@
  * Everything inside the anchors and that directory is written by flowsightd;
  * nothing here writes a rule. Removing the package takes out exactly what
  * this file added.
+ *
+ * The filter anchor must never be written quick. The block rules flowsightd
+ * loads are quick themselves, and that is what makes a policy block final. A
+ * quick anchor is something else: on OPNsense 26.7 (FreeBSD 15.1), as soon
+ * as flowsightd had loaded anything into it (a sub-anchor with no filter
+ * rules was enough), pf stopped evaluating every rule after it for every
+ * packet, so the firewall's own ruleset, the default deny included, was
+ * never reached. pfSense CE 2.7.2 (FreeBSD 14.0) did not show this with a
+ * quick anchor when tested, but nothing says a later pfSense will not.
  */
 
 require_once("config.inc");
@@ -34,7 +43,7 @@ function flowsight_generate_rules($type)
 {
 	switch ($type) {
 	case 'pfearly':
-		return "anchor \"flowsight/*\" quick\n";
+		return "anchor \"flowsight/*\"\n";
 	case 'nat':
 		return "nat-anchor \"flowsight/*\"\nrdr-anchor \"flowsight/*\"\n";
 	}

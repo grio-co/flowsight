@@ -382,8 +382,10 @@ every object FlowSight created on other systems.
   forward and its reflection rules; only 1:1 reflection and the UPnP anchor
   follow). Each package's text is checked with `pfctl -nf` first and dropped,
   with a log line, if it does not parse. Registered on the VM, it produced
-  `anchor "flowsight/*" quick` as the first filter rule and
+  the filter anchor `"flowsight/*"` as the first filter rule and
   `nat-anchor`/`rdr-anchor "flowsight/*"` after pfSense's own translation.
+  (The spike wrote the filter anchor `quick`. The package does not: see the
+  changelog entry for 0.9.8r202611232251.)
   With traffic: a block loaded into `flowsight/policy` beat pfSense's
   anti-lockout pass rule, an `rdr` in `flowsight/web` delivered to a
   loopback listener, and both survived `rc.filter_configure_sync`.
